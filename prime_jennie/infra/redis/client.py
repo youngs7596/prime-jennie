@@ -18,6 +18,6 @@ def get_redis() -> redis.Redis:
         config.redis.url,
         decode_responses=True,
         socket_connect_timeout=5,
-        socket_timeout=5,
+        socket_timeout=15,
         retry_on_timeout=True,
     )
