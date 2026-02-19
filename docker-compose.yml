@@ -391,6 +391,7 @@ services:
   airflow-webserver:
     <<: *service-defaults
     profiles: ["real"]
+    entrypoint: ["bash", "/app/scripts/airflow-entrypoint.sh"]
     environment:
       <<: *env-common
       AIRFLOW__CORE__EXECUTOR: LocalExecutor
@@ -399,6 +400,7 @@ services:
       AIRFLOW__WEBSERVER__WEB_SERVER_PORT: "8085"
       AIRFLOW__CORE__LOAD_EXAMPLES: "false"
       AIRFLOW_HOME: /app/airflow_home
+      AIRFLOW_ADMIN_PASSWORD: "${AIRFLOW_ADMIN_PASSWORD:-admin}"
       TELEGRAM_BOT_TOKEN: "${TELEGRAM_BOT_TOKEN}"
       TELEGRAM_CHAT_IDS: "${TELEGRAM_CHAT_IDS}"
     command: ["airflow", "api-server", "--port", "8085"]
@@ -415,6 +417,7 @@ services:
   airflow-scheduler:
     <<: *service-defaults
     profiles: ["real"]
+    entrypoint: ["bash", "/app/scripts/airflow-entrypoint.sh"]
     environment:
       <<: *env-common
       AIRFLOW__CORE__EXECUTOR: LocalExecutor
@@ -422,6 +425,7 @@ services:
       AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: "mysql+mysqldb://${DB_USER:-jennie}:${DB_PASSWORD:-q1w2e3R$}@127.0.0.1:3307/${DB_NAME:-jennie_db}"
       AIRFLOW__CORE__LOAD_EXAMPLES: "false"
       AIRFLOW_HOME: /app/airflow_home
+      AIRFLOW_ADMIN_PASSWORD: "${AIRFLOW_ADMIN_PASSWORD:-admin}"
     command: ["airflow", "scheduler"]
     labels:
       - app=airflow-scheduler
