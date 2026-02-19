@@ -17,7 +17,9 @@ from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 from pydantic import ValidationError
 
+from prime_jennie.domain.config import get_config
 from prime_jennie.domain.health import DependencyHealth, HealthStatus
+from prime_jennie.infra.observability.logging import setup_logging
 
 logger = logging.getLogger(__name__)
 
@@ -45,6 +47,8 @@ def create_app(
     @asynccontextmanager
     async def default_lifespan(app: FastAPI) -> AsyncIterator[None]:
         global _start_time
+        config = get_config()
+        setup_logging(service_name, log_level=config.log_level)
         _start_time = time.monotonic()
         logger.info("[%s] Starting v%s", service_name, version)
         yield
@@ -53,6 +57,8 @@ def create_app(
     @asynccontextmanager
     async def wrapped_lifespan(app: FastAPI) -> AsyncIterator[None]:
         global _start_time
+        config = get_config()
+        setup_logging(service_name, log_level=config.log_level)
         _start_time = time.monotonic()
         logger.info("[%s] Starting v%s", service_name, version)
         if lifespan:
