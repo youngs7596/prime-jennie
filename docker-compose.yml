@@ -264,6 +264,7 @@ services:
       RISK_DYNAMIC_SECTOR_BUDGET_ENABLED: "true"
       RISK_MAX_PORTFOLIO_SIZE: "10"
       RISK_MAX_BUY_COUNT_PER_DAY: "6"
+      APP_DRY_RUN: "true"
     command: ["uvicorn", "prime_jennie.services.buyer.app:app", "--host", "0.0.0.0", "--port", "8082"]
     labels:
       - app=buy-executor
@@ -275,6 +276,7 @@ services:
     environment:
       <<: *env-common
       PORT: "8083"
+      APP_DRY_RUN: "true"
     command: ["uvicorn", "prime_jennie.services.seller.app:app", "--host", "0.0.0.0", "--port", "8083"]
     labels:
       - app=sell-executor

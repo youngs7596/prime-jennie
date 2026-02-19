@@ -259,6 +259,21 @@ class BuyExecutor:
 
     def _place_order(self, signal: BuySignal, quantity: int, current_price: int) -> OrderResult:
         """주문 실행 (시장가 or 지정가)."""
+        # === DRYRUN 모드: 실주문 대신 가짜 성공 반환 ===
+        if self._config.dry_run:
+            logger.info(
+                "[DRYRUN][%s] BUY %d shares at %d (skipping KIS API)",
+                signal.stock_code, quantity, current_price,
+            )
+            return OrderResult(
+                success=True,
+                stock_code=signal.stock_code,
+                quantity=quantity,
+                price=current_price,
+                order_no="DRYRUN-0000",
+                message="dryrun",
+            )
+
         config = self._config.scanner
 
         # Momentum 전략: 지정가 주문

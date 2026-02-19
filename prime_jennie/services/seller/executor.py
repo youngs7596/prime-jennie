@@ -153,6 +153,24 @@ class SellExecutor:
         if buy_price > 0:
             profit_pct = round((current_price - buy_price) / buy_price * 100, 2)
 
+        # === DRYRUN 모드: 실주문 대신 가짜 성공 반환 ===
+        if self._config.dry_run:
+            logger.info(
+                "[DRYRUN][%s] SELL %d shares at %d (skipping KIS API)",
+                code, sell_qty, current_price,
+            )
+            if order.sell_reason == SellReason.STOP_LOSS:
+                self._set_cooldown(code)
+            if sell_qty >= position.quantity:
+                self._cleanup_position_state(code)
+            return SellResult(
+                "success", code, name,
+                order_no="DRYRUN-0000",
+                quantity=sell_qty,
+                price=current_price,
+                profit_pct=profit_pct,
+            )
+
         # Order execution (시장가)
         order_req = OrderRequest(
             stock_code=code,
