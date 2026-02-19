@@ -1,0 +1,38 @@
+name: Deploy
+
+on:
+  push:
+    branches: [development]
+
+concurrency:
+  group: deploy-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: self-hosted
+    environment: production
+    needs: []
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build & deploy with Docker Compose
+        env:
+          DOCKER_BUILDKIT: "1"
+          COMPOSE_DOCKER_CLI_BUILD: "1"
+          COMPOSE_PROJECT_NAME: prime-jennie
+        run: |
+          echo "Deploying: $(git log --oneline -1)"
+
+          # Prune old build cache
+          docker builder prune -f --filter "until=24h" || true
+
+          # Build & deploy (BuildKit caches unchanged layers)
+          docker compose --profile real up -d --build
+
+          # Cleanup dangling images
+          docker image prune -f || true
+
+          echo ""
+          echo "=== Deployment complete ==="
+          docker compose --profile real ps

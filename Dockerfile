@@ -17,6 +17,8 @@ RUN --mount=type=cache,target=/root/.cache/pip \
 
 # 패키지 소스
 COPY prime_jennie/ /app/prime_jennie/
+COPY prompts/ /app/prompts/
+COPY scripts/ /app/scripts/
 
 # 패키지 설치 (editable)
 RUN pip install -e . --no-deps

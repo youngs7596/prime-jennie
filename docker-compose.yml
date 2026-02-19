@@ -94,6 +94,38 @@ services:
       - stack=prime-jennie
 
   # ============================================================================
+  # Observability (profile: infra)
+  # ============================================================================
+  loki:
+    image: grafana/loki:2.9.0
+    profiles: ["infra"]
+    command: -config.file=/etc/loki/loki-config.yaml
+    volumes:
+      - ./infra/loki/loki-config.yaml:/etc/loki/loki-config.yaml:ro
+      - /docker_data/loki_data:/loki
+    restart: unless-stopped
+    network_mode: host
+    labels:
+      - app=loki
+      - stack=prime-jennie
+
+  grafana:
+    image: grafana/grafana:10.4.0
+    profiles: ["infra"]
+    environment:
+      GF_SECURITY_ADMIN_USER: admin
+      GF_SECURITY_ADMIN_PASSWORD: "${GRAFANA_PASSWORD:-admin}"
+      GF_SERVER_HTTP_PORT: "3300"
+    volumes:
+      - /docker_data/grafana_data:/var/lib/grafana
+      - ./infra/grafana/provisioning:/etc/grafana/provisioning:ro
+    restart: unless-stopped
+    network_mode: host
+    labels:
+      - app=grafana
+      - stack=prime-jennie
+
+  # ============================================================================
   # vLLM (profile: infra)
   # ============================================================================
   vllm-llm:
@@ -281,4 +313,42 @@ services:
     command: ["uvicorn", "prime_jennie.services.dashboard.app:app", "--host", "0.0.0.0", "--port", "8090"]
     labels:
       - app=dashboard
+      - stack=prime-jennie
+
+  dashboard-frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    profiles: ["real"]
+    restart: unless-stopped
+    network_mode: host
+    depends_on:
+      - dashboard
+    labels:
+      - app=dashboard-frontend
+      - stack=prime-jennie
+
+  daily-briefing:
+    <<: *service-defaults
+    profiles: ["real"]
+    environment:
+      <<: *env-common
+      PORT: "8086"
+      LLM_TIER_FAST_PROVIDER: ollama
+    command: ["uvicorn", "prime_jennie.services.briefing.app:app", "--host", "0.0.0.0", "--port", "8086"]
+    labels:
+      - app=daily-briefing
+      - stack=prime-jennie
+
+  telegram:
+    <<: *service-defaults
+    profiles: ["real"]
+    environment:
+      <<: *env-common
+      PORT: "8091"
+      TELEGRAM_BOT_TOKEN: "${TELEGRAM_BOT_TOKEN}"
+      TELEGRAM_CHAT_IDS: "${TELEGRAM_CHAT_IDS}"
+    command: ["uvicorn", "prime_jennie.services.telegram.app:app", "--host", "0.0.0.0", "--port", "8091"]
+    labels:
+      - app=telegram
       - stack=prime-jennie
