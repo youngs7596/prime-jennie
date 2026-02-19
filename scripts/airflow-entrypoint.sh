@@ -1,14 +1,16 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# 1) DB 마이그레이션 (Alembic 락 사용, 동시 실행 안전)
-airflow db migrate
+# 원래 명령 보존 (set -- 로 덮어쓰기 전에)
+CMD=("$@")
 
-# 2) Admin 유저 생성 (이미 존재 시 무시)
-airflow users create \
-    --username admin --firstname Admin --lastname User \
-    --role Admin --email admin@prime-jennie.local \
-    --password "${AIRFLOW_ADMIN_PASSWORD:-admin}" || true
+# 1) Admin 비밀번호 고정 (Simple Auth Manager — 자동 생성 전에 미리 설정)
+mkdir -p "${AIRFLOW_HOME}"
+PASSWORDS_FILE="${AIRFLOW_HOME}/simple_auth_manager_passwords.json.generated"
+echo "{\"admin\": \"${AIRFLOW_ADMIN_PASSWORD:-admin}\"}" > "$PASSWORDS_FILE"
+
+# 2) DB 마이그레이션 (Alembic 락 사용, 동시 실행 안전)
+airflow db migrate
 
 # 3) HTTP Connection 등록 (delete+add 패턴으로 멱등성 보장)
 for conn in \
@@ -22,4 +24,4 @@ for conn in \
 done
 
 # 4) 원래 명령 실행 (api-server / scheduler)
-exec "$@"
+exec "${CMD[@]}"

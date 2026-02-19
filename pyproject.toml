@@ -62,6 +62,7 @@ dev = [
 ]
 airflow = [
     "apache-airflow>=2.8",
+    "apache-airflow-providers-http>=5.0",
     "mysqlclient>=2.2",
     "aiomysql>=0.2",
 ]

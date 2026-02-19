@@ -109,6 +109,20 @@ services:
       - app=loki
       - stack=prime-jennie
 
+  promtail:
+    image: grafana/promtail:3.3.2
+    profiles: ["infra"]
+    command: -config.file=/etc/promtail/promtail-config.yaml
+    volumes:
+      - ./infra/promtail/promtail-config.yaml:/etc/promtail/promtail-config.yaml:ro
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - /var/lib/docker/containers:/var/lib/docker/containers:ro
+    restart: unless-stopped
+    network_mode: host
+    labels:
+      - app=promtail
+      - stack=prime-jennie
+
   grafana:
     image: grafana/grafana:10.4.0
     profiles: ["infra"]
@@ -396,6 +410,9 @@ services:
       <<: *env-common
       AIRFLOW__CORE__EXECUTOR: LocalExecutor
       AIRFLOW__CORE__DAGS_FOLDER: /app/dags
+      AIRFLOW__CORE__FERNET_KEY: "6esoqClrSix0ZzvqmDfokyE0cmuz-qA9WOhwFZl_kCQ="
+      AIRFLOW__CORE__SECRET_KEY: "dwuNaZ0RkqTQbMS9Eep0kA=="
+      AIRFLOW__API_AUTH__JWT_SECRET: "fRHNrpB8a3I0x2DXHdEfbGDJyQkJU52oXbkWPm_GGg4="
       AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: "mysql+mysqldb://${DB_USER:-jennie}:${DB_PASSWORD:-q1w2e3R$}@127.0.0.1:3307/${DB_NAME:-jennie_db}"
       AIRFLOW__WEBSERVER__WEB_SERVER_PORT: "8085"
       AIRFLOW__CORE__LOAD_EXAMPLES: "false"
@@ -422,6 +439,10 @@ services:
       <<: *env-common
       AIRFLOW__CORE__EXECUTOR: LocalExecutor
       AIRFLOW__CORE__DAGS_FOLDER: /app/dags
+      AIRFLOW__CORE__FERNET_KEY: "6esoqClrSix0ZzvqmDfokyE0cmuz-qA9WOhwFZl_kCQ="
+      AIRFLOW__CORE__SECRET_KEY: "dwuNaZ0RkqTQbMS9Eep0kA=="
+      AIRFLOW__API_AUTH__JWT_SECRET: "fRHNrpB8a3I0x2DXHdEfbGDJyQkJU52oXbkWPm_GGg4="
+      AIRFLOW__CORE__EXECUTION_API_SERVER_URL: "http://localhost:8085/execution/"
       AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: "mysql+mysqldb://${DB_USER:-jennie}:${DB_PASSWORD:-q1w2e3R$}@127.0.0.1:3307/${DB_NAME:-jennie_db}"
       AIRFLOW__CORE__LOAD_EXAMPLES: "false"
       AIRFLOW_HOME: /app/airflow_home

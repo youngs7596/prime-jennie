@@ -8,8 +8,7 @@ from datetime import timedelta
 
 import pendulum
 from airflow import DAG
-from airflow.providers.http.operators.http import SimpleHttpOperator
-
+from airflow.providers.http.operators.http import HttpOperator
 from airflow_utils import get_default_args
 
 local_tz = pendulum.timezone("Asia/Seoul")
@@ -23,7 +22,7 @@ with DAG(
     catchup=False,
     tags=["trading", "scout"],
 ) as dag:
-    trigger_scout = SimpleHttpOperator(
+    trigger_scout = HttpOperator(
         task_id="trigger_scout",
         http_conn_id="scout_job",
         endpoint="/trigger",
@@ -31,5 +30,5 @@ with DAG(
         data='{"source": "airflow"}',
         headers={"Content-Type": "application/json"},
         response_check=lambda resp: resp.status_code == 200,
-        execution_timeout=timedelta(minutes=15),
+        execution_timeout=timedelta(minutes=60),
     )

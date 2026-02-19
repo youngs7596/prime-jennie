@@ -8,8 +8,7 @@ from datetime import timedelta
 
 import pendulum
 from airflow import DAG
-from airflow.providers.http.operators.http import SimpleHttpOperator
-
+from airflow.providers.http.operators.http import HttpOperator
 from airflow_utils import get_default_args
 
 local_tz = pendulum.timezone("Asia/Seoul")
@@ -23,7 +22,7 @@ with DAG(
     catchup=False,
     tags=["trading", "monitor"],
 ) as dag_start:
-    start_monitor = SimpleHttpOperator(
+    start_monitor = HttpOperator(
         task_id="start_monitor",
         http_conn_id="price_monitor",
         endpoint="/start",
@@ -42,7 +41,7 @@ with DAG(
     catchup=False,
     tags=["trading", "monitor"],
 ) as dag_stop:
-    stop_monitor = SimpleHttpOperator(
+    stop_monitor = HttpOperator(
         task_id="stop_monitor",
         http_conn_id="price_monitor",
         endpoint="/stop",

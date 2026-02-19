@@ -7,8 +7,7 @@ from datetime import timedelta
 
 import pendulum
 from airflow import DAG
-from airflow.providers.http.operators.http import SimpleHttpOperator
-
+from airflow.providers.http.operators.http import HttpOperator
 from airflow_utils import get_default_args
 
 local_tz = pendulum.timezone("Asia/Seoul")
@@ -27,7 +26,7 @@ def _utility_dag(dag_id: str, schedule: str, description: str, endpoint: str,
         catchup=False,
         tags=tags or ["utility"],
     ) as dag:
-        SimpleHttpOperator(
+        HttpOperator(
             task_id=dag_id.replace("-", "_"),
             http_conn_id="job_worker",
             endpoint=endpoint,

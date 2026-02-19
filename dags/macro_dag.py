@@ -9,8 +9,7 @@ from datetime import timedelta
 
 import pendulum
 from airflow import DAG
-from airflow.providers.http.operators.http import SimpleHttpOperator
-
+from airflow.providers.http.operators.http import HttpOperator
 from airflow_utils import get_default_args
 
 local_tz = pendulum.timezone("Asia/Seoul")
@@ -26,7 +25,7 @@ with DAG(
     catchup=False,
     tags=["macro", "data"],
 ) as dag_collect:
-    collect_global = SimpleHttpOperator(
+    collect_global = HttpOperator(
         task_id="collect_global",
         http_conn_id="job_worker",
         endpoint="/jobs/macro-collect-global",
@@ -36,7 +35,7 @@ with DAG(
         execution_timeout=timedelta(minutes=5),
     )
 
-    collect_korea = SimpleHttpOperator(
+    collect_korea = HttpOperator(
         task_id="collect_korea",
         http_conn_id="job_worker",
         endpoint="/jobs/macro-collect-korea",
@@ -46,7 +45,7 @@ with DAG(
         execution_timeout=timedelta(minutes=5),
     )
 
-    validate_and_store = SimpleHttpOperator(
+    validate_and_store = HttpOperator(
         task_id="validate_and_store",
         http_conn_id="job_worker",
         endpoint="/jobs/macro-validate-store",
@@ -70,7 +69,7 @@ with DAG(
     catchup=False,
     tags=["macro", "council"],
 ) as dag_council:
-    run_council = SimpleHttpOperator(
+    run_council = HttpOperator(
         task_id="run_council",
         http_conn_id="macro_council",
         endpoint="/trigger",
@@ -92,7 +91,7 @@ with DAG(
     catchup=False,
     tags=["macro", "intraday"],
 ) as dag_quick:
-    macro_quick = SimpleHttpOperator(
+    macro_quick = HttpOperator(
         task_id="macro_quick",
         http_conn_id="job_worker",
         endpoint="/jobs/macro-quick",
