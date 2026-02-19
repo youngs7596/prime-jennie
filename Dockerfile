@@ -22,6 +22,8 @@ COPY prime_jennie/ /app/prime_jennie/
 COPY prompts/ /app/prompts/
 COPY scripts/ /app/scripts/
 COPY dags/ /app/dags/
+COPY alembic.ini /app/
+COPY migrations/ /app/migrations/
 
 # 패키지 재설치 (소스 반영, 의존성 캐시 활용)
 RUN pip install -e . --no-deps
