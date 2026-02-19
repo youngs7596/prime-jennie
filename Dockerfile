@@ -4,9 +4,12 @@ FROM python:3.12-slim AS base
 
 WORKDIR /app
 
-# 시스템 패키지
+# 시스템 패키지 (curl: healthcheck, libmariadb-dev + pkg-config: mysqlclient for Airflow)
 RUN apt-get update && apt-get install -y --no-install-recommends \
     curl \
+    gcc \
+    pkg-config \
+    libmariadb-dev \
     && rm -rf /var/lib/apt/lists/*
 
 # 의존성 먼저 (캐시 최적화)
