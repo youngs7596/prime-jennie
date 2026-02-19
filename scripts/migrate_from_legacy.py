@@ -79,15 +79,22 @@ COLLATION = "utf8mb4_general_ci"
 
 
 def unify_collation(conn) -> None:
-    """소스 + 타겟 모든 테이블 collation 통일."""
+    """소스 + 타겟 중 collation이 다른 테이블만 변환."""
     count = 0
     for t in TARGET_TABLES + SOURCE_TABLES:
-        if _source_exists(conn, t):
+        if not _source_exists(conn, t):
+            continue
+        current = conn.execute(text(
+            "SELECT table_collation FROM information_schema.tables "
+            "WHERE table_schema = DATABASE() AND LOWER(table_name) = LOWER(:t)"
+        ), {"t": t}).scalar()
+        if current and current != COLLATION:
+            logger.info("ALTER TABLE %s: %s → %s", t, current, COLLATION)
             conn.execute(text(
                 f"ALTER TABLE `{t}` CONVERT TO CHARACTER SET utf8mb4 COLLATE {COLLATION}"
             ))
             count += 1
-    logger.info("Collation unified to %s for %d tables", COLLATION, count)
+    logger.info("Collation: %d tables converted", count)
 
 
 # ── 1. stock_master → stock_masters ──────────────────────────────
