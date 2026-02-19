@@ -426,3 +426,16 @@ services:
     labels:
       - app=airflow-scheduler
       - stack=prime-jennie
+
+  # ============================================================================
+  # Cloudflare Tunnel (profile: infra)
+  # ============================================================================
+  cloudflared:
+    image: cloudflare/cloudflared:latest
+    profiles: ["infra"]
+    command: tunnel --no-autoupdate run --token ${CLOUDFLARE_TUNNEL_TOKEN}
+    network_mode: host
+    restart: unless-stopped
+    labels:
+      - app=cloudflared
+      - stack=prime-jennie
