@@ -62,17 +62,32 @@ def _skip_or_ready(conn, source: str, target: str) -> bool:
 
 
 TARGET_TABLES = [
-    "stock_masters", "stock_daily_prices", "stock_investor_tradings",
-    "stock_news_sentiments", "daily_quant_scores", "positions",
-    "trade_logs", "daily_asset_snapshots", "watchlist_histories",
-    "configs", "stock_fundamentals", "daily_macro_insights", "global_macro_snapshots",
+    "stock_masters",
+    "stock_daily_prices",
+    "stock_investor_tradings",
+    "stock_news_sentiments",
+    "daily_quant_scores",
+    "positions",
+    "trade_logs",
+    "daily_asset_snapshots",
+    "watchlist_histories",
+    "configs",
+    "stock_fundamentals",
+    "daily_macro_insights",
+    "global_macro_snapshots",
 ]
 
 
 SOURCE_TABLES = [
-    "stock_master", "stock_daily_prices_3y", "stock_investor_trading",
-    "stock_news_sentiment", "daily_quant_score", "active_portfolio",
-    "tradelog", "daily_asset_snapshot", "watchlist_history",
+    "stock_master",
+    "stock_daily_prices_3y",
+    "stock_investor_trading",
+    "stock_news_sentiment",
+    "daily_quant_score",
+    "active_portfolio",
+    "tradelog",
+    "daily_asset_snapshot",
+    "watchlist_history",
 ]
 
 COLLATION = "utf8mb4_general_ci"
@@ -84,15 +99,16 @@ def unify_collation(conn) -> None:
     for t in TARGET_TABLES + SOURCE_TABLES:
         if not _source_exists(conn, t):
             continue
-        current = conn.execute(text(
-            "SELECT table_collation FROM information_schema.tables "
-            "WHERE table_schema = DATABASE() AND LOWER(table_name) = LOWER(:t)"
-        ), {"t": t}).scalar()
+        current = conn.execute(
+            text(
+                "SELECT table_collation FROM information_schema.tables "
+                "WHERE table_schema = DATABASE() AND LOWER(table_name) = LOWER(:t)"
+            ),
+            {"t": t},
+        ).scalar()
         if current and current != COLLATION:
             logger.info("ALTER TABLE %s: %s → %s", t, current, COLLATION)
-            conn.execute(text(
-                f"ALTER TABLE `{t}` CONVERT TO CHARACTER SET utf8mb4 COLLATE {COLLATION}"
-            ))
+            conn.execute(text(f"ALTER TABLE `{t}` CONVERT TO CHARACTER SET utf8mb4 COLLATE {COLLATION}"))
             count += 1
     logger.info("Collation: %d tables converted", count)
 
@@ -104,7 +120,8 @@ def migrate_stock_masters(conn) -> int:
     if not _skip_or_ready(conn, "stock_master", "stock_masters"):
         return 0
 
-    result = conn.execute(text("""
+    result = conn.execute(
+        text("""
         INSERT INTO stock_masters
             (stock_code, stock_name, market, market_cap,
              sector_naver, sector_group, is_active, updated_at)
@@ -118,7 +135,8 @@ def migrate_stock_masters(conn) -> int:
             1,
             COALESCE(created_at, NOW())
         FROM stock_master
-    """))
+    """)
+    )
     logger.info("stock_masters: migrated %d rows", result.rowcount)
     return result.rowcount
 
@@ -130,7 +148,8 @@ def migrate_stock_daily_prices(conn) -> int:
     if not _skip_or_ready(conn, "stock_daily_prices_3y", "stock_daily_prices"):
         return 0
 
-    result = conn.execute(text("""
+    result = conn.execute(
+        text("""
         INSERT INTO stock_daily_prices
             (stock_code, price_date, open_price, high_price,
              low_price, close_price, volume, change_pct)
@@ -146,7 +165,8 @@ def migrate_stock_daily_prices(conn) -> int:
         FROM stock_daily_prices_3y s
         WHERE s.stock_code IN (SELECT stock_code FROM stock_masters)
         ON DUPLICATE KEY UPDATE close_price = VALUES(close_price)
-    """))
+    """)
+    )
     logger.info("stock_daily_prices: migrated %d rows", result.rowcount)
     return result.rowcount
 
@@ -158,7 +178,8 @@ def migrate_stock_investor_tradings(conn) -> int:
     if not _skip_or_ready(conn, "stock_investor_trading", "stock_investor_tradings"):
         return 0
 
-    result = conn.execute(text("""
+    result = conn.execute(
+        text("""
         INSERT INTO stock_investor_tradings
             (stock_code, trade_date, foreign_net_buy,
              institution_net_buy, individual_net_buy, foreign_holding_ratio)
@@ -173,7 +194,8 @@ def migrate_stock_investor_tradings(conn) -> int:
         WHERE s.stock_code IN (SELECT stock_code FROM stock_masters)
         ON DUPLICATE KEY UPDATE
             foreign_holding_ratio = VALUES(foreign_holding_ratio)
-    """))
+    """)
+    )
     logger.info("stock_investor_tradings: migrated %d rows", result.rowcount)
     return result.rowcount
 
@@ -186,7 +208,8 @@ def migrate_stock_news_sentiments(conn) -> int:
         return 0
 
     # Source columns: HEADLINE, SUMMARY (Column('HEADLINE', ...) 매핑)
-    result = conn.execute(text("""
+    result = conn.execute(
+        text("""
         INSERT INTO stock_news_sentiments
             (stock_code, news_date, press, headline, summary,
              sentiment_score, sentiment_reason, category,
@@ -207,7 +230,8 @@ def migrate_stock_news_sentiments(conn) -> int:
         WHERE s.stock_code IN (SELECT stock_code FROM stock_masters)
         ON DUPLICATE KEY UPDATE
             sentiment_score = VALUES(sentiment_score)
-    """))
+    """)
+    )
     logger.info("stock_news_sentiments: migrated %d rows", result.rowcount)
     return result.rowcount
 
@@ -220,7 +244,8 @@ def migrate_daily_quant_scores(conn) -> int:
         return 0
 
     # news_stat_score → news_score, is_passed_filter → is_tradable
-    result = conn.execute(text("""
+    result = conn.execute(
+        text("""
         INSERT INTO daily_quant_scores
             (score_date, stock_code, stock_name,
              total_quant_score, momentum_score, quality_score, value_score,
@@ -245,7 +270,8 @@ def migrate_daily_quant_scores(conn) -> int:
         WHERE s.stock_code IN (SELECT stock_code FROM stock_masters)
         ON DUPLICATE KEY UPDATE
             total_quant_score = VALUES(total_quant_score)
-    """))
+    """)
+    )
     logger.info("daily_quant_scores: migrated %d rows", result.rowcount)
     return result.rowcount
 
@@ -258,7 +284,8 @@ def migrate_positions(conn) -> int:
         return 0
 
     # current_high_price → high_watermark, Float → Int
-    result = conn.execute(text("""
+    result = conn.execute(
+        text("""
         INSERT INTO positions
             (stock_code, stock_name, quantity, average_buy_price,
              total_buy_amount, high_watermark, stop_loss_price,
@@ -278,7 +305,8 @@ def migrate_positions(conn) -> int:
         ON DUPLICATE KEY UPDATE
             high_watermark = VALUES(high_watermark),
             updated_at = VALUES(updated_at)
-    """))
+    """)
+    )
     logger.info("positions: migrated %d rows", result.rowcount)
     return result.rowcount
 
@@ -291,7 +319,8 @@ def migrate_trade_logs(conn) -> int:
         return 0
 
     # stock_name JOIN, Float→Int, total_amount = quantity * price
-    result = conn.execute(text("""
+    result = conn.execute(
+        text("""
         INSERT INTO trade_logs
             (stock_code, stock_name, trade_type, quantity, price,
              total_amount, reason, strategy_signal, trade_timestamp)
@@ -309,7 +338,8 @@ def migrate_trade_logs(conn) -> int:
         LEFT JOIN stock_master sm ON t.stock_code = sm.stock_code
         WHERE t.stock_code IN (SELECT stock_code FROM stock_masters)
         ORDER BY t.trade_timestamp
-    """))
+    """)
+    )
     logger.info("trade_logs: migrated %d rows", result.rowcount)
     return result.rowcount
 
@@ -322,7 +352,8 @@ def migrate_daily_asset_snapshots(conn) -> int:
         return 0
 
     # Numeric → Int, position_count = 0
-    result = conn.execute(text("""
+    result = conn.execute(
+        text("""
         INSERT INTO daily_asset_snapshots
             (snapshot_date, total_asset, cash_balance, stock_eval_amount,
              total_profit_loss, realized_profit_loss, net_investment,
@@ -338,7 +369,8 @@ def migrate_daily_asset_snapshots(conn) -> int:
             0
         FROM daily_asset_snapshot s
         ON DUPLICATE KEY UPDATE total_asset = VALUES(total_asset)
-    """))
+    """)
+    )
     logger.info("daily_asset_snapshots: migrated %d rows", result.rowcount)
     return result.rowcount
 
@@ -351,7 +383,8 @@ def migrate_watchlist_histories(conn) -> int:
         return 0
 
     # hybrid_score / trade_tier / risk_tag / rank = NULL (target defaults)
-    result = conn.execute(text("""
+    result = conn.execute(
+        text("""
         INSERT INTO watchlist_histories
             (snapshot_date, stock_code, stock_name, llm_score, is_tradable)
         SELECT
@@ -363,7 +396,8 @@ def migrate_watchlist_histories(conn) -> int:
         FROM watchlist_history s
         WHERE s.stock_code IN (SELECT stock_code FROM stock_masters)
         ON DUPLICATE KEY UPDATE llm_score = VALUES(llm_score)
-    """))
+    """)
+    )
     logger.info("watchlist_histories: migrated %d rows", result.rowcount)
     return result.rowcount
 
