@@ -51,7 +51,7 @@ class KISClient:
         if order.order_type == OrderType.LIMIT and order.price:
             payload["price"] = order.price
 
-        resp = self._client.post("/api/v1/orders/buy", json=payload)
+        resp = self._client.post("/api/trading/buy", json=payload)
         resp.raise_for_status()
         return OrderResult.model_validate(resp.json())
 
@@ -65,30 +65,35 @@ class KISClient:
         if order.order_type == OrderType.LIMIT and order.price:
             payload["price"] = order.price
 
-        resp = self._client.post("/api/v1/orders/sell", json=payload)
+        resp = self._client.post("/api/trading/sell", json=payload)
         resp.raise_for_status()
         return OrderResult.model_validate(resp.json())
 
     def cancel_order(self, order_no: str) -> bool:
         """주문 취소."""
         resp = self._client.post(
-            "/api/v1/orders/cancel", json={"order_no": order_no}
+            "/api/trading/cancel", json={"order_no": order_no}
         )
         resp.raise_for_status()
         return resp.json().get("success", False)
 
     def get_balance(self) -> dict:
         """잔고 조회 (현금 + 보유 종목)."""
-        resp = self._client.get("/api/v1/account/balance")
+        resp = self._client.post("/api/account/balance")
         resp.raise_for_status()
         return resp.json()
 
     def get_positions(self) -> list[Position]:
-        """보유 포지션 목록."""
-        resp = self._client.get("/api/v1/account/positions")
+        """보유 포지션 목록 (balance API에서 추출)."""
+        data = self.get_balance()
+        positions = data.get("positions", [])
+        return [Position.model_validate(p) for p in positions]
+
+    def get_cash_balance(self) -> int:
+        """현금 잔고만 조회."""
+        resp = self._client.post("/api/account/cash")
         resp.raise_for_status()
-        data = resp.json()
-        return [Position.model_validate(p) for p in data.get("positions", [])]
+        return resp.json().get("cash_balance", 0)
 
     def get_daily_prices(self, stock_code: str, days: int = 150) -> list[DailyPrice]:
         """일봉 데이터 조회."""
@@ -100,8 +105,11 @@ class KISClient:
         return [DailyPrice.model_validate(p) for p in resp.json()]
 
     def get_price(self, stock_code: str) -> StockSnapshot:
-        """현재가 조회."""
-        resp = self._client.get(f"/api/v1/market/price/{stock_code}")
+        """현재가 스냅샷 조회."""
+        resp = self._client.post(
+            "/api/market/snapshot",
+            json={"stock_code": stock_code},
+        )
         resp.raise_for_status()
         return StockSnapshot.model_validate(resp.json())
 
