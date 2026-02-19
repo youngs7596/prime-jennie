@@ -263,7 +263,9 @@ class BuyExecutor:
         if self._config.dry_run:
             logger.info(
                 "[DRYRUN][%s] BUY %d shares at %d (skipping KIS API)",
-                signal.stock_code, quantity, current_price,
+                signal.stock_code,
+                quantity,
+                current_price,
             )
             return OrderResult(
                 success=True,

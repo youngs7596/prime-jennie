@@ -157,14 +157,18 @@ class SellExecutor:
         if self._config.dry_run:
             logger.info(
                 "[DRYRUN][%s] SELL %d shares at %d (skipping KIS API)",
-                code, sell_qty, current_price,
+                code,
+                sell_qty,
+                current_price,
             )
             if order.sell_reason == SellReason.STOP_LOSS:
                 self._set_cooldown(code)
             if sell_qty >= position.quantity:
                 self._cleanup_position_state(code)
             return SellResult(
-                "success", code, name,
+                "success",
+                code,
+                name,
                 order_no="DRYRUN-0000",
                 quantity=sell_qty,
                 price=current_price,
