@@ -45,6 +45,8 @@ dependencies = [
     "websocket-client>=1.7",
     # Crawlers
     "beautifulsoup4>=4.12",
+    # Telegram
+    "telethon>=1.36",
     # Utilities
     "aiohttp>=3.9",
     "python-dotenv>=1.0",

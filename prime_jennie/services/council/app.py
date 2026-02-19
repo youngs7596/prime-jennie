@@ -12,6 +12,7 @@ from prime_jennie.infra.redis.cache import TypedCache
 from prime_jennie.services.base import create_app
 
 from .pipeline import CouncilInput, MacroCouncilPipeline
+from .telegram_collector import collect_hedgecat_briefing
 
 logger = logging.getLogger(__name__)
 
@@ -43,13 +44,23 @@ async def trigger_council(
 ):
     """Council 파이프라인 트리거.
 
-    Airflow에서 호출. briefing_text는 텔레그램 수집 데이터.
+    Airflow에서 호출. 텔레그램 수집을 자동 실행 후 briefing_text에 prepend.
     """
     pipeline: MacroCouncilPipeline = app.state.pipeline
     insight_cache: TypedCache = app.state.insight_cache
 
+    # 텔레그램 브리핑 자동 수집
+    telegram_briefing = ""
+    try:
+        telegram_briefing = await collect_hedgecat_briefing()
+    except Exception:
+        logger.warning("Telegram collection failed, continuing without it", exc_info=True)
+
+    # 텔레그램 브리핑을 기존 briefing_text 앞에 추가
+    combined_briefing = "\n\n".join(filter(None, [telegram_briefing, briefing_text]))
+
     input_data = CouncilInput(
-        briefing_text=briefing_text,
+        briefing_text=combined_briefing,
         target_date=date.fromisoformat(target_date) if target_date else None,
     )
 

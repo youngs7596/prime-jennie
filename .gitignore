@@ -23,6 +23,7 @@ venv/
 .env.local
 .env.*.local
 secrets.json
+.telegram_sessions/
 
 # Testing
 .pytest_cache/

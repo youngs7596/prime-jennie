@@ -316,6 +316,10 @@ services:
       PORT: "8089"
       LLM_TIER_REASONING_PROVIDER: deepseek_cloud
       LLM_TIER_THINKING_PROVIDER: deepseek_cloud
+      TELEGRAM_API_ID: "${TELEGRAM_API_ID}"
+      TELEGRAM_API_HASH: "${TELEGRAM_API_HASH}"
+    volumes:
+      - ./.telegram_sessions:/app/.telegram_sessions:ro
     command: ["uvicorn", "prime_jennie.services.council.app:app", "--host", "0.0.0.0", "--port", "8089"]
     labels:
       - app=macro-council

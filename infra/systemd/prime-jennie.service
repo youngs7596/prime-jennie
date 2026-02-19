@@ -1,0 +1,15 @@
+[Unit]
+Description=Prime Jennie AI Trading Stack
+After=network-online.target docker.service
+Wants=network-online.target docker.service
+
+[Service]
+Type=oneshot
+WorkingDirectory=/home/youngs75/projects/prime-jennie
+ExecStart=/home/youngs75/projects/prime-jennie/scripts/systemd_autostart.sh
+ExecStop=/usr/bin/docker compose --profile real down
+RemainAfterExit=yes
+TimeoutStartSec=0
+
+[Install]
+WantedBy=multi-user.target
