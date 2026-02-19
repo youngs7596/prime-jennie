@@ -205,3 +205,29 @@ class WatchlistRepository:
             .order_by(WatchlistHistoryDB.rank)
         )
         return list(session.exec(stmt).all())
+
+
+# ─── Asset Snapshots ────────────────────────────────────────────
+
+
+class AssetSnapshotRepository:
+    """자산 스냅샷 이력."""
+
+    @staticmethod
+    def get_snapshots(session: Session, days: int = 30) -> list[DailyAssetSnapshotDB]:
+        cutoff = date.today() - timedelta(days=days)
+        stmt = (
+            select(DailyAssetSnapshotDB)
+            .where(DailyAssetSnapshotDB.snapshot_date >= cutoff)
+            .order_by(DailyAssetSnapshotDB.snapshot_date)
+        )
+        return list(session.exec(stmt).all())
+
+    @staticmethod
+    def get_latest(session: Session) -> Optional[DailyAssetSnapshotDB]:
+        stmt = (
+            select(DailyAssetSnapshotDB)
+            .order_by(desc(DailyAssetSnapshotDB.snapshot_date))
+            .limit(1)
+        )
+        return session.exec(stmt).first()
