@@ -73,7 +73,7 @@ def _try_import_provider(provider_type: str) -> None:
     """Provider 모듈 lazy import."""
     import_map = {
         "ollama": "prime_jennie.infra.llm.providers.ollama",
-        "openai": "prime_jennie.infra.llm.providers.openai",
+        "openai": "prime_jennie.infra.llm.providers.openai_provider",
         "claude": "prime_jennie.infra.llm.providers.claude",
         "gemini": "prime_jennie.infra.llm.providers.gemini",
         "deepseek_cloud": "prime_jennie.infra.llm.providers.deepseek_cloud",

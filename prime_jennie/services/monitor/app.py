@@ -132,8 +132,9 @@ class PriceMonitor:
 
         high_profit_pct = (hw - buy) / buy * 100.0 if buy > 0 else 0.0
 
-        # ATR: 2% of buy price as default
+        # ATR & RSI from daily prices
         atr = float(pos.current_price) * 0.02 if pos.current_price else buy * 0.02
+        rsi = self._compute_rsi(pos.stock_code)
 
         # Holding days
         holding_days = 0
@@ -150,7 +151,7 @@ class PriceMonitor:
             high_watermark=hw,
             high_profit_pct=high_profit_pct,
             atr=atr,
-            rsi=None,  # TODO: compute from daily prices
+            rsi=rsi,
             holding_days=holding_days,
             scale_out_level=self._get_scale_out_level(pos.stock_code),
             rsi_sold=self._is_rsi_sold(pos.stock_code),
@@ -217,6 +218,22 @@ class PriceMonitor:
         if self._context_cache:
             return self._context_cache.get()
         return None
+
+    # --- RSI Computation ---
+
+    def _compute_rsi(self, stock_code: str) -> float | None:
+        """일봉 종가 기반 RSI 계산 (14-period). 실패 시 None."""
+        try:
+            from prime_jennie.services.buyer.position_sizing import calculate_rsi
+
+            daily_prices = self._kis.get_daily_prices(stock_code, days=30)
+            if len(daily_prices) < 15:
+                return None
+            close_prices = [float(p.close_price) for p in daily_prices]
+            return calculate_rsi(close_prices)
+        except Exception:
+            logger.debug("[%s] RSI computation failed", stock_code)
+            return None
 
     # --- High Watermark ---
 

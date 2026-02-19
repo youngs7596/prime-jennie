@@ -193,7 +193,7 @@ class BuyExecutor:
             portfolio_value=portfolio_value,
             llm_score=signal.llm_score,
             trade_tier=signal.trade_tier,
-            sector_group=None,  # TODO: resolve from stock master
+            sector_group=signal.sector_group,
             held_sector_groups=held_sectors,
             portfolio_risk_pct=0.0,
             position_multiplier=signal.position_multiplier,
@@ -321,13 +321,20 @@ class BuyExecutor:
             )
 
     def _calculate_atr(self, stock_code: str, current_price: int) -> float:
-        """ATR 계산 (일봉 폴백)."""
+        """ATR 계산 (일봉 기반, 실패 시 2% 폴백)."""
         try:
-            balance_data = self._kis.get_balance()
-            # TODO: daily prices from KIS Gateway
-            return clamp_atr(current_price * 0.02, current_price)
+            daily_prices = self._kis.get_daily_prices(stock_code, days=30)
+            if len(daily_prices) >= 2:
+                price_dicts = [
+                    {"high": p.high_price, "low": p.low_price, "close": p.close_price}
+                    for p in daily_prices
+                ]
+                atr = calculate_atr(price_dicts)
+                if atr > 0:
+                    return clamp_atr(atr, current_price)
         except Exception:
-            return clamp_atr(current_price * 0.02, current_price)
+            logger.debug("[%s] Daily prices fetch failed, using 2%% fallback", stock_code)
+        return clamp_atr(current_price * 0.02, current_price)
 
     def _get_positions(self) -> list[Position]:
         """현재 보유 포지션."""

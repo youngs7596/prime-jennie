@@ -37,6 +37,8 @@ class BuySignal(BaseModel):
     rsi_value: Optional[float] = None
     volume_ratio: Optional[float] = None
     vwap: Optional[float] = None
+    # 종목 컨텍스트
+    sector_group: Optional[SectorGroup] = None
     # 매크로 컨텍스트
     position_multiplier: Multiplier = 1.0
 

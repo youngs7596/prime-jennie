@@ -253,6 +253,7 @@ class BuyScanner:
             is_tradable=entry.is_tradable,
             trade_tier=entry.trade_tier,
             risk_tag=entry.risk_tag,
+            sector_group=entry.sector_group,
             market_regime=self._watchlist.market_regime,
             source="scanner",
             timestamp=datetime.now(timezone.utc),

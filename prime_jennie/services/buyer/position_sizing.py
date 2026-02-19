@@ -240,6 +240,37 @@ def calculate_atr(prices: list[dict], period: int = 14) -> float:
     return sum(recent) / len(recent)
 
 
+def calculate_rsi(close_prices: list[float], period: int = 14) -> float | None:
+    """14-period RSI 계산.
+
+    close_prices: 시간순 종가 리스트 (oldest → newest).
+    최소 period+1 개 필요. 데이터 부족 시 None.
+    """
+    if len(close_prices) < period + 1:
+        return None
+
+    gains = []
+    losses = []
+    for i in range(1, len(close_prices)):
+        delta = close_prices[i] - close_prices[i - 1]
+        gains.append(max(0, delta))
+        losses.append(max(0, -delta))
+
+    # Wilder's Smoothing (EMA)
+    avg_gain = sum(gains[:period]) / period
+    avg_loss = sum(losses[:period]) / period
+
+    for i in range(period, len(gains)):
+        avg_gain = (avg_gain * (period - 1) + gains[i]) / period
+        avg_loss = (avg_loss * (period - 1) + losses[i]) / period
+
+    if avg_loss == 0:
+        return 100.0
+
+    rs = avg_gain / avg_loss
+    return 100.0 - (100.0 / (1.0 + rs))
+
+
 def clamp_atr(atr: float, stock_price: float) -> float:
     """ATR을 주가의 1-5% 범위로 클램프. 기본값: 2%."""
     if atr <= 0 or stock_price <= 0:
