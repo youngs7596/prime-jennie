@@ -53,13 +53,15 @@ class ClaudeLLMProvider(BaseLLMProvider):
         tokens_in = usage.input_tokens if usage else 0
         tokens_out = usage.output_tokens if usage else 0
 
-        return LLMResponse(
+        response = LLMResponse(
             content=content,
             model=model,
             tokens_in=tokens_in,
             tokens_out=tokens_out,
             provider=self.provider_name,
         )
+        self._record_usage(response, service)
+        return response
 
     async def generate_json(
         self,

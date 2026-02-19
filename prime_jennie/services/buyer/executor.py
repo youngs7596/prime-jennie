@@ -235,6 +235,8 @@ class BuyExecutor:
                 reason=f"Order failed: {order_result.message}",
             )
 
+        self._increment_buy_count()
+
         logger.info(
             "[%s] BUY %d shares at %d (signal=%s, tier=%s, hybrid=%.1f)",
             code,

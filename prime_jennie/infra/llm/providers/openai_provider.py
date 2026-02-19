@@ -79,13 +79,15 @@ class OpenAILLMProvider(BaseLLMProvider):
         tokens_in = usage.prompt_tokens if usage else 0
         tokens_out = usage.completion_tokens if usage else 0
 
-        return LLMResponse(
+        response = LLMResponse(
             content=content,
             model=model,
             tokens_in=tokens_in,
             tokens_out=tokens_out,
             provider=self.provider_name,
         )
+        self._record_usage(response, service)
+        return response
 
     async def generate_json(
         self,

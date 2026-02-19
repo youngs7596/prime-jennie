@@ -4,18 +4,27 @@ Watchlist 종목을 모니터링하며 매수 시그널을 감지 → Redis Stre
 
 Data Flow:
   Redis watchlist:active → Scanner → Redis stream:buy-signals → Executor
+
+Tick Feed:
+  Gateway KIS WebSocket → Redis kis:prices → Scanner (XREADGROUP)
 """
 
 import logging
+import threading
 import time
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 from datetime import datetime, timezone
+from typing import Optional
 
+import httpx
 import redis
 
 from prime_jennie.domain import BuySignal, HotWatchlist, TradingContext
 from prime_jennie.domain.config import get_config
 from prime_jennie.domain.enums import MOMENTUM_STRATEGIES, MarketRegime, SignalType
 from prime_jennie.infra.redis.cache import TypedCache
+from prime_jennie.infra.redis.client import get_redis
 from prime_jennie.infra.redis.streams import TypedStreamPublisher
 from prime_jennie.services.base import create_app
 
@@ -288,13 +297,170 @@ class BuyScanner:
         }
 
 
+# ─── Tick Consumer ─────────────────────────────────────────────
+
+PRICE_STREAM = "kis:prices"
+PRICE_GROUP = "scanner-group"
+PRICE_CONSUMER = "scanner-1"
+WATCHLIST_RELOAD_INTERVAL = 300  # 5분마다 watchlist 재로드
+
+_scanner: Optional[BuyScanner] = None
+_tick_thread: Optional[threading.Thread] = None
+_tick_running = False
+
+
+def _consume_ticks(r: redis.Redis, scanner: BuyScanner) -> None:
+    """kis:prices Redis Stream 소비 루프 (백그라운드 스레드).
+
+    Gateway의 KISWebSocketStreamer가 XADD한 raw tick을 읽어
+    scanner.process_tick()에 전달.
+    """
+    global _tick_running
+
+    # Consumer group 생성
+    try:
+        r.xgroup_create(PRICE_STREAM, PRICE_GROUP, id="0", mkstream=True)
+    except redis.exceptions.ResponseError as e:
+        if "BUSYGROUP" not in str(e):
+            raise
+
+    logger.info("Tick consumer started: stream=%s group=%s", PRICE_STREAM, PRICE_GROUP)
+    last_reload = time.time()
+    tick_count = 0
+
+    while _tick_running:
+        try:
+            # 주기적 watchlist 재로드
+            now = time.time()
+            if now - last_reload > WATCHLIST_RELOAD_INTERVAL:
+                scanner.load_watchlist()
+                scanner.load_context()
+                last_reload = now
+
+            messages = r.xreadgroup(
+                PRICE_GROUP,
+                PRICE_CONSUMER,
+                {PRICE_STREAM: ">"},
+                count=50,
+                block=2000,
+            )
+            if not messages:
+                continue
+
+            for _stream_name, entries in messages:
+                for msg_id, data in entries:
+                    # ACK first (at-most-once)
+                    r.xack(PRICE_STREAM, PRICE_GROUP, msg_id)
+
+                    code = data.get("code", "")
+                    price_str = data.get("price", "0")
+                    vol_str = data.get("vol", "0")
+
+                    try:
+                        price = float(price_str)
+                        volume = int(vol_str)
+                    except (ValueError, TypeError):
+                        continue
+
+                    if price > 0 and code:
+                        scanner.process_tick(code, price, volume)
+                        tick_count += 1
+
+            if tick_count > 0 and tick_count % 10000 == 0:
+                logger.info("Processed %d ticks", tick_count)
+
+        except redis.exceptions.ConnectionError:
+            logger.error("Redis connection lost, retrying in 5s...")
+            time.sleep(5)
+        except Exception:
+            logger.exception("Tick consumer error")
+            time.sleep(1)
+
+    logger.info("Tick consumer stopped (processed %d ticks)", tick_count)
+
+
+def _subscribe_to_gateway(codes: list[str]) -> None:
+    """Gateway에 실시간 구독 요청."""
+    config = get_config()
+    gateway_url = config.kis.gateway_url
+    try:
+        resp = httpx.post(
+            f"{gateway_url}/api/realtime/subscribe",
+            json={"codes": codes},
+            timeout=10.0,
+        )
+        resp.raise_for_status()
+        data = resp.json()
+        logger.info(
+            "Gateway subscribe: added=%d, total=%d",
+            len(data.get("added", [])),
+            data.get("total_subscriptions", 0),
+        )
+    except Exception as e:
+        logger.warning("Failed to subscribe via Gateway (will use existing feed): %s", e)
+
+
 # ─── FastAPI App ────────────────────────────────────────────────
 
 
-app = create_app("buy-scanner", version="1.0.0", dependencies=["redis"])
+@asynccontextmanager
+async def lifespan(app) -> AsyncIterator[None]:
+    global _scanner, _tick_thread, _tick_running
+
+    r = get_redis()
+    _scanner = BuyScanner(redis_client=r)
+
+    # Watchlist + Context 로드
+    loaded = _scanner.load_watchlist()
+    _scanner.load_context()
+
+    # Gateway에 구독 요청
+    if loaded and _scanner.watchlist:
+        codes = [s.stock_code for s in _scanner.watchlist.stocks]
+        _subscribe_to_gateway(codes)
+
+    # Tick consumer 시작
+    _tick_running = True
+    _tick_thread = threading.Thread(
+        target=_consume_ticks, args=(r, _scanner), daemon=True
+    )
+    _tick_thread.start()
+    logger.info("Buy Scanner started with tick consumer")
+
+    yield
+
+    # 종료
+    _tick_running = False
+    if _tick_thread:
+        _tick_thread.join(timeout=5)
+    logger.info("Buy Scanner stopped")
+
+
+app = create_app("buy-scanner", version="1.0.0", lifespan=lifespan, dependencies=["redis"])
 
 
 @app.get("/status")
 async def status():
-    """Scanner 상태 조회."""
-    return {"status": "ready", "message": "Scanner requires external tick feed"}
+    """Scanner 상태 (tick consumer 포함)."""
+    base = _scanner.get_status() if _scanner else {}
+    base["tick_consumer_running"] = _tick_running
+    return base
+
+
+@app.post("/reload-watchlist")
+async def reload_watchlist():
+    """Watchlist 수동 재로드 + Gateway 재구독."""
+    if _scanner is None:
+        return {"success": False, "message": "Scanner not initialized"}
+
+    loaded = _scanner.load_watchlist()
+    _scanner.load_context()
+
+    if loaded and _scanner.watchlist:
+        codes = [s.stock_code for s in _scanner.watchlist.stocks]
+        _subscribe_to_gateway(codes)
+
+    return {
+        "success": loaded,
+        "stock_count": len(_scanner.watchlist.stocks) if _scanner.watchlist else 0,
+    }

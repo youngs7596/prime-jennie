@@ -304,6 +304,21 @@ services:
       - app=macro-council
       - stack=prime-jennie
 
+  news-pipeline:
+    <<: *service-defaults
+    profiles: ["real"]
+    environment:
+      <<: *env-common
+      PORT: "8092"
+      LLM_TIER_FAST_PROVIDER: ollama
+      LLM_VLLM_LLM_URL: http://127.0.0.1:8001/v1
+      LLM_VLLM_EMBED_URL: http://127.0.0.1:8002/v1
+      INFRA_QDRANT_URL: http://127.0.0.1:6333
+    command: ["uvicorn", "prime_jennie.services.news.app:app", "--host", "0.0.0.0", "--port", "8092"]
+    labels:
+      - app=news-pipeline
+      - stack=prime-jennie
+
   dashboard:
     <<: *service-defaults
     profiles: ["real"]
@@ -351,4 +366,58 @@ services:
     command: ["uvicorn", "prime_jennie.services.telegram.app:app", "--host", "0.0.0.0", "--port", "8091"]
     labels:
       - app=telegram
+      - stack=prime-jennie
+
+  job-worker:
+    <<: *service-defaults
+    profiles: ["real"]
+    environment:
+      <<: *env-common
+      PORT: "8095"
+      LLM_TIER_FAST_PROVIDER: ollama
+      LLM_VLLM_LLM_URL: http://127.0.0.1:8001/v1
+      INFRA_QDRANT_URL: http://127.0.0.1:6333
+    command: ["uvicorn", "prime_jennie.services.jobs.app:app", "--host", "0.0.0.0", "--port", "8095"]
+    labels:
+      - app=job-worker
+      - stack=prime-jennie
+
+  # ============================================================================
+  # Airflow (profile: real)
+  # ============================================================================
+  airflow-webserver:
+    <<: *service-defaults
+    profiles: ["real"]
+    environment:
+      <<: *env-common
+      AIRFLOW__CORE__EXECUTOR: LocalExecutor
+      AIRFLOW__CORE__DAGS_FOLDER: /app/dags
+      AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: "mysql+pymysql://prime:${DB_PASSWORD:-q1w2e3R$}@127.0.0.1:3307/prime_jennie"
+      AIRFLOW__WEBSERVER__WEB_SERVER_PORT: "8085"
+      AIRFLOW__CORE__LOAD_EXAMPLES: "false"
+      AIRFLOW_HOME: /app/airflow_home
+    command: ["airflow", "webserver", "--port", "8085"]
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8085/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
+    labels:
+      - app=airflow-webserver
+      - stack=prime-jennie
+
+  airflow-scheduler:
+    <<: *service-defaults
+    profiles: ["real"]
+    environment:
+      <<: *env-common
+      AIRFLOW__CORE__EXECUTOR: LocalExecutor
+      AIRFLOW__CORE__DAGS_FOLDER: /app/dags
+      AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: "mysql+pymysql://prime:${DB_PASSWORD:-q1w2e3R$}@127.0.0.1:3307/prime_jennie"
+      AIRFLOW__CORE__LOAD_EXAMPLES: "false"
+      AIRFLOW_HOME: /app/airflow_home
+    command: ["airflow", "scheduler"]
+    labels:
+      - app=airflow-scheduler
       - stack=prime-jennie

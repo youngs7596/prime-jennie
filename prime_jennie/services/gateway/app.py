@@ -41,6 +41,7 @@ from prime_jennie.services.base import create_app
 from prime_jennie.services.deps import get_db_session
 
 from .kis_api import KISApi, KISApiError
+from .streamer import KISWebSocketStreamer
 
 logger = logging.getLogger(__name__)
 
@@ -70,6 +71,7 @@ _request_history: deque = deque(maxlen=100)
 # ─── KIS API Client ─────────────────────────────────────────────
 
 _kis_api: Optional[KISApi] = None
+_streamer: Optional[KISWebSocketStreamer] = None
 
 
 def _get_kis_api() -> KISApi:
@@ -104,6 +106,7 @@ class TradingDayQuery(BaseModel):
 
 @asynccontextmanager
 async def lifespan(app) -> AsyncIterator[None]:
+    global _streamer
     config = get_config()
     logger.info(
         "KIS Gateway starting — mode=%s, paper=%s",
@@ -118,9 +121,21 @@ async def lifespan(app) -> AsyncIterator[None]:
     except Exception as e:
         logger.warning("KIS pre-auth failed (will retry on first request): %s", e)
 
+    # WebSocket Streamer 초기화
+    from prime_jennie.infra.redis.client import get_redis
+
+    _streamer = KISWebSocketStreamer(
+        redis_client=get_redis(),
+        app_key=config.kis.app_key,
+        app_secret=config.kis.app_secret,
+        is_paper=config.kis.is_paper,
+    )
+
     yield
 
     # 종료
+    if _streamer:
+        _streamer.stop()
     if _kis_api:
         _kis_api.close()
 
@@ -376,3 +391,38 @@ def _record_request(endpoint: str, detail: str) -> None:
         "detail": detail,
         "timestamp": time.time(),
     })
+
+
+# ─── Realtime Endpoints ──────────────────────────────────────────
+
+
+class SubscribeRequest(BaseModel):
+    codes: list[str] = Field(min_length=1)
+
+
+@app.post("/api/realtime/subscribe")
+async def realtime_subscribe(body: SubscribeRequest) -> dict:
+    """실시간 구독 종목 추가 + 스트리머 시작."""
+    if _streamer is None:
+        raise HTTPException(503, "Streamer not initialized")
+
+    new_codes = _streamer.add_subscriptions(body.codes)
+
+    if not _streamer.is_running:
+        config = get_config()
+        base_url = config.kis.base_url
+        _streamer.start(base_url)
+
+    return {
+        "added": new_codes,
+        "total_subscriptions": _streamer.subscription_count,
+        "is_running": _streamer.is_running,
+    }
+
+
+@app.get("/api/realtime/status")
+async def realtime_status() -> dict:
+    """스트리머 상태 조회."""
+    if _streamer is None:
+        return {"is_running": False, "subscription_count": 0, "codes": []}
+    return _streamer.get_status()

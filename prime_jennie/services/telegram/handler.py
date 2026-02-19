@@ -408,7 +408,7 @@ class CommandHandler:
             snapshot = self._kis.get_snapshot(code)
             return (
                 f"*{name}* ({code})\n"
-                f"현재가: {snapshot.current_price:,}원\n"
+                f"현재가: {snapshot.price:,}원\n"
                 f"시가: {snapshot.open_price:,}원\n"
                 f"등락: {snapshot.change_pct:+.2f}%\n"
                 f"고가: {snapshot.high_price:,}원\n"

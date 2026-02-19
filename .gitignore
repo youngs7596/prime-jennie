@@ -5,6 +5,7 @@ __pycache__/
 dist/
 build/
 .eggs/
+*.pyo
 
 # Virtual environment
 .venv/
@@ -15,9 +16,12 @@ venv/
 .vscode/
 *.swp
 *.swo
+*.sublime-*
 
-# Environment
+# Environment & Secrets
 .env
+.env.local
+.env.*.local
 secrets.json
 
 # Testing
@@ -25,9 +29,19 @@ secrets.json
 .mypy_cache/
 htmlcov/
 .coverage
+.coverage.*
+
+# Linting
+.ruff_cache/
+
+# Node / Frontend
+node_modules/
+frontend/dist/
+frontend/.vite/
 
 # Docker
 *.log
+docker_data/
 
 # OS
 .DS_Store

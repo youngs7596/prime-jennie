@@ -39,6 +39,10 @@ dependencies = [
     # Vector DB
     "qdrant-client>=1.9",
     "langchain-openai>=0.1",
+    # Gateway
+    "pybreaker>=1.0",
+    "slowapi>=0.1.9",
+    "websocket-client>=1.7",
     # Utilities
     "aiohttp>=3.9",
     "python-dotenv>=1.0",

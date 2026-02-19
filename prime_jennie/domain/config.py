@@ -197,6 +197,7 @@ class TelegramConfig(BaseSettings):
 class InfraConfig(BaseSettings):
     """인프라 서비스 설정."""
 
+    qdrant_url: str = "http://localhost:6333"
     qdrant_host: str = "localhost"
     qdrant_port: int = 6333
     dart_api_key: str = ""

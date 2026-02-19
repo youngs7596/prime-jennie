@@ -4,6 +4,7 @@
 """
 
 import logging
+import os
 import threading
 import time
 from contextlib import asynccontextmanager
@@ -34,7 +35,7 @@ def _get_bot() -> TelegramBot:
         config = get_config()
         _bot = TelegramBot(
             token=config.telegram.bot_token,
-            allowed_chat_ids=os.environ.get("TELEGRAM_ALLOWED_CHAT_IDS", ""),
+            allowed_chat_ids=os.environ.get("TELEGRAM_CHAT_IDS", ""),
         )
     return _bot
 
@@ -76,8 +77,6 @@ def _poll_loop(bot: TelegramBot, handler: CommandHandler) -> None:
             time.sleep(5)
     logger.info("Telegram polling stopped")
 
-
-import os
 
 app = create_app("command-handler", version="1.0.0", dependencies=["redis", "db"])
 

@@ -128,13 +128,15 @@ class OllamaLLMProvider(BaseLLMProvider):
         content = data["choices"][0]["message"]["content"]
         usage = data.get("usage", {})
 
-        return LLMResponse(
+        response = LLMResponse(
             content=content,
             model=model,
             tokens_in=usage.get("prompt_tokens", 0),
             tokens_out=usage.get("completion_tokens", 0),
             provider=self.provider_name,
         )
+        self._record_usage(response, service)
+        return response
 
     async def generate_json(
         self,

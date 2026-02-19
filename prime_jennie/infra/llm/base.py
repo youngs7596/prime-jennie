@@ -1,9 +1,12 @@
 """LLM Provider 인터페이스 — 모든 provider가 구현해야 하는 계약."""
 
+import logging
 from abc import ABC, abstractmethod
 from typing import Any, Optional
 
 from pydantic import BaseModel
+
+_logger = logging.getLogger(__name__)
 
 
 class LLMResponse(BaseModel):
@@ -21,6 +24,24 @@ class BaseLLMProvider(ABC):
 
     모든 provider (Ollama/vLLM, OpenAI, Claude, Gemini, CloudFailover)가 구현.
     """
+
+    def _record_usage(self, response: LLMResponse, service: Optional[str]) -> None:
+        """LLM 사용량을 Redis에 기록 (모든 provider 공통)."""
+        if response.tokens_in == 0 and response.tokens_out == 0:
+            return
+        try:
+            from prime_jennie.infra.redis.client import get_redis
+            from prime_jennie.infra.observability.metrics import record_llm_usage
+
+            record_llm_usage(
+                get_redis(),
+                service=service or "unknown",
+                tokens_in=response.tokens_in,
+                tokens_out=response.tokens_out,
+                model=response.model,
+            )
+        except Exception:
+            _logger.debug("LLM usage recording failed", exc_info=True)
 
     @abstractmethod
     async def generate(

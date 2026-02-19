@@ -12,15 +12,14 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # 의존성 먼저 (캐시 최적화)
 COPY pyproject.toml /app/
 RUN --mount=type=cache,target=/root/.cache/pip \
-    pip install --no-deps -e . && \
-    pip install -r <(pip freeze) 2>/dev/null || true
+    pip install -e .
 
 # 패키지 소스
 COPY prime_jennie/ /app/prime_jennie/
 COPY prompts/ /app/prompts/
 COPY scripts/ /app/scripts/
 
-# 패키지 설치 (editable)
+# 패키지 재설치 (소스 반영, 의존성 캐시 활용)
 RUN pip install -e . --no-deps
 
 # 헬스체크 기본값

@@ -17,10 +17,14 @@ _SERVICES = [
     ("buy-scanner", 8081),
     ("buy-executor", 8082),
     ("sell-executor", 8083),
+    ("daily-briefing", 8086),
     ("scout-job", 8087),
     ("price-monitor", 8088),
     ("macro-council", 8089),
     ("dashboard", 8090),
+    ("telegram", 8091),
+    ("news-pipeline", 8092),
+    ("job-worker", 8095),
 ]
 
 
