@@ -1,0 +1,269 @@
+"""Scout Service — AI 종목 발굴 파이프라인 오케스트레이터.
+
+7단계 파이프라인:
+  Phase 1: Universe Loading (DB)
+  Phase 2: Data Enrichment (KIS + DB, 병렬)
+  Phase 3: Quant Scoring (v2, 잠재력 기반)
+  Phase 4: LLM Analysis (Unified Analyst, 1-pass)
+  Phase 5: Sector Budget + Watchlist Selection (Greedy)
+  → Redis watchlist:active 저장
+
+Endpoints:
+  POST /trigger → 파이프라인 실행
+  GET  /status  → 현재 상태
+  GET  /health  → HealthStatus
+"""
+
+import asyncio
+import json
+import logging
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
+from datetime import datetime, timezone
+from typing import Optional
+
+from fastapi import Depends
+from pydantic import BaseModel
+from sqlmodel import Session
+
+from prime_jennie.domain.config import get_config
+from prime_jennie.domain.macro import TradingContext
+from prime_jennie.domain.scoring import HybridScore, QuantScore
+from prime_jennie.domain.sector import SectorAnalysis, SectorBudget
+from prime_jennie.domain.watchlist import HotWatchlist
+from prime_jennie.infra.llm.factory import LLMFactory
+from prime_jennie.infra.redis.client import get_redis
+from prime_jennie.services.base import create_app
+from prime_jennie.services.deps import get_db_session, get_kis_client
+
+from . import analyst, enrichment, quant, sector_budget, selection, universe
+
+logger = logging.getLogger(__name__)
+
+# ─── State ───────────────────────────────────────────────────────
+
+_current_phase: str = "idle"
+_progress_pct: int = 0
+_last_completed_at: Optional[datetime] = None
+
+REDIS_WATCHLIST_KEY = "watchlist:active"
+REDIS_WATCHLIST_TTL = 86400  # 24h
+
+
+# ─── Models ──────────────────────────────────────────────────────
+
+
+class TriggerRequest(BaseModel):
+    source: str = "manual"  # "airflow" | "manual"
+
+
+class TriggerResponse(BaseModel):
+    job_id: str
+    status: str
+
+
+class StatusResponse(BaseModel):
+    current_phase: str
+    progress_pct: int
+    last_completed_at: Optional[datetime]
+
+
+# ─── Lifespan ────────────────────────────────────────────────────
+
+
+@asynccontextmanager
+async def lifespan(app) -> AsyncIterator[None]:
+    logger.info("Scout service starting")
+    yield
+    logger.info("Scout service shutting down")
+
+
+# ─── App ─────────────────────────────────────────────────────────
+
+app = create_app("scout-job", version="1.0.0", lifespan=lifespan, dependencies=["redis", "db"])
+
+
+@app.post("/trigger", response_model=TriggerResponse)
+async def trigger(
+    body: TriggerRequest,
+    session: Session = Depends(get_db_session),
+) -> TriggerResponse:
+    """Airflow/수동 트리거 → 파이프라인 실행."""
+    now = datetime.now(timezone.utc)
+    job_id = f"scout-{now.strftime('%Y%m%d-%H%M')}"
+
+    logger.info("Scout triggered: job_id=%s, source=%s", job_id, body.source)
+
+    # 동기 실행 (Airflow 트리거는 완료까지 대기)
+    try:
+        watchlist = await run_pipeline(session)
+        return TriggerResponse(job_id=job_id, status="completed")
+    except Exception as e:
+        logger.exception("Scout pipeline failed: %s", e)
+        return TriggerResponse(job_id=job_id, status=f"failed: {str(e)[:100]}")
+
+
+@app.get("/status", response_model=StatusResponse)
+async def status() -> StatusResponse:
+    """파이프라인 현재 상태."""
+    return StatusResponse(
+        current_phase=_current_phase,
+        progress_pct=_progress_pct,
+        last_completed_at=_last_completed_at,
+    )
+
+
+# ─── Pipeline ────────────────────────────────────────────────────
+
+
+async def run_pipeline(session: Session) -> HotWatchlist:
+    """7단계 파이프라인 순차 실행."""
+    global _current_phase, _progress_pct, _last_completed_at
+
+    config = get_config()
+    redis_client = get_redis()
+    kis = get_kis_client()
+
+    # --- Phase 1: Universe ---
+    _update_progress("universe", 10)
+    candidates = universe.load_universe(session, config.scout)
+    if not candidates:
+        raise RuntimeError("No candidates in universe")
+
+    # --- Phase 2: Enrichment ---
+    _update_progress("enrichment", 25)
+    enriched = enrichment.enrich_candidates(candidates, kis, session)
+
+    # --- Phase 3: Quant Scoring ---
+    _update_progress("quant_scoring", 45)
+    quant_scores: list[QuantScore] = []
+    for code, candidate in enriched.items():
+        score = quant.score_candidate(candidate)
+        quant_scores.append(score)
+
+    # --- Phase 4: LLM Analysis ---
+    _update_progress("llm_analysis", 60)
+    llm_provider = LLMFactory.get_provider("reasoning")
+    context = _load_trading_context(redis_client)
+
+    hybrid_scores: list[HybridScore] = []
+    for qs in quant_scores:
+        candidate = enriched.get(qs.stock_code)
+        if not candidate:
+            continue
+        # Pre-filter: 너무 낮은 quant score는 LLM 생략
+        if qs.total_score < 25:
+            continue
+        try:
+            hybrid = await analyst.run_analyst(qs, candidate, context, llm_provider)
+            hybrid_scores.append(hybrid)
+        except Exception as e:
+            logger.warning("[%s] LLM analyst failed: %s", qs.stock_code, e)
+
+    # --- Phase 5: Sector Budget ---
+    _update_progress("sector_budget", 80)
+    budget = _compute_budget(enriched, context, redis_client)
+
+    # --- Phase 6: Selection ---
+    _update_progress("selection", 90)
+    watchlist = selection.select_watchlist(
+        hybrid_scores,
+        enriched,
+        budget,
+        context,
+        max_size=config.scout.max_watchlist_size,
+    )
+
+    # --- Phase 7: Save to Redis ---
+    _update_progress("saving", 95)
+    redis_client.set(
+        REDIS_WATCHLIST_KEY,
+        watchlist.model_dump_json(),
+        ex=REDIS_WATCHLIST_TTL,
+    )
+
+    _update_progress("idle", 100)
+    _last_completed_at = datetime.now(timezone.utc)
+
+    logger.info(
+        "Scout pipeline completed: %d watchlist stocks, regime=%s",
+        len(watchlist.stocks),
+        watchlist.market_regime,
+    )
+    return watchlist
+
+
+# ─── Helpers ─────────────────────────────────────────────────────
+
+
+def _update_progress(phase: str, pct: int) -> None:
+    global _current_phase, _progress_pct
+    _current_phase = phase
+    _progress_pct = pct
+    logger.info("Pipeline phase: %s (%d%%)", phase, pct)
+
+
+def _load_trading_context(redis_client) -> TradingContext:
+    """Redis에서 트레이딩 컨텍스트 로드 (없으면 안전 기본값)."""
+    try:
+        raw = redis_client.get("trading:context")
+        if raw:
+            return TradingContext.model_validate_json(raw)
+    except Exception as e:
+        logger.warning("Failed to load trading context: %s", e)
+
+    return TradingContext.default()
+
+
+def _compute_budget(
+    enriched: dict[str, enrichment.EnrichedCandidate],
+    context: TradingContext,
+    redis_client,
+) -> Optional[SectorBudget]:
+    """섹터 예산 계산."""
+    config = get_config()
+    if not config.risk.dynamic_sector_budget_enabled:
+        return None
+
+    # 간이 섹터 분석: 종목 평균 수익률로 섹터 판단
+    sector_returns: dict[str, list[float]] = {}
+    for candidate in enriched.values():
+        group = candidate.master.sector_group
+        if not group:
+            continue
+        if candidate.snapshot and candidate.snapshot.change_pct:
+            sector_returns.setdefault(group.value, []).append(candidate.snapshot.change_pct)
+
+    analyses = []
+    for group_str, returns in sector_returns.items():
+        avg_ret = sum(returns) / len(returns) if returns else 0.0
+        falling_knife = sum(1 for r in returns if r < -5) / len(returns) >= 0.3 if returns else False
+        try:
+            analyses.append(
+                SectorAnalysis(
+                    sector_group=group_str,
+                    avg_return_pct=avg_ret,
+                    stock_count=len(returns),
+                    is_falling_knife=falling_knife,
+                )
+            )
+        except ValueError:
+            continue
+
+    tiers = sector_budget.assign_sector_tiers(
+        analyses,
+        council_avoid=context.avoid_sectors or None,
+        council_favor=context.favor_sectors or None,
+    )
+
+    budget = sector_budget.compute_sector_budget(tiers)
+    sector_budget.save_budget_to_redis(budget, redis_client)
+
+    return budget
+
+
+def get_kis_client():
+    """KIS 클라이언트 가져오기."""
+    from prime_jennie.services.deps import get_kis_client as _get
+
+    return _get()
