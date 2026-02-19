@@ -34,23 +34,25 @@ class CloudFailoverProvider(BaseLLMProvider):
 
     def _init_chain(self) -> None:
         """Provider 체인 초기화 (API key 존재하는 것만)."""
+        from prime_jennie.domain.config import get_config
+
         from .openai_provider import OpenAILLMProvider
 
+        secrets = get_config().secrets
+
         # 1. DeepSeek Official API
-        ds_key = os.getenv("DEEPSEEK_API_KEY", "")
-        if ds_key:
+        if secrets.deepseek_api_key:
             provider = OpenAILLMProvider(
-                api_key=ds_key,
+                api_key=secrets.deepseek_api_key,
                 base_url="https://api.deepseek.com",
                 default_model="deepseek-chat",
             )
             self._providers.append(("deepseek-api", provider))
 
         # 2. OpenRouter
-        or_key = os.getenv("OPENROUTER_API_KEY", "")
-        if or_key:
+        if secrets.openrouter_api_key:
             provider = OpenAILLMProvider(
-                api_key=or_key,
+                api_key=secrets.openrouter_api_key,
                 base_url="https://openrouter.ai/api/v1",
                 default_model="deepseek/deepseek-v3.2",
             )

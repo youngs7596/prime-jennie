@@ -1,6 +1,5 @@
 """Airflow 공용 유틸리티 — 텔레그램 알림 + 공통 설정."""
 
-import json
 import logging
 import os
 from datetime import timedelta
@@ -20,21 +19,10 @@ DEFAULT_ARGS = {
 
 
 def get_telegram_config() -> tuple[str | None, str | None]:
-    """Telegram bot token + chat_id 로드."""
-    # 환경 변수 우선
+    """Telegram bot token + chat_ids 로드 (환경변수 전용)."""
     token = os.getenv("TELEGRAM_BOT_TOKEN")
-    chat_id = os.getenv("TELEGRAM_CHAT_ID")
-    if token and chat_id:
-        return token, chat_id
-
-    # secrets.json 폴백
-    secrets_path = os.getenv("SECRETS_FILE", "/opt/airflow/secrets.json")
-    try:
-        with open(secrets_path) as f:
-            secrets = json.load(f)
-        return secrets.get("telegram_bot_token"), secrets.get("telegram_chat_id")
-    except Exception:
-        return None, None
+    chat_ids = os.getenv("TELEGRAM_CHAT_IDS", os.getenv("TELEGRAM_CHAT_ID", ""))
+    return token, chat_ids or None
 
 
 def send_telegram_alert(context: dict) -> None:

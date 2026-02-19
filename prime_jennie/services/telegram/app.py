@@ -35,7 +35,7 @@ def _get_bot() -> TelegramBot:
         config = get_config()
         _bot = TelegramBot(
             token=config.telegram.bot_token,
-            allowed_chat_ids=os.environ.get("TELEGRAM_CHAT_IDS", ""),
+            allowed_chat_ids=config.telegram.chat_ids,
         )
     return _bot
 

@@ -18,9 +18,12 @@ class ClaudeLLMProvider(BaseLLMProvider):
     def __init__(self) -> None:
         import anthropic
 
-        api_key = os.getenv("ANTHROPIC_API_KEY", "")
+        from prime_jennie.domain.config import get_config
+
+        config = get_config()
+        api_key = config.secrets.anthropic_api_key
         self._client = anthropic.AsyncAnthropic(api_key=api_key)
-        self._default_model = os.getenv("CLAUDE_MODEL", "claude-sonnet-4-5-20250514")
+        self._default_model = config.llm.claude_model
 
     @property
     def provider_name(self) -> str:

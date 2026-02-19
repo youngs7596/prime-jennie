@@ -17,9 +17,12 @@ class GeminiLLMProvider(BaseLLMProvider):
     def __init__(self) -> None:
         from google import genai
 
-        api_key = os.getenv("GEMINI_API_KEY", "")
+        from prime_jennie.domain.config import get_config
+
+        config = get_config()
+        api_key = config.secrets.gemini_api_key
         self._client = genai.Client(api_key=api_key)
-        self._default_model = os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
+        self._default_model = config.llm.gemini_model
 
     @property
     def provider_name(self) -> str:

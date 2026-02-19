@@ -30,11 +30,12 @@ class OpenAILLMProvider(BaseLLMProvider):
     ) -> None:
         import openai
 
-        self._api_key = api_key or os.getenv("OPENAI_API_KEY", "")
+        from prime_jennie.domain.config import get_config
+
+        config = get_config()
+        self._api_key = api_key or config.secrets.openai_api_key
         self._base_url = base_url or os.getenv("OPENAI_API_BASE")
-        self._default_model = default_model or os.getenv(
-            "OPENAI_MODEL_NAME", "gpt-4o-mini"
-        )
+        self._default_model = default_model or config.llm.openai_model
 
         client_kwargs: dict[str, Any] = {"api_key": self._api_key}
         if self._base_url:

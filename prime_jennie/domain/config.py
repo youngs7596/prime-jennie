@@ -77,6 +77,10 @@ class LLMConfig(BaseSettings):
     vllm_llm_url: str = "http://localhost:8001/v1"
     vllm_embed_url: str = "http://localhost:8002/v1"
     vllm_max_model_len: int = 4096
+    # Provider별 모델명 (LLM_CLAUDE_MODEL, LLM_GEMINI_MODEL, LLM_OPENAI_MODEL)
+    claude_model: str = "claude-sonnet-4-5-20250514"
+    gemini_model: str = "gemini-2.5-flash"
+    openai_model: str = "gpt-4o-mini"
 
     model_config = {"env_prefix": "LLM_"}
 
@@ -189,7 +193,7 @@ class TelegramConfig(BaseSettings):
     """텔레그램 설정."""
 
     bot_token: str = ""
-    chat_id: str = ""
+    chat_ids: str = ""  # 콤마 구분 복수 chat ID
 
     model_config = {"env_prefix": "TELEGRAM_"}
 
@@ -203,6 +207,21 @@ class InfraConfig(BaseSettings):
     dart_api_key: str = ""
 
     model_config = {"env_prefix": "INFRA_"}
+
+
+class SecretsConfig(BaseSettings):
+    """외부 서비스 API 키 — 환경변수 직접 매핑 (prefix 없음).
+
+    env_prefix 없이 필드명이 곧 환경변수명:
+        anthropic_api_key → ANTHROPIC_API_KEY
+        deepseek_api_key  → DEEPSEEK_API_KEY
+    """
+
+    anthropic_api_key: str = ""
+    deepseek_api_key: str = ""
+    openrouter_api_key: str = ""
+    gemini_api_key: str = ""
+    openai_api_key: str = ""
 
 
 class AppConfig(BaseSettings):
@@ -234,6 +253,7 @@ class AppConfig(BaseSettings):
     signal: SignalConfig = Field(default_factory=SignalConfig)
     telegram: TelegramConfig = Field(default_factory=TelegramConfig)
     infra: InfraConfig = Field(default_factory=InfraConfig)
+    secrets: SecretsConfig = Field(default_factory=SecretsConfig)
 
     model_config = {"env_prefix": "APP_"}
 

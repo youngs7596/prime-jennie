@@ -34,8 +34,8 @@ class DailyReporter:
 
     def __init__(self):
         self._config = get_config()
-        self._telegram_token = os.getenv("TELEGRAM_BOT_TOKEN")
-        self._telegram_chat_id = os.getenv("TELEGRAM_CHAT_IDS")
+        self._telegram_token = self._config.telegram.bot_token
+        self._telegram_chat_id = self._config.telegram.chat_ids
 
     async def create_and_send_report(self, session: Session) -> dict:
         """리포트 생성 + 텔레그램 발송."""
