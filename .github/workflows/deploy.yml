@@ -16,6 +16,9 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Copy .env from project
+        run: cp /home/youngs75/projects/prime-jennie/.env .env
+
       - name: Build & deploy with Docker Compose
         env:
           DOCKER_BUILDKIT: "1"

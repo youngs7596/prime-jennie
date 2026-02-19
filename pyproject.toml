@@ -43,6 +43,8 @@ dependencies = [
     "pybreaker>=1.0",
     "slowapi>=0.1.9",
     "websocket-client>=1.7",
+    # Crawlers
+    "beautifulsoup4>=4.12",
     # Utilities
     "aiohttp>=3.9",
     "python-dotenv>=1.0",
