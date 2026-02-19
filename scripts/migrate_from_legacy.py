@@ -69,14 +69,25 @@ TARGET_TABLES = [
 ]
 
 
+SOURCE_TABLES = [
+    "stock_master", "stock_daily_prices_3y", "stock_investor_trading",
+    "stock_news_sentiment", "daily_quant_score", "active_portfolio",
+    "tradelog", "daily_asset_snapshot", "watchlist_history",
+]
+
+COLLATION = "utf8mb4_general_ci"
+
+
 def unify_collation(conn) -> None:
-    """신규 테이블 collation → utf8mb4_general_ci (레거시 테이블과 일치)."""
-    for t in TARGET_TABLES:
+    """소스 + 타겟 모든 테이블 collation 통일."""
+    count = 0
+    for t in TARGET_TABLES + SOURCE_TABLES:
         if _source_exists(conn, t):
             conn.execute(text(
-                f"ALTER TABLE `{t}` CONVERT TO CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci"
+                f"ALTER TABLE `{t}` CONVERT TO CHARACTER SET utf8mb4 COLLATE {COLLATION}"
             ))
-    logger.info("Collation unified to utf8mb4_general_ci for %d tables", len(TARGET_TABLES))
+            count += 1
+    logger.info("Collation unified to %s for %d tables", COLLATION, count)
 
 
 # ── 1. stock_master → stock_masters ──────────────────────────────
