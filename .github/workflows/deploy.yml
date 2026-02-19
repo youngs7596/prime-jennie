@@ -30,7 +30,14 @@ jobs:
           # Prune old build cache
           docker builder prune -f --filter "until=24h" || true
 
-          # Build & deploy (BuildKit caches unchanged layers)
+          # Infra first (Redis, MariaDB, Qdrant, etc.)
+          docker compose --profile infra up -d
+
+          # Wait for Redis & MariaDB to be ready
+          echo "Waiting for infra services..."
+          sleep 10
+
+          # Build & deploy app services
           docker compose --profile real up -d --build
 
           # Cleanup dangling images
@@ -38,4 +45,4 @@ jobs:
 
           echo ""
           echo "=== Deployment complete ==="
-          docker compose --profile real ps
+          docker compose --profile infra --profile real ps
