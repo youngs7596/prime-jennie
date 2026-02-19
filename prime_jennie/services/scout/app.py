@@ -14,6 +14,7 @@ Endpoints:
   GET  /health  → HealthStatus
 """
 
+import asyncio
 import logging
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
@@ -138,24 +139,27 @@ async def run_pipeline(session: Session) -> HotWatchlist:
         score = quant.score_candidate(candidate)
         quant_scores.append(score)
 
-    # --- Phase 4: LLM Analysis ---
+    # --- Phase 4: LLM Analysis (병렬) ---
     _update_progress("llm_analysis", 60)
     llm_provider = LLMFactory.get_provider("reasoning")
     context = _load_trading_context(redis_client)
 
-    hybrid_scores: list[HybridScore] = []
-    for qs in quant_scores:
+    # LLM API 동시 호출 제한 (rate limit 방지)
+    sem = asyncio.Semaphore(5)
+
+    async def _analyze_one(qs: QuantScore) -> HybridScore | None:
         candidate = enriched.get(qs.stock_code)
-        if not candidate:
-            continue
-        # Pre-filter: 너무 낮은 quant score는 LLM 생략
-        if qs.total_score < 25:
-            continue
-        try:
-            hybrid = await analyst.run_analyst(qs, candidate, context, llm_provider)
-            hybrid_scores.append(hybrid)
-        except Exception as e:
-            logger.warning("[%s] LLM analyst failed: %s", qs.stock_code, e)
+        if not candidate or qs.total_score < 25:
+            return None
+        async with sem:
+            try:
+                return await analyst.run_analyst(qs, candidate, context, llm_provider)
+            except Exception as e:
+                logger.warning("[%s] LLM analyst failed: %s", qs.stock_code, e)
+                return None
+
+    results = await asyncio.gather(*[_analyze_one(qs) for qs in quant_scores])
+    hybrid_scores: list[HybridScore] = [r for r in results if r is not None]
 
     # --- Phase 5: Sector Budget ---
     _update_progress("sector_budget", 80)
