@@ -63,6 +63,7 @@ dev = [
 airflow = [
     "apache-airflow>=2.8",
     "mysqlclient>=2.2",
+    "aiomysql>=0.2",
 ]
 
 [tool.hatch.build.targets.wheel]
