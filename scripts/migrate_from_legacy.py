@@ -61,6 +61,24 @@ def _skip_or_ready(conn, source: str, target: str) -> bool:
     return True
 
 
+TARGET_TABLES = [
+    "stock_masters", "stock_daily_prices", "stock_investor_tradings",
+    "stock_news_sentiments", "daily_quant_scores", "positions",
+    "trade_logs", "daily_asset_snapshots", "watchlist_histories",
+    "configs", "stock_fundamentals", "daily_macro_insights", "global_macro_snapshots",
+]
+
+
+def unify_collation(conn) -> None:
+    """신규 테이블 collation → utf8mb4_general_ci (레거시 테이블과 일치)."""
+    for t in TARGET_TABLES:
+        if _source_exists(conn, t):
+            conn.execute(text(
+                f"ALTER TABLE `{t}` CONVERT TO CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci"
+            ))
+    logger.info("Collation unified to utf8mb4_general_ci for %d tables", len(TARGET_TABLES))
+
+
 # ── 1. stock_master → stock_masters ──────────────────────────────
 
 
@@ -350,6 +368,10 @@ MIGRATIONS = [
 def main():
     engine = get_engine()
     logger.info("=== Legacy → Prime-Jennie data migration start ===")
+
+    # collation 통일 (레거시: utf8mb4_general_ci, 신규: utf8mb4_uca1400_ai_ci)
+    with engine.begin() as conn:
+        unify_collation(conn)
 
     total = 0
     for step, name, fn in MIGRATIONS:
