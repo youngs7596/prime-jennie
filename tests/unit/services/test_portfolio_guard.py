@@ -13,6 +13,7 @@ from prime_jennie.services.buyer.portfolio_guard import PortfolioGuard
 @pytest.fixture(autouse=True)
 def _clear_config_cache():
     from prime_jennie.domain.config import get_config
+
     get_config.cache_clear()
     yield
     get_config.cache_clear()
@@ -43,9 +44,7 @@ class TestSectorStockCount:
     def test_at_limit(self):
         """섹터 한도 도달 → 차단."""
         guard = PortfolioGuard()
-        positions = [
-            _make_position(f"00000{i}", SectorGroup.SEMICONDUCTOR_IT) for i in range(3)
-        ]
+        positions = [_make_position(f"00000{i}", SectorGroup.SEMICONDUCTOR_IT) for i in range(3)]
         result = guard.check_sector_stock_count(SectorGroup.SEMICONDUCTOR_IT, positions)
         assert not result.passed
         assert "full" in result.reason
@@ -53,9 +52,7 @@ class TestSectorStockCount:
     def test_different_sector_ok(self):
         """다른 섹터는 무관."""
         guard = PortfolioGuard()
-        positions = [
-            _make_position(f"00000{i}", SectorGroup.SEMICONDUCTOR_IT) for i in range(3)
-        ]
+        positions = [_make_position(f"00000{i}", SectorGroup.SEMICONDUCTOR_IT) for i in range(3)]
         result = guard.check_sector_stock_count(SectorGroup.FINANCE, positions)
         assert result.passed
 
@@ -65,9 +62,7 @@ class TestSectorStockCount:
         mock_redis.hget.return_value = json.dumps({"portfolio_cap": 5, "tier": "HOT"})
 
         guard = PortfolioGuard(redis_client=mock_redis)
-        positions = [
-            _make_position(f"00000{i}", SectorGroup.SEMICONDUCTOR_IT) for i in range(4)
-        ]
+        positions = [_make_position(f"00000{i}", SectorGroup.SEMICONDUCTOR_IT) for i in range(4)]
         result = guard.check_sector_stock_count(SectorGroup.SEMICONDUCTOR_IT, positions)
         # 동적 cap=5이므로 4개는 통과
         assert result.passed
@@ -78,9 +73,7 @@ class TestSectorStockCount:
         mock_redis.hget.side_effect = Exception("Redis down")
 
         guard = PortfolioGuard(redis_client=mock_redis)
-        positions = [
-            _make_position(f"00000{i}", SectorGroup.SEMICONDUCTOR_IT) for i in range(3)
-        ]
+        positions = [_make_position(f"00000{i}", SectorGroup.SEMICONDUCTOR_IT) for i in range(3)]
         result = guard.check_sector_stock_count(SectorGroup.SEMICONDUCTOR_IT, positions)
         assert not result.passed
 
@@ -147,9 +140,7 @@ class TestCheckAll:
     def test_sector_fail_blocks(self):
         """섹터 제한 차단."""
         guard = PortfolioGuard()
-        positions = [
-            _make_position(f"00000{i}", SectorGroup.SEMICONDUCTOR_IT) for i in range(3)
-        ]
+        positions = [_make_position(f"00000{i}", SectorGroup.SEMICONDUCTOR_IT) for i in range(3)]
         result = guard.check_all(
             sector_group=SectorGroup.SEMICONDUCTOR_IT,
             buy_amount=2_000_000,

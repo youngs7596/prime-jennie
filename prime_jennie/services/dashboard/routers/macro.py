@@ -1,15 +1,15 @@
 """Macro API — 매크로 인사이트, 시장 국면, 트레이딩 컨텍스트."""
 
+import contextlib
 import json
 from datetime import date
-from typing import Optional
 
 from fastapi import APIRouter, Depends
 from pydantic import BaseModel
 from sqlmodel import Session
 
-from prime_jennie.domain.enums import MarketRegime, Sentiment, VixRegime
-from prime_jennie.domain.macro import MacroInsight, SectorSignal, TradingContext
+from prime_jennie.domain.enums import MarketRegime
+from prime_jennie.domain.macro import TradingContext
 from prime_jennie.infra.database.repositories import MacroRepository
 from prime_jennie.services.deps import get_db_session
 
@@ -28,14 +28,12 @@ class RegimeResponse(BaseModel):
 
 @router.get("/insight")
 def get_insight(
-    target_date: Optional[str] = None,
+    target_date: str | None = None,
     session: Session = Depends(get_db_session),
 ) -> dict:
     """최신 또는 특정 날짜의 매크로 인사이트."""
     if target_date:
-        row = MacroRepository.get_insight_by_date(
-            session, date.fromisoformat(target_date)
-        )
+        row = MacroRepository.get_insight_by_date(session, date.fromisoformat(target_date))
     else:
         row = MacroRepository.get_latest_insight(session)
 
@@ -90,11 +88,7 @@ def get_dates(
 
     from prime_jennie.infra.database.models import DailyMacroInsightDB
 
-    stmt = (
-        select(DailyMacroInsightDB.insight_date)
-        .order_by(desc(DailyMacroInsightDB.insight_date))
-        .limit(limit)
-    )
+    stmt = select(DailyMacroInsightDB.insight_date).order_by(desc(DailyMacroInsightDB.insight_date)).limit(limit)
     dates = session.exec(stmt).all()
     return [d.isoformat() for d in dates]
 
@@ -103,10 +97,8 @@ def _db_to_insight_dict(row) -> dict:
     """DailyMacroInsightDB → dict 변환."""
     sector_signals = []
     if row.sector_signals_json:
-        try:
+        with contextlib.suppress(json.JSONDecodeError):
             sector_signals = json.loads(row.sector_signals_json)
-        except json.JSONDecodeError:
-            pass
 
     return {
         "insight_date": row.insight_date.isoformat(),

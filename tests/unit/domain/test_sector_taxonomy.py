@@ -1,7 +1,5 @@
 """Sector Taxonomy 단위 테스트."""
 
-import pytest
-
 from prime_jennie.domain.enums import SectorGroup
 from prime_jennie.domain.sector_taxonomy import NAVER_TO_GROUP, get_sector_group
 

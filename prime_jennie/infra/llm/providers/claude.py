@@ -2,9 +2,8 @@
 
 import json
 import logging
-import os
 import re
-from typing import Any, Optional
+from typing import Any
 
 from prime_jennie.infra.llm.base import BaseLLMProvider, LLMResponse
 from prime_jennie.infra.llm.factory import register_provider
@@ -33,10 +32,10 @@ class ClaudeLLMProvider(BaseLLMProvider):
         self,
         prompt: str,
         *,
-        system: Optional[str] = None,
+        system: str | None = None,
         temperature: float = 0.7,
         max_tokens: int = 2048,
-        service: Optional[str] = None,
+        service: str | None = None,
     ) -> LLMResponse:
         model = self._default_model
 
@@ -71,10 +70,10 @@ class ClaudeLLMProvider(BaseLLMProvider):
         prompt: str,
         schema: dict[str, Any],
         *,
-        system: Optional[str] = None,
+        system: str | None = None,
         temperature: float = 0.3,
         max_tokens: int = 4096,
-        service: Optional[str] = None,
+        service: str | None = None,
     ) -> dict[str, Any]:
         sys_msg = system or "You are a helpful assistant. Always respond with valid JSON only, no markdown formatting."
 
@@ -103,7 +102,7 @@ class ClaudeLLMProvider(BaseLLMProvider):
         model: str = "claude-opus-4-6-20250219",
         budget_tokens: int = 8000,
         max_tokens: int = 16000,
-        service: Optional[str] = None,
+        service: str | None = None,
     ) -> dict[str, Any]:
         """Extended Thinking을 활용한 JSON 생성 (Opus 전용)."""
         response = await self._client.messages.create(

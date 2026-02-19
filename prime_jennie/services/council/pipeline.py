@@ -7,11 +7,12 @@ Step 3: Chief Judge (THINKING tier) — 최종 판정 + 전략 추천
 비용: ~$0.215/회 (DeepSeek×2 + Claude×1)
 """
 
+import contextlib
 import json
 import logging
 from dataclasses import dataclass, field
-from datetime import date, datetime, timezone
-from typing import Any, Optional
+from datetime import date
+from typing import Any
 
 from prime_jennie.domain.enums import SectorGroup, Sentiment, VixRegime
 from prime_jennie.domain.macro import (
@@ -19,7 +20,6 @@ from prime_jennie.domain.macro import (
     MacroInsight,
     RiskFactor,
     SectorSignal,
-    TradingContext,
 )
 from prime_jennie.infra.llm.base import BaseLLMProvider
 from prime_jennie.infra.llm.factory import LLMFactory
@@ -52,17 +52,17 @@ class CouncilInput:
     """Council 파이프라인 입력."""
 
     briefing_text: str = ""
-    global_snapshot: Optional[GlobalSnapshot] = None
+    global_snapshot: GlobalSnapshot | None = None
     political_news: list[str] = field(default_factory=list)
     sector_momentum_text: str = ""
-    target_date: Optional[date] = None
+    target_date: date | None = None
 
 
 @dataclass
 class CouncilResult:
     """Council 파이프라인 출력."""
 
-    insight: Optional[MacroInsight] = None
+    insight: MacroInsight | None = None
     raw_outputs: dict[str, Any] = field(default_factory=dict)
     total_cost_usd: float = 0.0
     success: bool = False
@@ -79,8 +79,8 @@ class MacroCouncilPipeline:
 
     def __init__(
         self,
-        reasoning_provider: Optional[BaseLLMProvider] = None,
-        thinking_provider: Optional[BaseLLMProvider] = None,
+        reasoning_provider: BaseLLMProvider | None = None,
+        thinking_provider: BaseLLMProvider | None = None,
     ):
         self._reasoning = reasoning_provider
         self._thinking = thinking_provider
@@ -134,9 +134,7 @@ class MacroCouncilPipeline:
             result.raw_outputs["chief_judge"] = step3
 
         # Build MacroInsight
-        result.insight = self._build_insight(
-            target_date, input_data, step1, step2, step3
-        )
+        result.insight = self._build_insight(target_date, input_data, step1, step2, step3)
         result.success = True
         return result
 
@@ -157,9 +155,7 @@ class MacroCouncilPipeline:
             service="macro_council",
         )
 
-    async def _run_risk_analyst(
-        self, context: str, strategist: dict[str, Any]
-    ) -> dict[str, Any]:
+    async def _run_risk_analyst(self, context: str, strategist: dict[str, Any]) -> dict[str, Any]:
         """Step 2: 리스크 검증."""
         prompt = (
             f"=== 원본 시장 데이터 ===\n{context}\n\n"
@@ -231,9 +227,7 @@ class MacroCouncilPipeline:
             parts.append(f"=== 정치/지정학 뉴스 ===\n{news}")
 
         if input_data.sector_momentum_text:
-            parts.append(
-                f"=== 섹터 모멘텀 ===\n{input_data.sector_momentum_text}"
-            )
+            parts.append(f"=== 섹터 모멘텀 ===\n{input_data.sector_momentum_text}")
 
         return "\n\n".join(parts)
 
@@ -257,9 +251,7 @@ class MacroCouncilPipeline:
         }
 
     @staticmethod
-    def _fallback_merge(
-        strategist: dict[str, Any], risk_analyst: dict[str, Any]
-    ) -> dict[str, Any]:
+    def _fallback_merge(strategist: dict[str, Any], risk_analyst: dict[str, Any]) -> dict[str, Any]:
         """Chief Judge 실패 시 Step 1+2 병합."""
         risk = risk_analyst.get("risk_assessment", {})
         score = risk.get("adjusted_sentiment_score", strategist.get("sentiment_score", 50))
@@ -306,17 +298,12 @@ class MacroCouncilPipeline:
         for name, sig in strategist.get("sector_signals", {}).items():
             try:
                 sg = SectorGroup(name)
-                sector_signals.append(
-                    SectorSignal(sector_group=sg, signal=sig.upper())
-                )
+                sector_signals.append(SectorSignal(sector_group=sg, signal=sig.upper()))
             except ValueError:
                 continue
 
         # Risk factors
-        risk_factors = [
-            RiskFactor(name=rf, severity="MID")
-            for rf in strategist.get("risk_factors", [])[:10]
-        ]
+        risk_factors = [RiskFactor(name=rf, severity="MID") for rf in strategist.get("risk_factors", [])[:10]]
 
         # Sectors to favor/avoid (validate against SectorGroup)
         favor = _parse_sector_groups(chief_judge.get("sectors_to_favor", []))
@@ -331,10 +318,8 @@ class MacroCouncilPipeline:
         vix_regime = VixRegime.NORMAL
         if input_data.global_snapshot:
             vix_val = input_data.global_snapshot.vix
-            try:
+            with contextlib.suppress(ValueError):
                 vix_regime = VixRegime(input_data.global_snapshot.vix_regime)
-            except ValueError:
-                pass
 
         return MacroInsight(
             insight_date=target_date,

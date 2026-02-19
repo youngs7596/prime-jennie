@@ -5,7 +5,6 @@ ATR(Average True Range)을 이용한 리스크 패리티 포지션 사이징.
 """
 
 import logging
-from typing import Optional
 
 from prime_jennie.domain.config import get_config
 from prime_jennie.domain.enums import SectorGroup, TradeTier
@@ -31,9 +30,7 @@ def get_dynamic_max_position_pct(llm_score: float) -> float:
     return MAX_POSITION_PCT_DEFAULT
 
 
-def get_sector_risk_multiplier(
-    sector: Optional[SectorGroup], held_sectors: list[SectorGroup]
-) -> float:
+def get_sector_risk_multiplier(sector: SectorGroup | None, held_sectors: list[SectorGroup]) -> float:
     """동일 섹터 보유 시 감산 배율."""
     if sector is None or not held_sectors:
         return 1.0
@@ -42,16 +39,14 @@ def get_sector_risk_multiplier(
     return 1.0
 
 
-def check_portfolio_heat(
-    current_risk_pct: float, new_risk_pct: float
-) -> bool:
+def check_portfolio_heat(current_risk_pct: float, new_risk_pct: float) -> bool:
     """포트폴리오 열 제한 체크. True=OK, False=초과."""
     return (current_risk_pct + new_risk_pct) <= PORTFOLIO_HEAT_LIMIT
 
 
 def get_tier_multiplier(trade_tier: TradeTier) -> float:
     """티어별 포지션 배율."""
-    config = get_config()
+    get_config()
     return {
         TradeTier.TIER1: 1.0,
         TradeTier.TIER2: 0.5,
@@ -84,7 +79,7 @@ def calculate_position_size(request: PositionSizingRequest) -> PositionSizingRes
     5. Apply tier/stale multipliers
     """
     config = get_config()
-    risk_per_trade = config.risk.max_position_value_pct / 100  # % → ratio
+    config.risk.max_position_value_pct / 100  # % → ratio
     atr_multiplier = 2.0  # 2 ATR = 1R
 
     total_assets = request.available_cash + request.portfolio_value
@@ -98,9 +93,7 @@ def calculate_position_size(request: PositionSizingRequest) -> PositionSizingRes
         )
 
     # Sector risk multiplier
-    sector_mult = get_sector_risk_multiplier(
-        request.sector_group, request.held_sector_groups
-    )
+    sector_mult = get_sector_risk_multiplier(request.sector_group, request.held_sector_groups)
 
     # Risk amount
     effective_risk_pct = 0.01 * sector_mult  # 1% base × sector
@@ -155,7 +148,10 @@ def calculate_position_size(request: PositionSizingRequest) -> PositionSizingRes
             target_weight_pct=round(target_quantity * request.stock_price / total_assets * 100, 2),
             actual_weight_pct=0,
             applied_multipliers={"portfolio_heat": 0.0},
-            reasoning=f"Portfolio heat exceeded: {request.portfolio_risk_pct + actual_risk_pct:.1f}% > {PORTFOLIO_HEAT_LIMIT}%",
+            reasoning=(
+                f"Portfolio heat exceeded: {request.portfolio_risk_pct + actual_risk_pct:.1f}%"
+                f" > {PORTFOLIO_HEAT_LIMIT}%"
+            ),
         )
 
     # Tier multiplier
@@ -169,23 +165,12 @@ def calculate_position_size(request: PositionSizingRequest) -> PositionSizingRes
 
     # Final quantity
     raw_final = int(quantity * tier_mult * stale_mult * pos_mult)
-    if raw_final <= 0:
-        final_quantity = 0
-    else:
-        final_quantity = max(MIN_QUANTITY, raw_final)
+    final_quantity = 0 if raw_final <= 0 else max(MIN_QUANTITY, raw_final)
     final_quantity = min(final_quantity, MAX_QUANTITY)
 
     # Result
-    actual_pct = (
-        round(final_quantity * request.stock_price / total_assets * 100, 2)
-        if total_assets > 0
-        else 0
-    )
-    target_pct = (
-        round(target_quantity * request.stock_price / total_assets * 100, 2)
-        if total_assets > 0
-        else 0
-    )
+    actual_pct = round(final_quantity * request.stock_price / total_assets * 100, 2) if total_assets > 0 else 0
+    target_pct = round(target_quantity * request.stock_price / total_assets * 100, 2) if total_assets > 0 else 0
 
     multipliers = {
         "sector": sector_mult,

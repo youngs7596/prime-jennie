@@ -4,7 +4,7 @@
 """
 
 import logging
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from prime_jennie.domain.config import ScannerConfig
 from prime_jennie.domain.enums import MarketRegime, SignalType
@@ -233,7 +233,7 @@ def detect_dip_buy(
     if entry.scored_at is None:
         return StrategyResult(False)
 
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     days_since = (now - entry.scored_at).days
     if days_since < 1 or days_since > max_days:
         return StrategyResult(False)
@@ -294,7 +294,7 @@ def detect_conviction_entry(
 
     # 2. Age check (D+0~2)
     if entry.scored_at is not None:
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         days = (now - entry.scored_at).days
         if days > 2:
             return StrategyResult(False)
@@ -383,9 +383,7 @@ def detect_strategies(
     4. Counter-trend: RSI Rebound (Bear only)
     """
     # 1. Conviction Entry (always first, bypasses risk gates)
-    conv = detect_conviction_entry(
-        bars, entry, current_price, vwap, rsi, regime, config
-    )
+    conv = detect_conviction_entry(bars, entry, current_price, vwap, rsi, regime, config)
     if conv.detected:
         return conv
 
@@ -398,9 +396,7 @@ def detect_strategies(
         if gc.detected:
             return gc
 
-        mc = detect_momentum_continuation(
-            bars, regime, llm_score=entry.llm_score
-        )
+        mc = detect_momentum_continuation(bars, regime, llm_score=entry.llm_score)
         if mc.detected:
             return mc
 

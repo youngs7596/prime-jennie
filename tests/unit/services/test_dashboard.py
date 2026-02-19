@@ -1,18 +1,19 @@
 """Dashboard API 단위 테스트."""
 
-from datetime import date, datetime, timezone
+from datetime import UTC, date, datetime
 from unittest.mock import MagicMock, patch
 
 import pytest
 from fastapi.testclient import TestClient
 
+from prime_jennie.domain.enums import MarketRegime, TradeTier
 from prime_jennie.domain.watchlist import HotWatchlist, WatchlistEntry
-from prime_jennie.domain.enums import MarketRegime, TradeTier, RiskTag
 
 
 @pytest.fixture(autouse=True)
 def _clear_config_cache():
     from prime_jennie.domain.config import get_config
+
     get_config.cache_clear()
     yield
     get_config.cache_clear()
@@ -74,7 +75,7 @@ def _mock_trade_db(**overrides):
         "profit_pct": 10.0,
         "profit_amount": 350_000,
         "holding_days": 7,
-        "trade_timestamp": datetime(2026, 2, 19, 10, 0, tzinfo=timezone.utc),
+        "trade_timestamp": datetime(2026, 2, 19, 10, 0, tzinfo=UTC),
     }
     defaults.update(overrides)
     for k, v in defaults.items():
@@ -286,7 +287,7 @@ class TestWatchlistAPI:
         client, _, mock_redis = _make_client()
 
         watchlist = HotWatchlist(
-            generated_at=datetime(2026, 2, 19, 10, 0, tzinfo=timezone.utc),
+            generated_at=datetime(2026, 2, 19, 10, 0, tzinfo=UTC),
             market_regime=MarketRegime.BULL,
             stocks=[
                 WatchlistEntry(
@@ -412,9 +413,7 @@ class TestSystemAPI:
     async def test_get_all_health(self, mock_check):
         from prime_jennie.services.dashboard.routers.system import ServiceStatus
 
-        mock_check.return_value = ServiceStatus(
-            name="test", port=8080, status="healthy", version="1.0.0"
-        )
+        mock_check.return_value = ServiceStatus(name="test", port=8080, status="healthy", version="1.0.0")
         client, _, _ = _make_client()
         resp = client.get("/api/system/health")
         assert resp.status_code == 200
@@ -432,6 +431,7 @@ class TestHealthEndpoint:
         # Mock the dependency checks
         with patch("prime_jennie.services.base._check_dependency") as mock_check:
             from prime_jennie.domain.health import DependencyHealth
+
             mock_check.return_value = DependencyHealth(status="healthy", latency_ms=1.0)
 
             resp = client.get("/health")

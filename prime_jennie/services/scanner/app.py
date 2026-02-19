@@ -14,15 +14,14 @@ import threading
 import time
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
-from datetime import datetime, timezone
-from typing import Optional
+from datetime import UTC, datetime
 
 import httpx
 import redis
 
 from prime_jennie.domain import BuySignal, HotWatchlist, TradingContext
 from prime_jennie.domain.config import get_config
-from prime_jennie.domain.enums import MOMENTUM_STRATEGIES, MarketRegime, SignalType
+from prime_jennie.domain.enums import MOMENTUM_STRATEGIES, SignalType
 from prime_jennie.infra.redis.cache import TypedCache
 from prime_jennie.infra.redis.client import get_redis
 from prime_jennie.infra.redis.streams import TypedStreamPublisher
@@ -56,15 +55,9 @@ class BuyScanner:
         self._config = get_config()
         self._redis = redis_client
         self._bar_engine = bar_engine or BarEngine()
-        self._publisher = TypedStreamPublisher(
-            redis_client, STREAM_BUY_SIGNALS, BuySignal
-        )
-        self._watchlist_cache = TypedCache(
-            redis_client, CACHE_WATCHLIST, HotWatchlist
-        )
-        self._context_cache = TypedCache(
-            redis_client, CACHE_TRADING_CONTEXT, TradingContext
-        )
+        self._publisher = TypedStreamPublisher(redis_client, STREAM_BUY_SIGNALS, BuySignal)
+        self._watchlist_cache = TypedCache(redis_client, CACHE_WATCHLIST, HotWatchlist)
+        self._context_cache = TypedCache(redis_client, CACHE_TRADING_CONTEXT, TradingContext)
 
         # 상태
         self._watchlist: HotWatchlist | None = None
@@ -103,9 +96,7 @@ class BuyScanner:
     def context(self) -> TradingContext:
         return self._context
 
-    def process_tick(
-        self, stock_code: str, price: float, volume: int = 0
-    ) -> BuySignal | None:
+    def process_tick(self, stock_code: str, price: float, volume: int = 0) -> BuySignal | None:
         """틱 데이터 처리 → 시그널 발행.
 
         Returns:
@@ -138,13 +129,9 @@ class BuyScanner:
         # Conviction Entry는 risk gate 우회
         from .strategies import detect_conviction_entry
 
-        conv = detect_conviction_entry(
-            bars, entry, price, vwap, rsi, regime, self._config.scanner
-        )
+        conv = detect_conviction_entry(bars, entry, price, vwap, rsi, regime, self._config.scanner)
         if conv.detected:
-            return self._publish_signal(
-                stock_code, entry, conv.signal_type, price, rsi, vol_info["ratio"], vwap
-            )
+            return self._publish_signal(stock_code, entry, conv.signal_type, price, rsi, vol_info["ratio"], vwap)
 
         # 나머지 전략은 risk gate 통과 필요
         gate_result = run_all_gates(
@@ -177,10 +164,7 @@ class BuyScanner:
             return None
 
         # Momentum 확인 바
-        if (
-            self._config.scanner.momentum_confirmation_bars > 0
-            and strategy.signal_type in MOMENTUM_STRATEGIES
-        ):
+        if self._config.scanner.momentum_confirmation_bars > 0 and strategy.signal_type in MOMENTUM_STRATEGIES:
             self._pending_momentum[stock_code] = {
                 "signal_type": strategy.signal_type,
                 "initial_price": price,
@@ -199,13 +183,9 @@ class BuyScanner:
             )
             return None
 
-        return self._publish_signal(
-            stock_code, entry, strategy.signal_type, price, rsi, vol_info["ratio"], vwap
-        )
+        return self._publish_signal(stock_code, entry, strategy.signal_type, price, rsi, vol_info["ratio"], vwap)
 
-    def _check_pending_momentum(
-        self, stock_code: str, current_price: float
-    ) -> BuySignal | None:
+    def _check_pending_momentum(self, stock_code: str, current_price: float) -> BuySignal | None:
         """Pending momentum 확인 → 발행 or 폐기."""
         pending = self._pending_momentum.get(stock_code)
         if pending is None:
@@ -265,7 +245,7 @@ class BuyScanner:
             sector_group=entry.sector_group,
             market_regime=self._watchlist.market_regime,
             source="scanner",
-            timestamp=datetime.now(timezone.utc),
+            timestamp=datetime.now(UTC),
             rsi_value=rsi,
             volume_ratio=volume_ratio,
             vwap=vwap,
@@ -289,9 +269,7 @@ class BuyScanner:
         return {
             "watchlist_loaded": self._watchlist is not None,
             "stock_count": len(self._watchlist.stocks) if self._watchlist else 0,
-            "market_regime": (
-                self._watchlist.market_regime if self._watchlist else "UNKNOWN"
-            ),
+            "market_regime": (self._watchlist.market_regime if self._watchlist else "UNKNOWN"),
             "pending_momentum": len(self._pending_momentum),
             "active_cooldowns": len(self._last_signal_times),
         }
@@ -304,8 +282,8 @@ PRICE_GROUP = "scanner-group"
 PRICE_CONSUMER = "scanner-1"
 WATCHLIST_RELOAD_INTERVAL = 300  # 5분마다 watchlist 재로드
 
-_scanner: Optional[BuyScanner] = None
-_tick_thread: Optional[threading.Thread] = None
+_scanner: BuyScanner | None = None
+_tick_thread: threading.Thread | None = None
 _tick_running = False
 
 
@@ -421,9 +399,7 @@ async def lifespan(app) -> AsyncIterator[None]:
 
     # Tick consumer 시작
     _tick_running = True
-    _tick_thread = threading.Thread(
-        target=_consume_ticks, args=(r, _scanner), daemon=True
-    )
+    _tick_thread = threading.Thread(target=_consume_ticks, args=(r, _scanner), daemon=True)
     _tick_thread.start()
     logger.info("Buy Scanner started with tick consumer")
 

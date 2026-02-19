@@ -3,19 +3,16 @@
 Price Monitor로부터 SellOrder를 수신하여 검증 후 KIS Gateway 주문.
 """
 
+import contextlib
 import logging
-from datetime import datetime, timezone
 
 import redis
 
 from prime_jennie.domain import (
     OrderRequest,
-    OrderResult,
     OrderType,
     Position,
     SellOrder,
-    TradeRecord,
-    TradeType,
 )
 from prime_jennie.domain.config import get_config
 from prime_jennie.domain.enums import SellReason
@@ -129,9 +126,7 @@ class SellExecutor:
         finally:
             self._release_lock(code)
 
-    def _execute_sell(
-        self, order: SellOrder, position: Position
-    ) -> SellResult:
+    def _execute_sell(self, order: SellOrder, position: Position) -> SellResult:
         """실제 매도 실행 (lock 내부)."""
         code = order.stock_code
         name = order.stock_name
@@ -168,9 +163,7 @@ class SellExecutor:
             result = self._kis.sell(order_req)
         except Exception as e:
             logger.error("[%s] Sell order failed: %s", code, e)
-            return SellResult(
-                "error", code, name, reason=f"Order failed: {e}"
-            )
+            return SellResult("error", code, name, reason=f"Order failed: {e}")
 
         if not result.success:
             return SellResult(
@@ -224,17 +217,13 @@ class SellExecutor:
 
     def _acquire_lock(self, stock_code: str, ttl: int = 30) -> bool:
         try:
-            return bool(
-                self._redis.set(f"{LOCK_PREFIX}{stock_code}", "1", nx=True, ex=ttl)
-            )
+            return bool(self._redis.set(f"{LOCK_PREFIX}{stock_code}", "1", nx=True, ex=ttl))
         except Exception:
             return False
 
     def _release_lock(self, stock_code: str) -> None:
-        try:
+        with contextlib.suppress(Exception):
             self._redis.delete(f"{LOCK_PREFIX}{stock_code}")
-        except Exception:
-            pass
 
     def _set_cooldown(self, stock_code: str) -> None:
         """Stop-loss 후 재매수 쿨다운 설정."""

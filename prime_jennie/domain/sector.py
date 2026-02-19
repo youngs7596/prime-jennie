@@ -1,7 +1,5 @@
 """섹터 예산 모델."""
 
-from typing import Dict, Optional
-
 from pydantic import BaseModel, Field
 
 from .enums import SectorGroup, SectorTier
@@ -30,7 +28,7 @@ class SectorBudgetEntry(BaseModel):
 class SectorBudget(BaseModel):
     """전체 섹터 예산 (Redis 저장 단위)."""
 
-    entries: Dict[SectorGroup, SectorBudgetEntry]
+    entries: dict[SectorGroup, SectorBudgetEntry]
     generated_at: str
     council_overrides_applied: bool = False
 

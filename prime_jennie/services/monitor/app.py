@@ -4,11 +4,11 @@ KIS Gateway에서 보유 종목 가격을 주기적으로 폴링하고,
 다층 매도 규칙(exit_rules)을 평가하여 SellOrder를 Redis Stream에 발행.
 """
 
+import contextlib
 import logging
 import threading
 import time
-from datetime import datetime, timezone
-from typing import Optional
+from datetime import UTC, datetime
 
 import redis
 
@@ -53,14 +53,12 @@ class PriceMonitor:
         self,
         kis_client: KISClient,
         redis_client: redis.Redis,
-        context_cache: Optional[TypedCache[TradingContext]] = None,
+        context_cache: TypedCache[TradingContext] | None = None,
     ):
         self._config = get_config()
         self._kis = kis_client
         self._redis = redis_client
-        self._publisher = TypedStreamPublisher(
-            redis_client, SELL_SIGNAL_STREAM, SellOrder
-        )
+        self._publisher = TypedStreamPublisher(redis_client, SELL_SIGNAL_STREAM, SellOrder)
         self._context_cache = context_cache
         self._stop_event = threading.Event()
         self._last_status_log = 0.0
@@ -112,7 +110,7 @@ class PriceMonitor:
         pos: Position,
         regime: MarketRegime,
         macro_stop_mult: float,
-    ) -> Optional[ExitSignal]:
+    ) -> ExitSignal | None:
         """포지션 매도 조건 평가."""
         if pos.current_price is None or pos.current_price <= 0:
             return None
@@ -139,7 +137,7 @@ class PriceMonitor:
         # Holding days
         holding_days = 0
         if pos.bought_at:
-            delta = datetime.now(timezone.utc) - pos.bought_at
+            delta = datetime.now(UTC) - pos.bought_at
             holding_days = delta.days
 
         ctx = PositionContext(
@@ -169,12 +167,10 @@ class PriceMonitor:
             sell_reason=signal.reason,
             current_price=pos.current_price or pos.average_buy_price,
             quantity=sell_qty,
-            timestamp=datetime.now(timezone.utc),
+            timestamp=datetime.now(UTC),
             buy_price=pos.average_buy_price,
             profit_pct=round(
-                (float(pos.current_price or 0) - float(pos.average_buy_price))
-                / float(pos.average_buy_price)
-                * 100,
+                (float(pos.current_price or 0) - float(pos.average_buy_price)) / float(pos.average_buy_price) * 100,
                 2,
             )
             if pos.average_buy_price > 0
@@ -213,7 +209,7 @@ class PriceMonitor:
             logger.error("Failed to get positions")
             return []
 
-    def _get_trading_context(self) -> Optional[TradingContext]:
+    def _get_trading_context(self) -> TradingContext | None:
         """트레이딩 컨텍스트."""
         if self._context_cache:
             return self._context_cache.get()
@@ -249,14 +245,12 @@ class PriceMonitor:
 
     def _set_high_watermark(self, stock_code: str, price: float) -> None:
         """최고가 갱신."""
-        try:
+        with contextlib.suppress(Exception):
             self._redis.setex(
                 f"{WATERMARK_PREFIX}{stock_code}",
                 30 * 86400,  # 30 days TTL
                 str(price),
             )
-        except Exception:
-            pass
 
     # --- Scale-Out Level ---
 
@@ -285,10 +279,8 @@ class PriceMonitor:
             return False
 
     def _set_rsi_sold(self, stock_code: str) -> None:
-        try:
+        with contextlib.suppress(Exception):
             self._redis.setex(f"{RSI_SOLD_PREFIX}{stock_code}", 86400, "1")
-        except Exception:
-            pass
 
     # --- Cleanup ---
 
@@ -321,7 +313,7 @@ class PriceMonitor:
                     {
                         "status": "online",
                         "watching_count": len(positions),
-                        "updated_at": datetime.now(timezone.utc).isoformat(),
+                        "updated_at": datetime.now(UTC).isoformat(),
                     }
                 ),
             )
@@ -338,8 +330,8 @@ def create_monitor_app():
 
     app = create_app("price-monitor", version="1.0.0")
 
-    _monitor: Optional[PriceMonitor] = None
-    _thread: Optional[threading.Thread] = None
+    _monitor: PriceMonitor | None = None
+    _thread: threading.Thread | None = None
 
     @app.post("/start")
     def start_monitoring():

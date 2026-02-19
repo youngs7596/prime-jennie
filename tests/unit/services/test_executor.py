@@ -1,7 +1,7 @@
 """Buy Executor 단위 테스트."""
 
-from datetime import datetime, timezone
-from unittest.mock import MagicMock, patch
+from datetime import UTC, datetime
+from unittest.mock import MagicMock
 
 import pytest
 
@@ -15,6 +15,7 @@ from prime_jennie.services.buyer.executor import BuyExecutor, ExecutionResult, _
 @pytest.fixture(autouse=True)
 def _clear_config_cache():
     from prime_jennie.domain.config import get_config
+
     get_config.cache_clear()
     yield
     get_config.cache_clear()
@@ -31,7 +32,7 @@ def _make_signal(**overrides) -> BuySignal:
         "is_tradable": True,
         "trade_tier": TradeTier.TIER1,
         "market_regime": MarketRegime.BULL,
-        "timestamp": datetime.now(timezone.utc),
+        "timestamp": datetime.now(UTC),
     }
     defaults.update(overrides)
     return BuySignal(**defaults)
@@ -43,7 +44,7 @@ def _mock_executor():
     kis.get_price.return_value = StockSnapshot(
         stock_code="005930",
         price=72000,
-        timestamp=datetime.now(timezone.utc),
+        timestamp=datetime.now(UTC),
     )
     kis.get_positions.return_value = []
     kis.get_balance.return_value = {"cash_balance": 10_000_000}
@@ -191,9 +192,7 @@ class TestBuyExecutor:
 
 class TestExecutionResult:
     def test_to_dict(self):
-        result = ExecutionResult(
-            "success", "005930", "삼성전자", "001234", 10, 72000
-        )
+        result = ExecutionResult("success", "005930", "삼성전자", "001234", 10, 72000)
         d = result.to_dict()
         assert d["status"] == "success"
         assert d["stock_code"] == "005930"

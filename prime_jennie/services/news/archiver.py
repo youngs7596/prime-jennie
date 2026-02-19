@@ -4,9 +4,7 @@
 LLM 호출 없음 — 순수 임베딩 + 저장.
 """
 
-import json
 import logging
-from typing import Optional
 
 import redis
 
@@ -93,7 +91,8 @@ class NewsArchiver:
         # 신규 메시지
         while processed < max_messages:
             messages = self._redis.xreadgroup(
-                ARCHIVER_GROUP, ARCHIVER_CONSUMER,
+                ARCHIVER_GROUP,
+                ARCHIVER_CONSUMER,
                 {NEWS_STREAM: ">"},
                 count=BATCH_SIZE,
                 block=BLOCK_MS,
@@ -101,7 +100,7 @@ class NewsArchiver:
             if not messages:
                 break
 
-            for stream_name, entries in messages:
+            for _stream_name, entries in messages:
                 for msg_id, data in entries:
                     try:
                         self._archive_message(data)
@@ -118,7 +117,8 @@ class NewsArchiver:
         count = 0
         while True:
             pending = self._redis.xreadgroup(
-                ARCHIVER_GROUP, ARCHIVER_CONSUMER,
+                ARCHIVER_GROUP,
+                ARCHIVER_CONSUMER,
                 {NEWS_STREAM: "0"},
                 count=BATCH_SIZE,
             )
@@ -126,7 +126,7 @@ class NewsArchiver:
                 break
 
             has_messages = False
-            for stream_name, entries in pending:
+            for _stream_name, entries in pending:
                 if not entries:
                     continue
                 has_messages = True
@@ -149,17 +149,23 @@ class NewsArchiver:
         from langchain_core.documents import Document
         from langchain_text_splitters import RecursiveCharacterTextSplitter
 
-        headline = data.get(b"headline", data.get("headline", b"")).decode() if isinstance(
-            data.get(b"headline", data.get("headline", "")), bytes
-        ) else data.get("headline", "")
+        headline = (
+            data.get(b"headline", data.get("headline", b"")).decode()
+            if isinstance(data.get(b"headline", data.get("headline", "")), bytes)
+            else data.get("headline", "")
+        )
 
-        stock_code = data.get(b"stock_code", data.get("stock_code", b"")).decode() if isinstance(
-            data.get(b"stock_code", data.get("stock_code", "")), bytes
-        ) else data.get("stock_code", "")
+        stock_code = (
+            data.get(b"stock_code", data.get("stock_code", b"")).decode()
+            if isinstance(data.get(b"stock_code", data.get("stock_code", "")), bytes)
+            else data.get("stock_code", "")
+        )
 
-        article_url = data.get(b"article_url", data.get("article_url", b"")).decode() if isinstance(
-            data.get(b"article_url", data.get("article_url", "")), bytes
-        ) else data.get("article_url", "")
+        article_url = (
+            data.get(b"article_url", data.get("article_url", b"")).decode()
+            if isinstance(data.get(b"article_url", data.get("article_url", "")), bytes)
+            else data.get("article_url", "")
+        )
 
         if not headline:
             return
@@ -168,9 +174,11 @@ class NewsArchiver:
         metadata = {
             "stock_code": stock_code,
             "source_url": article_url,
-            "source": data.get("source", "NAVER") if isinstance(data.get("source"), str)
-                       else data.get(b"source", b"NAVER").decode() if isinstance(data.get(b"source"), bytes)
-                       else "NAVER",
+            "source": data.get("source", "NAVER")
+            if isinstance(data.get("source"), str)
+            else data.get(b"source", b"NAVER").decode()
+            if isinstance(data.get(b"source"), bytes)
+            else "NAVER",
         }
 
         doc = Document(page_content=content, metadata=metadata)

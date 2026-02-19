@@ -1,10 +1,8 @@
 """Daily Briefing 서비스 단위 테스트."""
 
-from datetime import date, datetime, timezone
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
-
 
 # ─── DailyReporter ────────────────────────────────────────────
 
@@ -234,9 +232,7 @@ class TestDailyReporterLLM:
             mock_provider = AsyncMock()
             mock_provider.generate = AsyncMock(return_value=mock_response)
 
-            with patch(
-                "prime_jennie.infra.llm.factory.LLMFactory"
-            ) as mock_factory:
+            with patch("prime_jennie.infra.llm.factory.LLMFactory") as mock_factory:
                 mock_factory.get_provider.return_value = mock_provider
 
                 result = await reporter._generate_llm_summary("원본 리포트")

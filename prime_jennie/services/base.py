@@ -8,10 +8,9 @@ Usage:
 
 import logging
 import time
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Callable
 from contextlib import asynccontextmanager
-from datetime import datetime, timezone
-from typing import Callable, Optional
+from datetime import UTC, datetime
 
 import httpx
 from fastapi import FastAPI, Request
@@ -30,7 +29,7 @@ def create_app(
     service_name: str,
     *,
     version: str = "1.0.0",
-    lifespan: Optional[Callable] = None,
+    lifespan: Callable | None = None,
     dependencies: list[str] | None = None,
 ) -> FastAPI:
     """FastAPI 앱 팩토리 — 공통 헬스체크 + 에러 핸들러.
@@ -110,7 +109,7 @@ def create_app(
             uptime_seconds=time.monotonic() - _start_time,
             version=version,
             dependencies=dep_health,
-            timestamp=datetime.now(timezone.utc),
+            timestamp=datetime.now(UTC),
         )
 
     return app

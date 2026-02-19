@@ -1,18 +1,16 @@
 """Macro Council Pipeline 단위 테스트."""
 
-import json
-from datetime import date
-from unittest.mock import AsyncMock, MagicMock, patch
+from datetime import UTC, date
+from unittest.mock import AsyncMock
 
 import pytest
 
 from prime_jennie.domain.enums import SectorGroup, Sentiment, VixRegime
-from prime_jennie.domain.macro import GlobalSnapshot, MacroInsight
+from prime_jennie.domain.macro import GlobalSnapshot
 from prime_jennie.services.council.pipeline import (
-    CouncilInput,
-    CouncilResult,
-    MacroCouncilPipeline,
     VALID_STRATEGIES,
+    CouncilInput,
+    MacroCouncilPipeline,
     _parse_sector_groups,
 )
 from prime_jennie.services.council.schemas import (
@@ -25,6 +23,7 @@ from prime_jennie.services.council.schemas import (
 @pytest.fixture(autouse=True)
 def _clear_config_cache():
     from prime_jennie.domain.config import get_config
+
     get_config.cache_clear()
     yield
     get_config.cache_clear()
@@ -126,13 +125,9 @@ class TestCouncilPipeline:
     async def test_full_pipeline_success(self):
         """3단계 파이프라인 정상 실행."""
         mock_reasoning = AsyncMock()
-        mock_reasoning.generate_json = AsyncMock(
-            side_effect=[_mock_strategist_output(), _mock_risk_analyst_output()]
-        )
+        mock_reasoning.generate_json = AsyncMock(side_effect=[_mock_strategist_output(), _mock_risk_analyst_output()])
         mock_thinking = AsyncMock()
-        mock_thinking.generate_json = AsyncMock(
-            return_value=_mock_chief_judge_output()
-        )
+        mock_thinking.generate_json = AsyncMock(return_value=_mock_chief_judge_output())
 
         pipeline = MacroCouncilPipeline(mock_reasoning, mock_thinking)
         input_data = CouncilInput(
@@ -154,13 +149,9 @@ class TestCouncilPipeline:
     async def test_risk_analyst_failure_uses_defaults(self):
         """Step 2 실패 → 기본값 사용."""
         mock_reasoning = AsyncMock()
-        mock_reasoning.generate_json = AsyncMock(
-            side_effect=[_mock_strategist_output(), Exception("API timeout")]
-        )
+        mock_reasoning.generate_json = AsyncMock(side_effect=[_mock_strategist_output(), Exception("API timeout")])
         mock_thinking = AsyncMock()
-        mock_thinking.generate_json = AsyncMock(
-            return_value=_mock_chief_judge_output()
-        )
+        mock_thinking.generate_json = AsyncMock(return_value=_mock_chief_judge_output())
 
         pipeline = MacroCouncilPipeline(mock_reasoning, mock_thinking)
         input_data = CouncilInput(briefing_text="테스트 브리핑")
@@ -175,9 +166,7 @@ class TestCouncilPipeline:
     async def test_chief_judge_failure_merges_steps(self):
         """Step 3 실패 → Step 1+2 병합."""
         mock_reasoning = AsyncMock()
-        mock_reasoning.generate_json = AsyncMock(
-            side_effect=[_mock_strategist_output(), _mock_risk_analyst_output()]
-        )
+        mock_reasoning.generate_json = AsyncMock(side_effect=[_mock_strategist_output(), _mock_risk_analyst_output()])
         mock_thinking = AsyncMock()
         mock_thinking.generate_json = AsyncMock(side_effect=Exception("Opus down"))
 
@@ -221,13 +210,9 @@ class TestInsightBuilding:
     @pytest.mark.asyncio
     async def test_sectors_parsed_correctly(self):
         mock_reasoning = AsyncMock()
-        mock_reasoning.generate_json = AsyncMock(
-            side_effect=[_mock_strategist_output(), _mock_risk_analyst_output()]
-        )
+        mock_reasoning.generate_json = AsyncMock(side_effect=[_mock_strategist_output(), _mock_risk_analyst_output()])
         mock_thinking = AsyncMock()
-        mock_thinking.generate_json = AsyncMock(
-            return_value=_mock_chief_judge_output()
-        )
+        mock_thinking.generate_json = AsyncMock(return_value=_mock_chief_judge_output())
 
         pipeline = MacroCouncilPipeline(mock_reasoning, mock_thinking)
         result = await pipeline.run(CouncilInput(briefing_text="test"))
@@ -243,9 +228,7 @@ class TestInsightBuilding:
         judge["final_sentiment_score"] = 150  # over 100
 
         mock_reasoning = AsyncMock()
-        mock_reasoning.generate_json = AsyncMock(
-            side_effect=[_mock_strategist_output(), _mock_risk_analyst_output()]
-        )
+        mock_reasoning.generate_json = AsyncMock(side_effect=[_mock_strategist_output(), _mock_risk_analyst_output()])
         mock_thinking = AsyncMock()
         mock_thinking.generate_json = AsyncMock(return_value=judge)
 
@@ -260,9 +243,7 @@ class TestInsightBuilding:
         judge["final_position_size_pct"] = 200
 
         mock_reasoning = AsyncMock()
-        mock_reasoning.generate_json = AsyncMock(
-            side_effect=[_mock_strategist_output(), _mock_risk_analyst_output()]
-        )
+        mock_reasoning.generate_json = AsyncMock(side_effect=[_mock_strategist_output(), _mock_risk_analyst_output()])
         mock_thinking = AsyncMock()
         mock_thinking.generate_json = AsyncMock(return_value=judge)
 
@@ -273,11 +254,11 @@ class TestInsightBuilding:
 
     @pytest.mark.asyncio
     async def test_global_snapshot_integrated(self):
-        from datetime import datetime, timezone
+        from datetime import datetime
 
         snap = GlobalSnapshot(
             snapshot_date=date(2026, 2, 19),
-            timestamp=datetime.now(timezone.utc),
+            timestamp=datetime.now(UTC),
             vix=18.5,
             vix_regime=VixRegime.NORMAL,
             usd_krw=1320.5,
@@ -290,18 +271,12 @@ class TestInsightBuilding:
         )
 
         mock_reasoning = AsyncMock()
-        mock_reasoning.generate_json = AsyncMock(
-            side_effect=[_mock_strategist_output(), _mock_risk_analyst_output()]
-        )
+        mock_reasoning.generate_json = AsyncMock(side_effect=[_mock_strategist_output(), _mock_risk_analyst_output()])
         mock_thinking = AsyncMock()
-        mock_thinking.generate_json = AsyncMock(
-            return_value=_mock_chief_judge_output()
-        )
+        mock_thinking.generate_json = AsyncMock(return_value=_mock_chief_judge_output())
 
         pipeline = MacroCouncilPipeline(mock_reasoning, mock_thinking)
-        result = await pipeline.run(
-            CouncilInput(briefing_text="test", global_snapshot=snap)
-        )
+        result = await pipeline.run(CouncilInput(briefing_text="test", global_snapshot=snap))
 
         assert result.insight.vix_value == 18.5
         assert result.insight.usd_krw == 1320.5
@@ -318,9 +293,7 @@ class TestDefaultRiskAnalyst:
 
 class TestFallbackMerge:
     def test_produces_valid_output(self):
-        merged = MacroCouncilPipeline._fallback_merge(
-            _mock_strategist_output(), _mock_risk_analyst_output()
-        )
+        merged = MacroCouncilPipeline._fallback_merge(_mock_strategist_output(), _mock_risk_analyst_output())
         assert merged["final_sentiment"] == "neutral_to_bullish"
         assert merged["council_consensus"] == "partial_disagree"
         assert merged["final_position_size_pct"] == 90
@@ -335,8 +308,12 @@ class TestFallbackMerge:
 class TestValidStrategies:
     def test_contains_all_strategies(self):
         expected = {
-            "GOLDEN_CROSS", "RSI_REBOUND", "MOMENTUM",
-            "MOMENTUM_CONTINUATION", "DIP_BUY",
-            "WATCHLIST_CONVICTION", "VOLUME_BREAKOUT",
+            "GOLDEN_CROSS",
+            "RSI_REBOUND",
+            "MOMENTUM",
+            "MOMENTUM_CONTINUATION",
+            "DIP_BUY",
+            "WATCHLIST_CONVICTION",
+            "VOLUME_BREAKOUT",
         }
         assert expected == VALID_STRATEGIES

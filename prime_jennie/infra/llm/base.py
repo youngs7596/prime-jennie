@@ -2,7 +2,7 @@
 
 import logging
 from abc import ABC, abstractmethod
-from typing import Any, Optional
+from typing import Any
 
 from pydantic import BaseModel
 
@@ -25,13 +25,13 @@ class BaseLLMProvider(ABC):
     모든 provider (Ollama/vLLM, OpenAI, Claude, Gemini, CloudFailover)가 구현.
     """
 
-    def _record_usage(self, response: LLMResponse, service: Optional[str]) -> None:
+    def _record_usage(self, response: LLMResponse, service: str | None) -> None:
         """LLM 사용량을 Redis에 기록 (모든 provider 공통)."""
         if response.tokens_in == 0 and response.tokens_out == 0:
             return
         try:
-            from prime_jennie.infra.redis.client import get_redis
             from prime_jennie.infra.observability.metrics import record_llm_usage
+            from prime_jennie.infra.redis.client import get_redis
 
             record_llm_usage(
                 get_redis(),
@@ -48,10 +48,10 @@ class BaseLLMProvider(ABC):
         self,
         prompt: str,
         *,
-        system: Optional[str] = None,
+        system: str | None = None,
         temperature: float = 0.7,
         max_tokens: int = 2048,
-        service: Optional[str] = None,
+        service: str | None = None,
     ) -> LLMResponse:
         """텍스트 생성."""
         ...
@@ -62,10 +62,10 @@ class BaseLLMProvider(ABC):
         prompt: str,
         schema: dict[str, Any],
         *,
-        system: Optional[str] = None,
+        system: str | None = None,
         temperature: float = 0.3,
         max_tokens: int = 2048,
-        service: Optional[str] = None,
+        service: str | None = None,
     ) -> dict[str, Any]:
         """JSON 구조화 출력 생성.
 

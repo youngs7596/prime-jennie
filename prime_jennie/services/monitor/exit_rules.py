@@ -12,7 +12,6 @@
 
 import logging
 from dataclasses import dataclass
-from typing import Optional
 
 from prime_jennie.domain.config import get_config
 from prime_jennie.domain.enums import MarketRegime, SellReason
@@ -42,7 +41,7 @@ class PositionContext:
     high_watermark: float  # 보유 중 최고가
     high_profit_pct: float  # 최고 수익률
     atr: float
-    rsi: Optional[float] = None
+    rsi: float | None = None
     holding_days: int = 0
     scale_out_level: int = 0  # 현재 스케일아웃 단계 (0-4)
     rsi_sold: bool = False  # RSI 매도 이미 실행 여부
@@ -51,7 +50,7 @@ class PositionContext:
 # --- Individual Exit Rules ---
 
 
-def check_hard_stop(ctx: PositionContext) -> Optional[ExitSignal]:
+def check_hard_stop(ctx: PositionContext) -> ExitSignal | None:
     """Hard stop: -10% 이하 즉시 매도 (gap-down override)."""
     if ctx.profit_pct <= -10.0:
         return ExitSignal(
@@ -63,7 +62,7 @@ def check_hard_stop(ctx: PositionContext) -> Optional[ExitSignal]:
     return None
 
 
-def check_profit_lock(ctx: PositionContext) -> Optional[ExitSignal]:
+def check_profit_lock(ctx: PositionContext) -> ExitSignal | None:
     """Profit Lock: 고점 도달 후 이익 보존.
 
     Level 2: 고점 3%+ 도달 → 현재 1% 미만 → 전량 매도
@@ -86,11 +85,9 @@ def check_profit_lock(ctx: PositionContext) -> Optional[ExitSignal]:
     return None
 
 
-def check_atr_stop(
-    ctx: PositionContext, macro_stop_mult: float = 1.0
-) -> Optional[ExitSignal]:
+def check_atr_stop(ctx: PositionContext, macro_stop_mult: float = 1.0) -> ExitSignal | None:
     """ATR Trailing Stop: buy_price - ATR*mult 이하면 손절."""
-    config = get_config()
+    get_config()
     atr_mult = 2.0 * macro_stop_mult
 
     if ctx.atr <= 0:
@@ -102,14 +99,14 @@ def check_atr_stop(
             should_sell=True,
             reason=SellReason.STOP_LOSS,
             quantity_pct=100.0,
-            description=f"ATR stop: price {ctx.current_price:.0f} <= {stop_price:.0f} (ATR={ctx.atr:.0f}, mult={atr_mult:.1f})",
+            description=(
+                f"ATR stop: price {ctx.current_price:.0f} <= {stop_price:.0f} (ATR={ctx.atr:.0f}, mult={atr_mult:.1f})"
+            ),
         )
     return None
 
 
-def check_fixed_stop(
-    ctx: PositionContext, macro_stop_mult: float = 1.0
-) -> Optional[ExitSignal]:
+def check_fixed_stop(ctx: PositionContext, macro_stop_mult: float = 1.0) -> ExitSignal | None:
     """Fixed Stop Loss: 설정 비율 이하면 손절."""
     config = get_config()
     threshold = -config.sell.stop_loss_pct * macro_stop_mult
@@ -126,7 +123,7 @@ def check_fixed_stop(
 def check_trailing_take_profit(
     ctx: PositionContext,
     regime: MarketRegime = MarketRegime.SIDEWAYS,
-) -> Optional[ExitSignal]:
+) -> ExitSignal | None:
     """Trailing Take-Profit: 고점 대비 일정 비율 하락 시 전량 매도."""
     config = get_config()
     if not config.sell.trailing_enabled:
@@ -162,7 +159,7 @@ def check_trailing_take_profit(
     return None
 
 
-def check_profit_target(ctx: PositionContext) -> Optional[ExitSignal]:
+def check_profit_target(ctx: PositionContext) -> ExitSignal | None:
     """고정 이익 목표 도달 시 전량 매도 (trailing 비활성일 때 폴백)."""
     config = get_config()
     if config.sell.trailing_enabled:
@@ -181,7 +178,7 @@ def check_profit_target(ctx: PositionContext) -> Optional[ExitSignal]:
 def check_scale_out(
     ctx: PositionContext,
     regime: MarketRegime = MarketRegime.SIDEWAYS,
-) -> Optional[ExitSignal]:
+) -> ExitSignal | None:
     """Scale-Out: 국면별 분할 익절.
 
     Returns ExitSignal with quantity_pct for partial sell.
@@ -219,7 +216,7 @@ def check_scale_out(
     return None
 
 
-def check_rsi_overbought(ctx: PositionContext) -> Optional[ExitSignal]:
+def check_rsi_overbought(ctx: PositionContext) -> ExitSignal | None:
     """RSI 과열 부분 매도 (50%)."""
     config = get_config()
     if ctx.rsi_sold:
@@ -231,7 +228,10 @@ def check_rsi_overbought(ctx: PositionContext) -> Optional[ExitSignal]:
             should_sell=True,
             reason=SellReason.RSI_OVERBOUGHT,
             quantity_pct=50.0,
-            description=f"RSI overbought: RSI={ctx.rsi:.1f} >= {config.sell.rsi_overbought_threshold}, profit={ctx.profit_pct:.1f}%",
+            description=(
+                f"RSI overbought: RSI={ctx.rsi:.1f} >= {config.sell.rsi_overbought_threshold},"
+                f" profit={ctx.profit_pct:.1f}%"
+            ),
         )
     return None
 
@@ -239,7 +239,7 @@ def check_rsi_overbought(ctx: PositionContext) -> Optional[ExitSignal]:
 def check_time_exit(
     ctx: PositionContext,
     regime: MarketRegime = MarketRegime.SIDEWAYS,
-) -> Optional[ExitSignal]:
+) -> ExitSignal | None:
     """최대 보유 기간 초과 시 전량 매도."""
     config = get_config()
     max_days = {
@@ -264,7 +264,7 @@ def evaluate_exit(
     ctx: PositionContext,
     regime: MarketRegime = MarketRegime.SIDEWAYS,
     macro_stop_mult: float = 1.0,
-) -> Optional[ExitSignal]:
+) -> ExitSignal | None:
     """모든 매도 조건을 우선순위대로 평가. 첫 번째 매치 반환."""
     checks = [
         lambda: check_hard_stop(ctx),

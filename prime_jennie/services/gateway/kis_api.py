@@ -9,14 +9,13 @@ Reference: https://apiportal.koreainvestment.com/
 import json
 import logging
 import time
-from datetime import date, datetime, timezone
+from datetime import UTC, date, datetime
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any
 
 import httpx
 
 from prime_jennie.domain.config import KISConfig, get_config
-from prime_jennie.domain.portfolio import Position
 from prime_jennie.domain.stock import DailyPrice, StockSnapshot
 
 logger = logging.getLogger(__name__)
@@ -37,13 +36,13 @@ class KISApi:
     토큰 발급/갱신, 공통 헤더 구성, 에러 핸들링 포함.
     """
 
-    def __init__(self, config: Optional[KISConfig] = None):
+    def __init__(self, config: KISConfig | None = None):
         self._config = config or get_config().kis
         self._client = httpx.Client(
             base_url=self._config.base_url,
             timeout=30.0,
         )
-        self._access_token: Optional[str] = None
+        self._access_token: str | None = None
         self._token_expires_at: float = 0.0
         self._load_cached_token()
 
@@ -93,10 +92,12 @@ class KISApi:
         try:
             path.parent.mkdir(parents=True, exist_ok=True)
             path.write_text(
-                json.dumps({
-                    "access_token": self._access_token,
-                    "expires_at": self._token_expires_at,
-                })
+                json.dumps(
+                    {
+                        "access_token": self._access_token,
+                        "expires_at": self._token_expires_at,
+                    }
+                )
             )
         except OSError as e:
             logger.warning("Failed to cache KIS token: %s", e)
@@ -121,15 +122,13 @@ class KISApi:
         path: str,
         tr_id: str,
         *,
-        params: Optional[dict[str, Any]] = None,
-        json_data: Optional[dict[str, Any]] = None,
+        params: dict[str, Any] | None = None,
+        json_data: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         """KIS API 공통 요청."""
         headers = self._headers(tr_id)
 
-        resp = self._client.request(
-            method, path, headers=headers, params=params, json=json_data
-        )
+        resp = self._client.request(method, path, headers=headers, params=params, json=json_data)
         resp.raise_for_status()
         data = resp.json()
 
@@ -168,7 +167,7 @@ class KISApi:
             market_cap=_safe_int(output.get("hts_avls")),
             high_52w=_safe_int(output.get("stck_dryy_hgpr")),
             low_52w=_safe_int(output.get("stck_dryy_lwpr")),
-            timestamp=datetime.now(timezone.utc),
+            timestamp=datetime.now(UTC),
         )
 
     def get_daily_prices(self, stock_code: str, days: int = 150) -> list[DailyPrice]:
@@ -314,16 +313,18 @@ class KISApi:
             qty = int(item.get("hldg_qty", 0))
             if qty <= 0:
                 continue
-            positions.append({
-                "stock_code": item.get("pdno", ""),
-                "stock_name": item.get("prdt_name", ""),
-                "quantity": qty,
-                "average_buy_price": int(float(item.get("pchs_avg_pric", 0))),
-                "total_buy_amount": int(item.get("pchs_amt", 0)),
-                "current_price": int(item.get("prpr", 0)),
-                "current_value": int(item.get("evlu_amt", 0)),
-                "profit_pct": float(item.get("evlu_pfls_rt", 0)),
-            })
+            positions.append(
+                {
+                    "stock_code": item.get("pdno", ""),
+                    "stock_name": item.get("prdt_name", ""),
+                    "quantity": qty,
+                    "average_buy_price": int(float(item.get("pchs_avg_pric", 0))),
+                    "total_buy_amount": int(item.get("pchs_amt", 0)),
+                    "current_price": int(item.get("prpr", 0)),
+                    "current_value": int(item.get("evlu_amt", 0)),
+                    "profit_pct": float(item.get("evlu_pfls_rt", 0)),
+                }
+            )
 
         output2 = data.get("output2", [{}])
         summary = output2[0] if output2 else {}
@@ -364,7 +365,7 @@ class KISApi:
 # ─── Helpers ─────────────────────────────────────────────────────
 
 
-def _safe_float(val: Any) -> Optional[float]:
+def _safe_float(val: Any) -> float | None:
     if val is None or val == "":
         return None
     try:
@@ -373,7 +374,7 @@ def _safe_float(val: Any) -> Optional[float]:
         return None
 
 
-def _safe_int(val: Any) -> Optional[int]:
+def _safe_int(val: Any) -> int | None:
     if val is None or val == "":
         return None
     try:

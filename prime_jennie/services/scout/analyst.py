@@ -5,13 +5,13 @@
 """
 
 import logging
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 
-from prime_jennie.domain.config import ScoringConfig, get_config
+from prime_jennie.domain.config import get_config
 from prime_jennie.domain.enums import RiskTag, TradeTier
 from prime_jennie.domain.macro import TradingContext
-from prime_jennie.domain.scoring import HybridScore, LLMAnalysis, QuantScore
+from prime_jennie.domain.scoring import HybridScore, QuantScore
 from prime_jennie.infra.llm.base import BaseLLMProvider
 
 from .enrichment import EnrichedCandidate
@@ -73,7 +73,7 @@ async def run_analyst(
     is_tradable = not veto_applied
     trade_tier = TradeTier.BLOCKED if veto_applied else _assign_trade_tier(clamped)
 
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
 
     return HybridScore(
         stock_code=quant.stock_code,
@@ -129,11 +129,7 @@ def classify_risk_tag(quant: QuantScore, candidate: EnrichedCandidate) -> RiskTa
         return RiskTag.CAUTION
 
     # BULLISH: 양호한 조건
-    if (
-        quant.momentum_score >= 12
-        and quant.supply_demand_score >= 12
-        and quant.quality_score >= 10
-    ):
+    if quant.momentum_score >= 12 and quant.supply_demand_score >= 12 and quant.quality_score >= 10:
         return RiskTag.BULLISH
 
     return RiskTag.NEUTRAL
@@ -185,35 +181,43 @@ def _build_prompt(
     ]
 
     if snap:
-        lines.extend([
-            "",
-            f"### 현재가 정보",
-            f"  가격: {snap.price:,}원 (전일비: {snap.change_pct:+.2f}%)",
-            f"  PER: {snap.per or 'N/A'}, PBR: {snap.pbr or 'N/A'}",
-        ])
+        lines.extend(
+            [
+                "",
+                "### 현재가 정보",
+                f"  가격: {snap.price:,}원 (전일비: {snap.change_pct:+.2f}%)",
+                f"  PER: {snap.per or 'N/A'}, PBR: {snap.pbr or 'N/A'}",
+            ]
+        )
 
     if ft:
-        lines.extend([
-            "",
-            f"### 재무",
-            f"  ROE: {ft.roe or 'N/A'}%, PER: {ft.per or 'N/A'}, PBR: {ft.pbr or 'N/A'}",
-        ])
+        lines.extend(
+            [
+                "",
+                "### 재무",
+                f"  ROE: {ft.roe or 'N/A'}%, PER: {ft.per or 'N/A'}, PBR: {ft.pbr or 'N/A'}",
+            ]
+        )
 
     if it:
-        lines.extend([
-            "",
-            f"### 수급 (60일)",
-            f"  외인 순매수: {it.foreign_net_buy_sum:,.0f}",
-            f"  기관 순매수: {it.institution_net_buy_sum:,.0f}",
-            f"  외인 비율 추세: {it.foreign_ratio_trend or 'N/A'}",
-        ])
+        lines.extend(
+            [
+                "",
+                "### 수급 (60일)",
+                f"  외인 순매수: {it.foreign_net_buy_sum:,.0f}",
+                f"  기관 순매수: {it.institution_net_buy_sum:,.0f}",
+                f"  외인 비율 추세: {it.foreign_ratio_trend or 'N/A'}",
+            ]
+        )
 
-    lines.extend([
-        "",
-        "### 요청",
-        "위 데이터를 종합적으로 분석하여 0-100점 사이의 투자 매력도 점수를 부여하세요.",
-        "score, grade(S/A/B/C/D), reason(한국어)을 JSON으로 응답하세요.",
-    ])
+    lines.extend(
+        [
+            "",
+            "### 요청",
+            "위 데이터를 종합적으로 분석하여 0-100점 사이의 투자 매력도 점수를 부여하세요.",
+            "score, grade(S/A/B/C/D), reason(한국어)을 JSON으로 응답하세요.",
+        ]
+    )
 
     return "\n".join(lines)
 

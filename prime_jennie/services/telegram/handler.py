@@ -7,15 +7,13 @@
 import json
 import logging
 import time
-from datetime import date, datetime, timezone
-from typing import Callable, Optional
+from collections.abc import Callable
+from datetime import UTC, date, datetime
 
 import redis
 from sqlmodel import Session, select
 
 from prime_jennie.domain.config import get_config
-from prime_jennie.domain.enums import SignalType, TradeTier, MarketRegime, RiskTag
-from prime_jennie.domain.trading import BuySignal, SellOrder
 from prime_jennie.infra.database.models import StockMasterDB
 from prime_jennie.infra.kis.client import KISClient
 
@@ -116,9 +114,7 @@ class CommandHandler:
             "/report": self._handle_diagnose,  # alias
         }
 
-    def process_command(
-        self, command: str, args: str, chat_id: str | int, username: str = ""
-    ) -> str:
+    def process_command(self, command: str, args: str, chat_id: str | int, username: str = "") -> str:
         """명령 처리 후 응답 텍스트 반환."""
         # 레이트 리밋
         if self._is_rate_limited(str(chat_id)):
@@ -168,7 +164,7 @@ class CommandHandler:
 
     # ─── Stock Resolution ──────────────────────────
 
-    def _resolve_stock(self, name_or_code: str) -> Optional[tuple[str, str]]:
+    def _resolve_stock(self, name_or_code: str) -> tuple[str, str] | None:
         """종목코드 또는 이름으로 (code, name) 반환."""
         name_or_code = name_or_code.strip()
         if not name_or_code:
@@ -178,18 +174,14 @@ class CommandHandler:
             with self._session_factory() as session:
                 # 6자리 코드
                 if name_or_code.isdigit() and len(name_or_code) == 6:
-                    stmt = select(StockMasterDB).where(
-                        StockMasterDB.stock_code == name_or_code
-                    )
+                    stmt = select(StockMasterDB).where(StockMasterDB.stock_code == name_or_code)
                     stock = session.exec(stmt).first()
                     if stock:
                         return stock.stock_code, stock.stock_name
                     return name_or_code, name_or_code  # 코드만 반환
 
                 # 이름 검색
-                stmt = select(StockMasterDB).where(
-                    StockMasterDB.stock_name == name_or_code
-                )
+                stmt = select(StockMasterDB).where(StockMasterDB.stock_name == name_or_code)
                 stock = session.exec(stmt).first()
                 if stock:
                     return stock.stock_code, stock.stock_name
@@ -210,7 +202,7 @@ class CommandHandler:
         paused = self._redis.get(KEY_PAUSE)
         stopped = self._redis.get(KEY_STOP)
         dryrun = self._redis.get(KEY_DRYRUN)
-        now = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
+        now = datetime.now(UTC).strftime("%Y-%m-%d %H:%M UTC")
 
         lines = [
             "*시스템 상태*",
@@ -355,10 +347,7 @@ class CommandHandler:
 
             lines = [f"*보유 포트폴리오* ({len(positions)}종목)\n"]
             for p in positions:
-                lines.append(
-                    f"  {p.stock_name} ({p.stock_code})\n"
-                    f"  {p.quantity}주 | 평균: {p.average_buy_price:,}원"
-                )
+                lines.append(f"  {p.stock_name} ({p.stock_code})\n  {p.quantity}주 | 평균: {p.average_buy_price:,}원")
             return "\n".join(lines)
         except Exception as e:
             return f"포트폴리오 조회 실패: {e}"
@@ -374,16 +363,9 @@ class CommandHandler:
 
             buys = [t for t in trades if t.trade_type == "BUY"]
             sells = [t for t in trades if t.trade_type == "SELL"]
-            realized = sum(
-                float(t.profit_pct or 0) for t in sells
-            )
+            realized = sum(float(t.profit_pct or 0) for t in sells)
 
-            return (
-                f"*오늘 매매*\n"
-                f"매수: {len(buys)}건\n"
-                f"매도: {len(sells)}건\n"
-                f"실현 수익률 합계: {realized:+.1f}%"
-            )
+            return f"*오늘 매매*\n매수: {len(buys)}건\n매도: {len(sells)}건\n실현 수익률 합계: {realized:+.1f}%"
         except Exception as e:
             return f"PnL 조회 실패: {e}"
 
@@ -433,10 +415,7 @@ class CommandHandler:
             for w in items[:20]:
                 score = w.hybrid_score or 0
                 emoji = "🔥" if score >= 80 else ("📈" if score >= 60 else "➖")
-                lines.append(
-                    f"  {emoji} #{w.rank} {w.stock_name} "
-                    f"({score:.0f}점, {w.trade_tier})"
-                )
+                lines.append(f"  {emoji} #{w.rank} {w.stock_name} ({score:.0f}점, {w.trade_tier})")
             return "\n".join(lines)
         except Exception as e:
             return f"워치리스트 조회 실패: {e}"
@@ -508,7 +487,7 @@ class CommandHandler:
             "stock_code": code,
             "stock_name": name,
             "target_price": target_price,
-            "created_at": datetime.now(timezone.utc).isoformat(),
+            "created_at": datetime.now(UTC).isoformat(),
         }
         self._redis.hset(KEY_ALERTS, f"{code}:{target_price}", json.dumps(alert))
         self._redis.expire(KEY_ALERTS, 7 * 86400)  # 7일 TTL
@@ -532,12 +511,9 @@ class CommandHandler:
                 return "설정된 알림이 없습니다."
 
             lines = ["*가격 알림 목록*\n"]
-            for key, val in alerts.items():
+            for _key, val in alerts.items():
                 data = json.loads(val)
-                lines.append(
-                    f"  {data['stock_name']}({data['stock_code']}) "
-                    f"→ {data['target_price']:,}원"
-                )
+                lines.append(f"  {data['stock_name']}({data['stock_code']}) → {data['target_price']:,}원")
             return "\n".join(lines)
         except Exception as e:
             return f"알림 조회 실패: {e}"
@@ -608,8 +584,4 @@ class CommandHandler:
         paused = "YES" if self._redis.get(KEY_PAUSE) else "NO"
         stopped = "YES" if self._redis.get(KEY_STOP) else "NO"
 
-        return (
-            "*시스템 진단*\n\n"
-            + "\n".join(checks)
-            + f"\n\n일시정지: {paused}\n긴급정지: {stopped}"
-        )
+        return "*시스템 진단*\n\n" + "\n".join(checks) + f"\n\n일시정지: {paused}\n긴급정지: {stopped}"

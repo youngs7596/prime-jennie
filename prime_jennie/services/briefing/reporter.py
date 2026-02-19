@@ -4,20 +4,15 @@
 LLM 요약 후 텔레그램 채널로 전송.
 """
 
-import json
 import logging
-import os
-from datetime import date, datetime, timedelta, timezone
-from typing import Optional
+from datetime import date, timedelta
 
 import httpx
 from sqlmodel import Session
 
 from prime_jennie.domain.config import get_config
 from prime_jennie.infra.database.models import (
-    DailyAssetSnapshotDB,
     StockNewsSentimentDB,
-    TradeLogDB,
 )
 from prime_jennie.infra.database.repositories import (
     AssetSnapshotRepository,
@@ -198,11 +193,7 @@ class DailyReporter:
 
             provider = LLMFactory.get_provider("fast")
             response = await provider.generate(
-                prompt=(
-                    "다음 일일 트레이딩 리포트를 읽고 핵심 포인트를 3줄로 요약하세요.\n\n"
-                    f"{report_text}\n\n"
-                    "요약:"
-                ),
+                prompt=(f"다음 일일 트레이딩 리포트를 읽고 핵심 포인트를 3줄로 요약하세요.\n\n{report_text}\n\n요약:"),
                 service="briefing",
             )
             if response and response.content:

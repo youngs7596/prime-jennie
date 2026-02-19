@@ -9,9 +9,6 @@ Data Flow:
 import logging
 import threading
 from contextlib import asynccontextmanager
-from typing import Optional
-
-import redis
 
 from prime_jennie.domain import BuySignal
 from prime_jennie.domain.config import get_config
@@ -30,9 +27,9 @@ STREAM_BUY_SIGNALS = "stream:buy-signals"
 GROUP_BUY_EXECUTOR = "group_buy_executor"
 
 # 모듈 레벨 싱글턴
-_executor: Optional[BuyExecutor] = None
-_consumer: Optional[TypedStreamConsumer] = None
-_consumer_thread: Optional[threading.Thread] = None
+_executor: BuyExecutor | None = None
+_consumer: TypedStreamConsumer | None = None
+_consumer_thread: threading.Thread | None = None
 
 
 def _handle_signal(signal: BuySignal) -> None:
@@ -76,9 +73,7 @@ async def lifespan(app):
         model_class=BuySignal,
         handler=_handle_signal,
     )
-    _consumer_thread = threading.Thread(
-        target=_consumer.run, name="buy-signal-consumer", daemon=True
-    )
+    _consumer_thread = threading.Thread(target=_consumer.run, name="buy-signal-consumer", daemon=True)
     _consumer_thread.start()
     logger.info("Buy executor started, consuming from %s", STREAM_BUY_SIGNALS)
 

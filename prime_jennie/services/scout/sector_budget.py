@@ -6,8 +6,7 @@ Pipeline:
 
 import json
 import logging
-from datetime import datetime, timezone
-from typing import Optional
+from datetime import UTC, datetime
 
 import redis
 
@@ -53,9 +52,7 @@ def assign_sector_tiers(
     for analysis in analyses:
         if analysis.avg_return_pct >= p75 and analysis.avg_return_pct > 0:
             tier = SectorTier.HOT
-        elif analysis.avg_return_pct <= p25 and analysis.avg_return_pct < 0:
-            tier = SectorTier.COOL
-        elif analysis.is_falling_knife:
+        elif analysis.avg_return_pct <= p25 and analysis.avg_return_pct < 0 or analysis.is_falling_knife:
             tier = SectorTier.COOL
         else:
             tier = SectorTier.WARM
@@ -109,7 +106,7 @@ def compute_sector_budget(
 
     return SectorBudget(
         entries=entries,
-        generated_at=datetime.now(timezone.utc).isoformat(),
+        generated_at=datetime.now(UTC).isoformat(),
         council_overrides_applied=False,
     )
 
@@ -133,7 +130,7 @@ def save_budget_to_redis(
     logger.info("Sector budget saved to Redis: %d sectors", len(data))
 
 
-def load_budget_from_redis(redis_client: redis.Redis) -> Optional[SectorBudget]:
+def load_budget_from_redis(redis_client: redis.Redis) -> SectorBudget | None:
     """Redis에서 섹터 예산 로드."""
     raw = redis_client.get(REDIS_KEY)
     if not raw:
@@ -156,7 +153,7 @@ def load_budget_from_redis(redis_client: redis.Redis) -> Optional[SectorBudget]:
 
         return SectorBudget(
             entries=entries,
-            generated_at=datetime.now(timezone.utc).isoformat(),
+            generated_at=datetime.now(UTC).isoformat(),
         )
     except (json.JSONDecodeError, KeyError, ValueError) as e:
         logger.warning("Failed to load sector budget from Redis: %s", e)

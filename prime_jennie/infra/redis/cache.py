@@ -7,9 +7,8 @@ Usage:
     wl = cache.get()  # -> Optional[HotWatchlist]
 """
 
-import json
 import logging
-from typing import Generic, Optional, TypeVar
+from typing import Generic, TypeVar
 
 import redis
 from pydantic import BaseModel
@@ -27,14 +26,14 @@ class TypedCache(Generic[T]):
         client: redis.Redis,
         key: str,
         model_class: type[T],
-        ttl: Optional[int] = None,
+        ttl: int | None = None,
     ):
         self._client = client
         self._key = key
         self._model_class = model_class
         self._ttl = ttl
 
-    def get(self) -> Optional[T]:
+    def get(self) -> T | None:
         """캐시에서 읽기. 없거나 파싱 실패 시 None."""
         raw = self._client.get(self._key)
         if raw is None:
@@ -76,7 +75,7 @@ class TypedHashCache(Generic[T]):
         client: redis.Redis,
         key: str,
         model_class: type[T],
-        ttl: Optional[int] = None,
+        ttl: int | None = None,
     ):
         self._client = client
         self._key = key
@@ -88,7 +87,7 @@ class TypedHashCache(Generic[T]):
         if self._ttl:
             self._client.expire(self._key, self._ttl)
 
-    def hget(self, field: str) -> Optional[T]:
+    def hget(self, field: str) -> T | None:
         raw = self._client.hget(self._key, field)
         if raw is None:
             return None

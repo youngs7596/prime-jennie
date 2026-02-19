@@ -1,17 +1,18 @@
 """LLM Provider 단위 테스트 — mock 기반 (실제 API 호출 없음)."""
 
 import json
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, patch
 
 import pytest
 
 from prime_jennie.infra.llm.base import BaseLLMProvider, LLMResponse
-from prime_jennie.infra.llm.factory import LLMFactory, _PROVIDER_REGISTRY, register_provider
+from prime_jennie.infra.llm.factory import _PROVIDER_REGISTRY, LLMFactory, register_provider
 
 
 @pytest.fixture(autouse=True)
 def _clear_caches():
     from prime_jennie.domain.config import get_config
+
     get_config.cache_clear()
     LLMFactory.get_provider.cache_clear()
     yield
@@ -29,9 +30,7 @@ class TestBaseLLMProvider:
             BaseLLMProvider()
 
     def test_llm_response_model(self):
-        resp = LLMResponse(
-            content="hello", model="test", tokens_in=10, tokens_out=5, provider="test"
-        )
+        resp = LLMResponse(content="hello", model="test", tokens_in=10, tokens_out=5, provider="test")
         assert resp.content == "hello"
         assert resp.tokens_in == 10
 
@@ -185,9 +184,8 @@ class TestClaudeProvider:
         p = ClaudeLLMProvider()
         with pytest.raises(NotImplementedError):
             import asyncio
-            asyncio.get_event_loop().run_until_complete(
-                p.generate_embeddings(["test"])
-            )
+
+            asyncio.get_event_loop().run_until_complete(p.generate_embeddings(["test"]))
 
 
 # ─── CloudFailover Provider ──────────────────────────────────
@@ -252,9 +250,7 @@ class TestCloudFailoverProvider:
 
         p._providers = [("provider-1", mock1), ("provider-2", mock2)]
 
-        result = await p._failover_call(
-            "generate_json", prompt="test", schema={}, temperature=0.3
-        )
+        result = await p._failover_call("generate_json", prompt="test", schema={}, temperature=0.3)
         assert result == {"result": "ok"}
         mock1.generate_json.assert_called_once()
         mock2.generate_json.assert_called_once()

@@ -1,7 +1,6 @@
 """포트폴리오 모델."""
 
 from datetime import date, datetime
-from typing import List, Optional
 
 from pydantic import BaseModel
 
@@ -17,19 +16,19 @@ class Position(BaseModel):
     quantity: int
     average_buy_price: int
     total_buy_amount: int
-    current_price: Optional[int] = None
-    current_value: Optional[int] = None
-    profit_pct: Optional[float] = None
-    sector_group: Optional[SectorGroup] = None
-    high_watermark: Optional[int] = None  # 보유 중 최고가
-    stop_loss_price: Optional[int] = None
-    bought_at: Optional[datetime] = None
+    current_price: int | None = None
+    current_value: int | None = None
+    profit_pct: float | None = None
+    sector_group: SectorGroup | None = None
+    high_watermark: int | None = None  # 보유 중 최고가
+    stop_loss_price: int | None = None
+    bought_at: datetime | None = None
 
 
 class PortfolioState(BaseModel):
     """포트폴리오 전체 상태."""
 
-    positions: List[Position]
+    positions: list[Position]
     cash_balance: int
     total_asset: int  # cash + 주식 평가액
     stock_eval_amount: int
@@ -59,5 +58,5 @@ class DailySnapshot(BaseModel):
     total_asset: int
     cash_balance: int
     stock_eval_amount: int
-    total_profit_loss: Optional[int] = None
-    realized_profit_loss: Optional[int] = None
+    total_profit_loss: int | None = None
+    realized_profit_loss: int | None = None

@@ -5,11 +5,9 @@
 """
 
 from datetime import date, datetime
-from typing import Optional
 
 from sqlalchemy import Index, UniqueConstraint
 from sqlmodel import Field, SQLModel
-
 
 # ─── Master Data ─────────────────────────────────────────────────
 
@@ -20,9 +18,9 @@ class StockMasterDB(SQLModel, table=True):
     stock_code: str = Field(primary_key=True, max_length=10)
     stock_name: str = Field(max_length=100)
     market: str = Field(default="KOSPI", max_length=10)
-    market_cap: Optional[int] = None
-    sector_naver: Optional[str] = Field(default=None, max_length=50)
-    sector_group: Optional[str] = Field(default=None, max_length=30)
+    market_cap: int | None = None
+    sector_naver: str | None = Field(default=None, max_length=50)
+    sector_group: str | None = Field(default=None, max_length=30)
     is_active: bool = Field(default=True)
     updated_at: datetime = Field(default_factory=datetime.utcnow)
 
@@ -37,7 +35,7 @@ class ConfigDB(SQLModel, table=True):
 
     config_key: str = Field(primary_key=True, max_length=100)
     config_value: str = Field(max_length=10000)
-    description: Optional[str] = Field(default=None, max_length=500)
+    description: str | None = Field(default=None, max_length=500)
     updated_at: datetime = Field(default_factory=datetime.utcnow)
 
 
@@ -58,7 +56,7 @@ class StockDailyPriceDB(SQLModel, table=True):
     low_price: int
     close_price: int
     volume: int
-    change_pct: Optional[float] = None
+    change_pct: float | None = None
 
     __table_args__ = (Index("ix_daily_prices_date", "price_date"),)
 
@@ -66,20 +64,16 @@ class StockDailyPriceDB(SQLModel, table=True):
 class StockInvestorTradingDB(SQLModel, table=True):
     __tablename__ = "stock_investor_tradings"
 
-    id: Optional[int] = Field(default=None, primary_key=True)
-    stock_code: str = Field(
-        foreign_key="stock_masters.stock_code", max_length=10
-    )
+    id: int | None = Field(default=None, primary_key=True)
+    stock_code: str = Field(foreign_key="stock_masters.stock_code", max_length=10)
     trade_date: date
-    foreign_net_buy: Optional[float] = None
-    institution_net_buy: Optional[float] = None
-    individual_net_buy: Optional[float] = None
-    foreign_holding_ratio: Optional[float] = None
+    foreign_net_buy: float | None = None
+    institution_net_buy: float | None = None
+    individual_net_buy: float | None = None
+    foreign_holding_ratio: float | None = None
 
     __table_args__ = (
-        UniqueConstraint(
-            "stock_code", "trade_date", name="uq_investor_code_date"
-        ),
+        UniqueConstraint("stock_code", "trade_date", name="uq_investor_code_date"),
         Index("ix_investor_date", "trade_date", "stock_code"),
     )
 
@@ -93,10 +87,10 @@ class StockFundamentalDB(SQLModel, table=True):
         max_length=10,
     )
     trade_date: date = Field(primary_key=True)
-    per: Optional[float] = None
-    pbr: Optional[float] = None
-    roe: Optional[float] = None
-    market_cap: Optional[int] = None
+    per: float | None = None
+    pbr: float | None = None
+    roe: float | None = None
+    market_cap: int | None = None
     updated_at: datetime = Field(default_factory=datetime.utcnow)
 
 
@@ -106,11 +100,9 @@ class StockFundamentalDB(SQLModel, table=True):
 class DailyQuantScoreDB(SQLModel, table=True):
     __tablename__ = "daily_quant_scores"
 
-    id: Optional[int] = Field(default=None, primary_key=True)
+    id: int | None = Field(default=None, primary_key=True)
     score_date: date
-    stock_code: str = Field(
-        foreign_key="stock_masters.stock_code", max_length=10
-    )
+    stock_code: str = Field(foreign_key="stock_masters.stock_code", max_length=10)
     stock_name: str = Field(max_length=100)
     total_quant_score: float
     momentum_score: float
@@ -119,18 +111,16 @@ class DailyQuantScoreDB(SQLModel, table=True):
     technical_score: float
     news_score: float
     supply_demand_score: float
-    llm_score: Optional[float] = None
-    hybrid_score: Optional[float] = None
-    risk_tag: Optional[str] = Field(default=None, max_length=30)
-    trade_tier: Optional[str] = Field(default=None, max_length=10)
+    llm_score: float | None = None
+    hybrid_score: float | None = None
+    risk_tag: str | None = Field(default=None, max_length=30)
+    trade_tier: str | None = Field(default=None, max_length=10)
     is_tradable: bool = True
     is_final_selected: bool = False
-    llm_reason: Optional[str] = Field(default=None, max_length=2000)
+    llm_reason: str | None = Field(default=None, max_length=2000)
 
     __table_args__ = (
-        UniqueConstraint(
-            "score_date", "stock_code", name="uq_quant_date_code"
-        ),
+        UniqueConstraint("score_date", "stock_code", name="uq_quant_date_code"),
         Index("ix_quant_final", "is_final_selected", "score_date"),
     )
 
@@ -138,20 +128,18 @@ class DailyQuantScoreDB(SQLModel, table=True):
 class StockNewsSentimentDB(SQLModel, table=True):
     __tablename__ = "stock_news_sentiments"
 
-    id: Optional[int] = Field(default=None, primary_key=True)
-    stock_code: str = Field(
-        foreign_key="stock_masters.stock_code", max_length=10
-    )
+    id: int | None = Field(default=None, primary_key=True)
+    stock_code: str = Field(foreign_key="stock_masters.stock_code", max_length=10)
     news_date: date
-    press: Optional[str] = Field(default=None, max_length=100)
+    press: str | None = Field(default=None, max_length=100)
     headline: str = Field(max_length=500)
-    summary: Optional[str] = Field(default=None, max_length=2000)
+    summary: str | None = Field(default=None, max_length=2000)
     sentiment_score: float
-    sentiment_reason: Optional[str] = Field(default=None, max_length=2000)
-    category: Optional[str] = Field(default=None, max_length=50)
+    sentiment_reason: str | None = Field(default=None, max_length=2000)
+    category: str | None = Field(default=None, max_length=50)
     article_url: str = Field(max_length=1000)
-    published_at: Optional[datetime] = None
-    source: Optional[str] = Field(default=None, max_length=20)
+    published_at: datetime | None = None
+    source: str | None = Field(default=None, max_length=20)
 
     __table_args__ = (
         UniqueConstraint("article_url", name="uq_news_url"),
@@ -166,25 +154,23 @@ class DailyMacroInsightDB(SQLModel, table=True):
     sentiment: str = Field(max_length=30)
     sentiment_score: int
     regime_hint: str = Field(max_length=200)
-    sectors_to_favor: Optional[str] = Field(default=None, max_length=500)
-    sectors_to_avoid: Optional[str] = Field(default=None, max_length=500)
+    sectors_to_favor: str | None = Field(default=None, max_length=500)
+    sectors_to_avoid: str | None = Field(default=None, max_length=500)
     position_size_pct: int = Field(default=100)
     stop_loss_adjust_pct: int = Field(default=100)
     political_risk_level: str = Field(default="low", max_length=10)
-    political_risk_summary: Optional[str] = Field(
-        default=None, max_length=2000
-    )
-    vix_value: Optional[float] = None
-    vix_regime: Optional[str] = Field(default=None, max_length=20)
-    usd_krw: Optional[float] = None
-    kospi_index: Optional[float] = None
-    kosdaq_index: Optional[float] = None
-    sector_signals_json: Optional[str] = None
-    key_themes_json: Optional[str] = None
-    risk_factors_json: Optional[str] = None
-    raw_council_output_json: Optional[str] = None
-    council_cost_usd: Optional[float] = None
-    data_completeness_pct: Optional[int] = None
+    political_risk_summary: str | None = Field(default=None, max_length=2000)
+    vix_value: float | None = None
+    vix_regime: str | None = Field(default=None, max_length=20)
+    usd_krw: float | None = None
+    kospi_index: float | None = None
+    kosdaq_index: float | None = None
+    sector_signals_json: str | None = None
+    key_themes_json: str | None = None
+    risk_factors_json: str | None = None
+    raw_council_output_json: str | None = None
+    council_cost_usd: float | None = None
+    data_completeness_pct: int | None = None
     updated_at: datetime = Field(default_factory=datetime.utcnow)
 
 
@@ -192,27 +178,27 @@ class GlobalMacroSnapshotDB(SQLModel, table=True):
     __tablename__ = "global_macro_snapshots"
 
     snapshot_date: date = Field(primary_key=True)
-    fed_rate: Optional[float] = None
-    treasury_2y: Optional[float] = None
-    treasury_10y: Optional[float] = None
-    treasury_spread: Optional[float] = None
-    us_cpi_yoy: Optional[float] = None
-    us_unemployment: Optional[float] = None
-    vix: Optional[float] = None
-    vix_regime: Optional[str] = Field(default=None, max_length=20)
-    dxy_index: Optional[float] = None
-    usd_krw: Optional[float] = None
-    bok_rate: Optional[float] = None
-    kospi_index: Optional[float] = None
-    kospi_change_pct: Optional[float] = None
-    kosdaq_index: Optional[float] = None
-    kosdaq_change_pct: Optional[float] = None
-    kospi_foreign_net: Optional[float] = None
-    kosdaq_foreign_net: Optional[float] = None
-    kospi_institutional_net: Optional[float] = None
-    kospi_retail_net: Optional[float] = None
-    completeness_pct: Optional[float] = None
-    data_sources_json: Optional[str] = None
+    fed_rate: float | None = None
+    treasury_2y: float | None = None
+    treasury_10y: float | None = None
+    treasury_spread: float | None = None
+    us_cpi_yoy: float | None = None
+    us_unemployment: float | None = None
+    vix: float | None = None
+    vix_regime: str | None = Field(default=None, max_length=20)
+    dxy_index: float | None = None
+    usd_krw: float | None = None
+    bok_rate: float | None = None
+    kospi_index: float | None = None
+    kospi_change_pct: float | None = None
+    kosdaq_index: float | None = None
+    kosdaq_change_pct: float | None = None
+    kospi_foreign_net: float | None = None
+    kosdaq_foreign_net: float | None = None
+    kospi_institutional_net: float | None = None
+    kospi_retail_net: float | None = None
+    completeness_pct: float | None = None
+    data_sources_json: str | None = None
     updated_at: datetime = Field(default_factory=datetime.utcnow)
 
 
@@ -231,9 +217,9 @@ class PositionDB(SQLModel, table=True):
     quantity: int
     average_buy_price: int
     total_buy_amount: int
-    sector_group: Optional[str] = Field(default=None, max_length=30)
-    high_watermark: Optional[int] = None
-    stop_loss_price: Optional[int] = None
+    sector_group: str | None = Field(default=None, max_length=30)
+    high_watermark: int | None = None
+    stop_loss_price: int | None = None
     created_at: datetime = Field(default_factory=datetime.utcnow)
     updated_at: datetime = Field(default_factory=datetime.utcnow)
 
@@ -241,24 +227,22 @@ class PositionDB(SQLModel, table=True):
 class TradeLogDB(SQLModel, table=True):
     __tablename__ = "trade_logs"
 
-    id: Optional[int] = Field(default=None, primary_key=True)
-    stock_code: str = Field(
-        foreign_key="stock_masters.stock_code", max_length=10
-    )
+    id: int | None = Field(default=None, primary_key=True)
+    stock_code: str = Field(foreign_key="stock_masters.stock_code", max_length=10)
     stock_name: str = Field(max_length=100)
     trade_type: str = Field(max_length=10)
     quantity: int
     price: int
     total_amount: int
     reason: str = Field(max_length=500)
-    strategy_signal: Optional[str] = Field(default=None, max_length=50)
-    market_regime: Optional[str] = Field(default=None, max_length=20)
-    llm_score: Optional[float] = None
-    hybrid_score: Optional[float] = None
-    trade_tier: Optional[str] = Field(default=None, max_length=10)
-    profit_pct: Optional[float] = None
-    profit_amount: Optional[int] = None
-    holding_days: Optional[int] = None
+    strategy_signal: str | None = Field(default=None, max_length=50)
+    market_regime: str | None = Field(default=None, max_length=20)
+    llm_score: float | None = None
+    hybrid_score: float | None = None
+    trade_tier: str | None = Field(default=None, max_length=10)
+    profit_pct: float | None = None
+    profit_amount: int | None = None
+    holding_days: int | None = None
     trade_timestamp: datetime = Field(default_factory=datetime.utcnow)
 
     __table_args__ = (
@@ -274,9 +258,9 @@ class DailyAssetSnapshotDB(SQLModel, table=True):
     total_asset: int
     cash_balance: int
     stock_eval_amount: int
-    total_profit_loss: Optional[int] = None
-    realized_profit_loss: Optional[int] = None
-    net_investment: Optional[int] = None
+    total_profit_loss: int | None = None
+    realized_profit_loss: int | None = None
+    net_investment: int | None = None
     position_count: int = 0
 
 
@@ -290,9 +274,9 @@ class WatchlistHistoryDB(SQLModel, table=True):
         max_length=10,
     )
     stock_name: str = Field(max_length=100)
-    llm_score: Optional[float] = None
-    hybrid_score: Optional[float] = None
+    llm_score: float | None = None
+    hybrid_score: float | None = None
     is_tradable: bool = True
-    trade_tier: Optional[str] = Field(default=None, max_length=10)
-    risk_tag: Optional[str] = Field(default=None, max_length=30)
-    rank: Optional[int] = None
+    trade_tier: str | None = Field(default=None, max_length=10)
+    risk_tag: str | None = Field(default=None, max_length=30)
+    rank: int | None = None

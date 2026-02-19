@@ -21,15 +21,13 @@ import time
 from collections import deque
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
-from datetime import date, datetime, timezone
-from typing import Optional
+from datetime import UTC, datetime
 
 import pybreaker
 from fastapi import Depends, HTTPException, Request
 from pydantic import BaseModel, Field
 from slowapi import Limiter
 from slowapi.errors import RateLimitExceeded
-from slowapi.util import get_remote_address
 from sqlmodel import Session
 
 from prime_jennie.domain.config import get_config
@@ -70,8 +68,8 @@ _request_history: deque = deque(maxlen=100)
 
 # ─── KIS API Client ─────────────────────────────────────────────
 
-_kis_api: Optional[KISApi] = None
-_streamer: Optional[KISWebSocketStreamer] = None
+_kis_api: KISApi | None = None
+_streamer: KISWebSocketStreamer | None = None
 
 
 def _get_kis_api() -> KISApi:
@@ -98,7 +96,7 @@ class CancelRequest(BaseModel):
 
 
 class TradingDayQuery(BaseModel):
-    date: Optional[str] = None  # YYYY-MM-DD
+    date: str | None = None  # YYYY-MM-DD
 
 
 # ─── Lifespan ────────────────────────────────────────────────────
@@ -163,10 +161,10 @@ async def market_snapshot(request: Request, body: SnapshotRequest) -> StockSnaps
     _record_request("snapshot", body.stock_code)
     try:
         return _circuit_breaker.call(_get_kis_api().get_snapshot, body.stock_code)
-    except pybreaker.CircuitBreakerError:
-        raise HTTPException(503, "Circuit breaker open — KIS API temporarily unavailable")
+    except pybreaker.CircuitBreakerError as err:
+        raise HTTPException(503, "Circuit breaker open — KIS API temporarily unavailable") from err
     except KISApiError as e:
-        raise HTTPException(502, f"KIS API error: {e}")
+        raise HTTPException(502, f"KIS API error: {e}") from e
 
 
 @app.post("/api/market/daily-prices", response_model=list[DailyPrice])
@@ -200,14 +198,14 @@ async def market_daily_prices(
 
 @app.get("/api/market/is-trading-day")
 @_limiter.limit("5/second")
-async def is_trading_day(request: Request, date: Optional[str] = None) -> dict:
+async def is_trading_day(request: Request, date: str | None = None) -> dict:
     """거래일 여부 확인."""
     target = None
     if date:
         try:
             target = datetime.strptime(date, "%Y-%m-%d").date()
-        except ValueError:
-            raise HTTPException(400, "Invalid date format. Use YYYY-MM-DD")
+        except ValueError as err:
+            raise HTTPException(400, "Invalid date format. Use YYYY-MM-DD") from err
 
     try:
         result = _get_kis_api().is_trading_day(target)
@@ -223,7 +221,7 @@ async def is_trading_day(request: Request, date: Optional[str] = None) -> dict:
 @_limiter.limit("5/second")
 async def is_market_open(request: Request) -> dict:
     """장 운영 상태 확인."""
-    now = datetime.now(timezone.utc).astimezone()
+    now = datetime.now(UTC).astimezone()
     hour = now.hour
     minute = now.minute
     time_val = hour * 100 + minute
@@ -271,8 +269,8 @@ async def trading_buy(request: Request, order: OrderRequest) -> OrderResult:
             quantity=order.quantity,
             price=price or 0,
         )
-    except pybreaker.CircuitBreakerError:
-        raise HTTPException(503, "Circuit breaker open")
+    except pybreaker.CircuitBreakerError as err:
+        raise HTTPException(503, "Circuit breaker open") from err
     except KISApiError as e:
         return OrderResult(
             success=False,
@@ -304,8 +302,8 @@ async def trading_sell(request: Request, order: OrderRequest) -> OrderResult:
             quantity=order.quantity,
             price=price or 0,
         )
-    except pybreaker.CircuitBreakerError:
-        raise HTTPException(503, "Circuit breaker open")
+    except pybreaker.CircuitBreakerError as err:
+        raise HTTPException(503, "Circuit breaker open") from err
     except KISApiError as e:
         return OrderResult(
             success=False,
@@ -324,8 +322,8 @@ async def trading_cancel(request: Request, body: CancelRequest) -> dict:
     try:
         success = _circuit_breaker.call(_get_kis_api().cancel_order, body.order_no)
         return {"success": success}
-    except pybreaker.CircuitBreakerError:
-        raise HTTPException(503, "Circuit breaker open")
+    except pybreaker.CircuitBreakerError as err:
+        raise HTTPException(503, "Circuit breaker open") from err
     except KISApiError as e:
         return {"success": False, "error": str(e)}
 
@@ -359,12 +357,12 @@ async def account_balance(request: Request) -> PortfolioState:
             total_asset=data.get("total_asset", 0),
             stock_eval_amount=data.get("stock_eval_amount", 0),
             position_count=len(positions),
-            timestamp=datetime.now(timezone.utc),
+            timestamp=datetime.now(UTC),
         )
-    except pybreaker.CircuitBreakerError:
-        raise HTTPException(503, "Circuit breaker open")
+    except pybreaker.CircuitBreakerError as err:
+        raise HTTPException(503, "Circuit breaker open") from err
     except KISApiError as e:
-        raise HTTPException(502, f"KIS API error: {e}")
+        raise HTTPException(502, f"KIS API error: {e}") from e
 
 
 @app.post("/api/account/cash")
@@ -375,10 +373,10 @@ async def account_cash(request: Request) -> dict:
     try:
         data = _circuit_breaker.call(_get_kis_api().get_balance)
         return {"cash_balance": data.get("cash_balance", 0)}
-    except pybreaker.CircuitBreakerError:
-        raise HTTPException(503, "Circuit breaker open")
+    except pybreaker.CircuitBreakerError as err:
+        raise HTTPException(503, "Circuit breaker open") from err
     except KISApiError as e:
-        raise HTTPException(502, f"KIS API error: {e}")
+        raise HTTPException(502, f"KIS API error: {e}") from e
 
 
 # ─── Helpers ─────────────────────────────────────────────────────
@@ -386,11 +384,13 @@ async def account_cash(request: Request) -> dict:
 
 def _record_request(endpoint: str, detail: str) -> None:
     """요청 기록 (모니터링용)."""
-    _request_history.append({
-        "endpoint": endpoint,
-        "detail": detail,
-        "timestamp": time.time(),
-    })
+    _request_history.append(
+        {
+            "endpoint": endpoint,
+            "detail": detail,
+            "timestamp": time.time(),
+        }
+    )
 
 
 # ─── Realtime Endpoints ──────────────────────────────────────────

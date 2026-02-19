@@ -1,9 +1,7 @@
 """Risk Gates 단위 테스트."""
 
 import time
-from datetime import datetime, time as dt_time, timezone
-
-import pytest
+from datetime import UTC, datetime
 
 from prime_jennie.domain.config import ScannerConfig
 from prime_jennie.domain.enums import MarketRegime, TradeTier, VixRegime
@@ -20,7 +18,6 @@ from prime_jennie.services.scanner.risk_gates import (
     check_no_trade_window,
     check_rsi_guard,
     check_trade_tier,
-    run_all_gates,
 )
 
 
@@ -50,6 +47,7 @@ def _make_config(**overrides) -> ScannerConfig:
 
 def _make_context(regime=MarketRegime.BULL, **kwargs) -> TradingContext:
     from datetime import date
+
     return TradingContext(date=date(2026, 2, 19), market_regime=regime, **kwargs)
 
 
@@ -67,13 +65,13 @@ class TestMinBars:
 class TestNoTradeWindow:
     def test_inside_window_fails(self):
         config = _make_config()
-        now = datetime(2026, 2, 19, 9, 10, tzinfo=timezone.utc)  # mock as KST
+        now = datetime(2026, 2, 19, 9, 10, tzinfo=UTC)  # mock as KST
         result = check_no_trade_window(config, now)
         assert not result.passed
 
     def test_outside_window_passes(self):
         config = _make_config()
-        now = datetime(2026, 2, 19, 10, 0, tzinfo=timezone.utc)
+        now = datetime(2026, 2, 19, 10, 0, tzinfo=UTC)
         result = check_no_trade_window(config, now)
         assert result.passed
 
@@ -81,13 +79,13 @@ class TestNoTradeWindow:
 class TestDangerZone:
     def test_inside_zone_fails(self):
         config = _make_config()
-        now = datetime(2026, 2, 19, 14, 30, tzinfo=timezone.utc)
+        now = datetime(2026, 2, 19, 14, 30, tzinfo=UTC)
         result = check_danger_zone(config, now)
         assert not result.passed
 
     def test_outside_zone_passes(self):
         config = _make_config()
-        now = datetime(2026, 2, 19, 11, 0, tzinfo=timezone.utc)
+        now = datetime(2026, 2, 19, 11, 0, tzinfo=UTC)
         result = check_danger_zone(config, now)
         assert result.passed
 

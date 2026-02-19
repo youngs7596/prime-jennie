@@ -1,11 +1,10 @@
 """매크로 인사이트 및 트레이딩 컨텍스트 모델."""
 
 from datetime import date, datetime
-from typing import List, Optional
 
 from pydantic import BaseModel, Field
 
-from .enums import MarketRegime, SectorGroup, VixRegime, Sentiment
+from .enums import MarketRegime, SectorGroup, Sentiment, VixRegime
 from .types import Multiplier, Score
 
 
@@ -14,8 +13,8 @@ class SectorSignal(BaseModel):
 
     sector_group: SectorGroup
     signal: str  # "HOT" | "NEUTRAL" | "AVOID"
-    confidence: Optional[str] = None  # "HIGH" | "MID" | "LOW"
-    reasoning: Optional[str] = None
+    confidence: str | None = None  # "HIGH" | "MID" | "LOW"
+    reasoning: str | None = None
 
 
 class KeyTheme(BaseModel):
@@ -25,7 +24,7 @@ class KeyTheme(BaseModel):
     theme: str
     description: str
     impact: str  # "Positive" | "Negative" | "Mixed"
-    duration: Optional[str] = None
+    duration: str | None = None
 
 
 class RiskFactor(BaseModel):
@@ -33,7 +32,7 @@ class RiskFactor(BaseModel):
 
     name: str
     severity: str  # "HIGH" | "MID" | "LOW"
-    duration_days: Optional[int] = None
+    duration_days: int | None = None
 
 
 class MacroInsight(BaseModel):
@@ -43,21 +42,21 @@ class MacroInsight(BaseModel):
     sentiment: Sentiment
     sentiment_score: Score
     regime_hint: str = Field(max_length=200)
-    sector_signals: List[SectorSignal] = []
-    key_themes: List[KeyTheme] = []
-    risk_factors: List[RiskFactor] = []
-    sectors_to_favor: List[SectorGroup] = []
-    sectors_to_avoid: List[SectorGroup] = []
+    sector_signals: list[SectorSignal] = []
+    key_themes: list[KeyTheme] = []
+    risk_factors: list[RiskFactor] = []
+    sectors_to_favor: list[SectorGroup] = []
+    sectors_to_avoid: list[SectorGroup] = []
     position_size_pct: int = Field(ge=50, le=130, default=100)
     stop_loss_adjust_pct: int = Field(ge=80, le=150, default=100)
     political_risk_level: str = "low"  # low | medium | high | critical
-    council_cost_usd: Optional[float] = None
+    council_cost_usd: float | None = None
     # 글로벌 스냅샷 요약
-    vix_value: Optional[float] = None
+    vix_value: float | None = None
     vix_regime: VixRegime = VixRegime.NORMAL
-    usd_krw: Optional[float] = None
-    kospi_index: Optional[float] = None
-    kosdaq_index: Optional[float] = None
+    usd_krw: float | None = None
+    kospi_index: float | None = None
+    kosdaq_index: float | None = None
 
 
 class TradingContext(BaseModel):
@@ -69,8 +68,8 @@ class TradingContext(BaseModel):
     stop_loss_multiplier: Multiplier = 1.0
     vix_regime: VixRegime = VixRegime.NORMAL
     risk_off_level: int = Field(ge=0, le=10, default=0)
-    favor_sectors: List[SectorGroup] = []
-    avoid_sectors: List[SectorGroup] = []
+    favor_sectors: list[SectorGroup] = []
+    avoid_sectors: list[SectorGroup] = []
     is_high_volatility: bool = False
 
     @classmethod
@@ -92,25 +91,25 @@ class GlobalSnapshot(BaseModel):
     snapshot_date: date
     timestamp: datetime
     # US
-    fed_rate: Optional[float] = None
-    treasury_10y: Optional[float] = None
-    us_cpi_yoy: Optional[float] = None
-    vix: Optional[float] = None
+    fed_rate: float | None = None
+    treasury_10y: float | None = None
+    us_cpi_yoy: float | None = None
+    vix: float | None = None
     vix_regime: VixRegime = VixRegime.NORMAL
     # FX
-    dxy_index: Optional[float] = None
-    usd_krw: Optional[float] = None
+    dxy_index: float | None = None
+    usd_krw: float | None = None
     # Korea
-    bok_rate: Optional[float] = None
-    kospi_index: Optional[float] = None
-    kospi_change_pct: Optional[float] = None
-    kosdaq_index: Optional[float] = None
-    kosdaq_change_pct: Optional[float] = None
+    bok_rate: float | None = None
+    kospi_index: float | None = None
+    kospi_change_pct: float | None = None
+    kosdaq_index: float | None = None
+    kosdaq_change_pct: float | None = None
     # Investor flow
-    kospi_foreign_net: Optional[float] = None  # 억원
-    kosdaq_foreign_net: Optional[float] = None
-    kospi_institutional_net: Optional[float] = None
-    kospi_retail_net: Optional[float] = None
+    kospi_foreign_net: float | None = None  # 억원
+    kosdaq_foreign_net: float | None = None
+    kospi_institutional_net: float | None = None
+    kospi_retail_net: float | None = None
     # Metadata
     completeness_pct: float = 0.0
-    data_sources: List[str] = []
+    data_sources: list[str] = []

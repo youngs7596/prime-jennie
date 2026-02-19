@@ -6,8 +6,7 @@
 import logging
 import threading
 from collections import defaultdict
-from datetime import datetime, timezone
-from typing import Optional
+from datetime import UTC, datetime
 
 from pydantic import BaseModel
 
@@ -48,33 +47,25 @@ class BarEngine:
         # 종목별 완성된 바 히스토리
         self._completed_bars: dict[str, list[Bar]] = defaultdict(list)
         # VWAP 누적 {code: {cum_pv, cum_vol, vwap, date}}
-        self._vwap: dict[str, dict] = defaultdict(
-            lambda: {"cum_pv": 0.0, "cum_vol": 0, "vwap": 0.0, "date": None}
-        )
+        self._vwap: dict[str, dict] = defaultdict(lambda: {"cum_pv": 0.0, "cum_vol": 0, "vwap": 0.0, "date": None})
         # 거래량 히스토리 (바별 volume)
         self._volume_history: dict[str, list[int]] = defaultdict(list)
 
-    def update(
-        self, stock_code: str, price: float, volume: int = 0
-    ) -> Optional[Bar]:
+    def update(self, stock_code: str, price: float, volume: int = 0) -> Bar | None:
         """틱 수신 → 바 갱신. 바가 완성되면 반환."""
-        now = datetime.now(timezone.utc).timestamp()
+        now = datetime.now(UTC).timestamp()
         bar_ts = int(now // self._interval) * self._interval
 
         with self._lock:
             # VWAP 업데이트 (일별 리셋)
-            today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+            today = datetime.now(UTC).strftime("%Y-%m-%d")
             vwap_data = self._vwap[stock_code]
             if vwap_data["date"] != today:
                 vwap_data.update(cum_pv=0.0, cum_vol=0, vwap=0.0, date=today)
             if volume > 0:
                 vwap_data["cum_pv"] += price * volume
                 vwap_data["cum_vol"] += volume
-                vwap_data["vwap"] = (
-                    vwap_data["cum_pv"] / vwap_data["cum_vol"]
-                    if vwap_data["cum_vol"] > 0
-                    else price
-                )
+                vwap_data["vwap"] = vwap_data["cum_pv"] / vwap_data["cum_vol"] if vwap_data["cum_vol"] > 0 else price
 
             current = self._current_bars.get(stock_code)
 
@@ -96,13 +87,9 @@ class BarEngine:
 
                     # 히스토리 제한
                     if len(self._completed_bars[stock_code]) > self._max_history:
-                        self._completed_bars[stock_code] = self._completed_bars[
-                            stock_code
-                        ][-self._max_history :]
+                        self._completed_bars[stock_code] = self._completed_bars[stock_code][-self._max_history :]
                     if len(self._volume_history[stock_code]) > self._max_history:
-                        self._volume_history[stock_code] = self._volume_history[
-                            stock_code
-                        ][-self._max_history :]
+                        self._volume_history[stock_code] = self._volume_history[stock_code][-self._max_history :]
 
                 # 새 바 초기화
                 self._current_bars[stock_code] = {
@@ -142,7 +129,7 @@ class BarEngine:
             bars = self._completed_bars.get(stock_code, [])
             return bars[-count:]
 
-    def get_current_price(self, stock_code: str) -> Optional[float]:
+    def get_current_price(self, stock_code: str) -> float | None:
         """현재 바의 종가 (최신 틱). 없으면 None."""
         current = self._current_bars.get(stock_code)
         return current["close"] if current else None

@@ -2,8 +2,7 @@
 
 import json
 import logging
-import os
-from typing import Any, Optional
+from typing import Any
 
 from prime_jennie.infra.llm.base import BaseLLMProvider, LLMResponse
 from prime_jennie.infra.llm.factory import register_provider
@@ -32,10 +31,10 @@ class GeminiLLMProvider(BaseLLMProvider):
         self,
         prompt: str,
         *,
-        system: Optional[str] = None,
+        system: str | None = None,
         temperature: float = 0.7,
         max_tokens: int = 2048,
-        service: Optional[str] = None,
+        service: str | None = None,
     ) -> LLMResponse:
         from google.genai import types
 
@@ -70,10 +69,10 @@ class GeminiLLMProvider(BaseLLMProvider):
         prompt: str,
         schema: dict[str, Any],
         *,
-        system: Optional[str] = None,
+        system: str | None = None,
         temperature: float = 0.3,
         max_tokens: int = 2048,
-        service: Optional[str] = None,
+        service: str | None = None,
     ) -> dict[str, Any]:
         from google.genai import types
 

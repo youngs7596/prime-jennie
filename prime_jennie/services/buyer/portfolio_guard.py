@@ -7,7 +7,6 @@
 
 import json
 import logging
-from typing import Optional
 
 import redis
 
@@ -25,9 +24,7 @@ class GuardResult:
 
     __slots__ = ("passed", "check_name", "reason", "details")
 
-    def __init__(
-        self, passed: bool, check_name: str, reason: str = "", details: dict | None = None
-    ):
+    def __init__(self, passed: bool, check_name: str, reason: str = "", details: dict | None = None):
         self.passed = passed
         self.check_name = check_name
         self.reason = reason
@@ -53,11 +50,11 @@ class PortfolioGuard:
             ...
     """
 
-    def __init__(self, redis_client: Optional[redis.Redis] = None):
+    def __init__(self, redis_client: redis.Redis | None = None):
         self._config = get_config()
         self._redis = redis_client
 
-    def _get_dynamic_sector_cap(self, sector_group: SectorGroup) -> Optional[int]:
+    def _get_dynamic_sector_cap(self, sector_group: SectorGroup) -> int | None:
         """Redis에서 동적 섹터 cap 조회."""
         if not self._config.risk.dynamic_sector_budget_enabled:
             return None
@@ -85,9 +82,7 @@ class PortfolioGuard:
         max_allowed = dynamic_cap if dynamic_cap is not None else self._config.risk.max_sector_stocks
 
         # 현재 동일 섹터 보유 수
-        current_count = sum(
-            1 for p in positions if p.sector_group == sector_group
-        )
+        current_count = sum(1 for p in positions if p.sector_group == sector_group)
 
         if current_count >= max_allowed:
             return GuardResult(
@@ -154,9 +149,7 @@ class PortfolioGuard:
             return sector_result
 
         # 2. Cash floor
-        cash_result = self.check_cash_floor(
-            buy_amount, available_cash, total_assets, regime
-        )
+        cash_result = self.check_cash_floor(buy_amount, available_cash, total_assets, regime)
         if not cash_result.passed:
             return cash_result
 

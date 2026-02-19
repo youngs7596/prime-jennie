@@ -10,7 +10,6 @@ Usage:
 
 import logging
 from functools import lru_cache
-from typing import Optional
 
 from prime_jennie.domain.config import get_config
 
@@ -61,8 +60,7 @@ class LLMFactory:
         provider_cls = _PROVIDER_REGISTRY.get(provider_type)
         if not provider_cls:
             raise ValueError(
-                f"LLM provider '{provider_type}' not registered. "
-                f"Available: {list(_PROVIDER_REGISTRY.keys())}"
+                f"LLM provider '{provider_type}' not registered. Available: {list(_PROVIDER_REGISTRY.keys())}"
             )
 
         logger.info("LLM tier=%s → provider=%s", tier, provider_type)

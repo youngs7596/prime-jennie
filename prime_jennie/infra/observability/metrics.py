@@ -10,7 +10,6 @@ Redis 키: llm:stats:{YYYY-MM-DD}:{service}
 
 import logging
 from datetime import date
-from typing import Optional
 
 import redis
 
@@ -50,8 +49,8 @@ def record_llm_usage(
 
 def get_llm_stats(
     r: redis.Redis,
-    target_date: Optional[date] = None,
-    service: Optional[str] = None,
+    target_date: date | None = None,
+    service: str | None = None,
 ) -> dict:
     """LLM 사용량 통계 조회.
 

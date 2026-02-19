@@ -1,8 +1,6 @@
 """Scout Quant Scorer v2 단위 테스트."""
 
-from datetime import date, datetime, timezone
-
-import pytest
+from datetime import UTC, date, datetime
 
 from prime_jennie.domain.enums import SectorGroup
 from prime_jennie.domain.scoring import QuantScore
@@ -24,7 +22,6 @@ from prime_jennie.services.scout.quant import (
     _value_score,
     score_candidate,
 )
-
 
 # ─── Fixtures ────────────────────────────────────────────────────
 
@@ -136,7 +133,7 @@ class TestScoreCandidate:
                 price=80000,
                 high_52w=90000,
                 low_52w=50000,
-                timestamp=datetime.now(timezone.utc),
+                timestamp=datetime.now(UTC),
             ),
         )
         result = score_candidate(candidate)

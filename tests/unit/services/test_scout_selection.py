@@ -1,8 +1,6 @@
 """Scout Watchlist Selection 단위 테스트."""
 
-from datetime import date, datetime, timezone
-
-import pytest
+from datetime import UTC, date, datetime
 
 from prime_jennie.domain.enums import (
     MarketRegime,
@@ -18,10 +16,9 @@ from prime_jennie.domain.stock import StockMaster
 from prime_jennie.services.scout.enrichment import EnrichedCandidate
 from prime_jennie.services.scout.selection import select_watchlist
 
-
 # ─── Fixtures ────────────────────────────────────────────────────
 
-NOW = datetime(2026, 2, 19, 10, 0, 0, tzinfo=timezone.utc)
+NOW = datetime(2026, 2, 19, 10, 0, 0, tzinfo=UTC)
 
 
 def _make_hybrid(
@@ -67,7 +64,7 @@ def _make_context(regime: MarketRegime = MarketRegime.BULL) -> TradingContext:
 
 def _make_budget(**overrides: dict) -> SectorBudget:
     """기본 WARM(cap=3) 예산."""
-    default_entry = SectorBudgetEntry(
+    SectorBudgetEntry(
         sector_group=SectorGroup.ETC,
         tier=SectorTier.WARM,
         watchlist_cap=3,
@@ -123,8 +120,15 @@ class TestSelectWatchlist:
         """BLOCKED 티어 종목은 제외."""
         scores = [
             _make_hybrid("000001", "Stock1", 80.0),
-            _make_hybrid("000002", "Stock2", 70.0, tier=TradeTier.BLOCKED, tradable=False, veto=True,
-                         risk_tag=RiskTag.DISTRIBUTION_RISK),
+            _make_hybrid(
+                "000002",
+                "Stock2",
+                70.0,
+                tier=TradeTier.BLOCKED,
+                tradable=False,
+                veto=True,
+                risk_tag=RiskTag.DISTRIBUTION_RISK,
+            ),
             _make_hybrid("000003", "Stock3", 60.0),
         ]
         candidates = {

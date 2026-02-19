@@ -9,7 +9,7 @@ Usage:
 
 import logging
 import sys
-from datetime import date, datetime, timezone
+from datetime import date
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
@@ -37,10 +37,7 @@ def main():
         positions = kis.get_positions()
         cash = kis.get_cash_balance()
 
-        stock_eval = sum(
-            p.quantity * (p.current_price or p.average_buy_price)
-            for p in positions
-        )
+        stock_eval = sum(p.quantity * (p.current_price or p.average_buy_price) for p in positions)
         total_asset = cash + stock_eval
 
         snapshot = DailyAssetSnapshotDB(

@@ -5,7 +5,6 @@ KIS Gateway 서비스(kis-gateway:8080)와 통신.
 """
 
 import logging
-from typing import Optional
 
 import httpx
 
@@ -16,8 +15,8 @@ from prime_jennie.domain import (
     Position,
     StockSnapshot,
 )
-from prime_jennie.domain.stock import DailyPrice
 from prime_jennie.domain.config import get_config
+from prime_jennie.domain.stock import DailyPrice
 
 logger = logging.getLogger(__name__)
 
@@ -31,7 +30,7 @@ class KISClient:
         balance = client.get_balance()
     """
 
-    def __init__(self, base_url: Optional[str] = None, timeout: float = 30.0):
+    def __init__(self, base_url: str | None = None, timeout: float = 30.0):
         config = get_config()
         self._base_url = (base_url or config.kis.gateway_url).rstrip("/")
         self._timeout = timeout
@@ -71,9 +70,7 @@ class KISClient:
 
     def cancel_order(self, order_no: str) -> bool:
         """주문 취소."""
-        resp = self._client.post(
-            "/api/trading/cancel", json={"order_no": order_no}
-        )
+        resp = self._client.post("/api/trading/cancel", json={"order_no": order_no})
         resp.raise_for_status()
         return resp.json().get("success", False)
 

@@ -1,8 +1,7 @@
 """Strategy Detection 단위 테스트."""
 
-import pytest
+from datetime import UTC
 
-from prime_jennie.domain.config import ScannerConfig
 from prime_jennie.domain.enums import MarketRegime, SignalType, TradeTier
 from prime_jennie.domain.watchlist import WatchlistEntry
 from prime_jennie.services.scanner.bar_engine import Bar
@@ -47,7 +46,8 @@ def _make_entry(
     llm: float = 72.0,
     tier: TradeTier = TradeTier.TIER1,
 ) -> WatchlistEntry:
-    from datetime import datetime, timezone
+    from datetime import datetime
+
     return WatchlistEntry(
         stock_code=code,
         stock_name="삼성전자",
@@ -56,7 +56,7 @@ def _make_entry(
         rank=1,
         is_tradable=True,
         trade_tier=tier,
-        scored_at=datetime.now(timezone.utc),
+        scored_at=datetime.now(UTC),
     )
 
 
@@ -93,10 +93,10 @@ class TestGoldenCross:
         # 마지막에 상승하여 MA5 > MA20 (교차)
         bars = []
         # 첫 16개: close=100
-        for i in range(16):
+        for _i in range(16):
             bars.append(_make_bar(close=100))
         # 다음 4개: close=98 (MA5를 MA20 아래로 끌어내림)
-        for i in range(4):
+        for _i in range(4):
             bars.append(_make_bar(close=98))
         # 마지막 1개: close=103 (MA5가 MA20 위로 교차)
         # MA20(이전) = (100*16 + 98*4) / 20 = 99.6
@@ -106,9 +106,9 @@ class TestGoldenCross:
         # MA5(현재) = (98*3 + 98 + 103) / 5 = 99.0... 아직 부족
         # 더 극단적으로
         bars = []
-        for i in range(16):
+        for _i in range(16):
             bars.append(_make_bar(close=100))
-        for i in range(4):
+        for _i in range(4):
             bars.append(_make_bar(close=96))  # 더 낮게
         # 현재: MA5(prev) = avg of bars[15:20] = (100+96*4)/5 = 96.8, MA20(prev) = (100*16+96*4)/20 = 99.2
         # 마지막 바 105 추가
@@ -120,9 +120,9 @@ class TestGoldenCross:
 
         # 간단한 접근: 충분한 교차 데이터
         bars = []
-        for i in range(15):
+        for _i in range(15):
             bars.append(_make_bar(close=90))
-        for i in range(5):
+        for _i in range(5):
             bars.append(_make_bar(close=100))
         # prev_bars: bars[:-1] → 15개 90 + 4개 100
         # prev_MA5 = (90 + 100*4)/5 = 98, prev_MA20 = (90*15 + 100*4)/19... 바가 20개이므로
@@ -132,12 +132,32 @@ class TestGoldenCross:
         # 이제 21개: MA5(curr) = (100*4+110)/5 = 102, MA20(curr) = (90*15+100*5+110)/21... 아 장기는 20개
 
         # 가장 간단: 정확히 제어된 close 값 사용
-        bars = [_make_bar(close=c) for c in [
-            90, 90, 90, 90, 90, 90, 90, 90, 90, 90,  # 0-9: 90
-            90, 90, 90, 90, 90,  # 10-14: 90
-            92, 94, 96, 98, 100,  # 15-19: 상승
-            105,  # 20: 급등 → MA5 교차
-        ]]
+        bars = [
+            _make_bar(close=c)
+            for c in [
+                90,
+                90,
+                90,
+                90,
+                90,
+                90,
+                90,
+                90,
+                90,
+                90,  # 0-9: 90
+                90,
+                90,
+                90,
+                90,
+                90,  # 10-14: 90
+                92,
+                94,
+                96,
+                98,
+                100,  # 15-19: 상승
+                105,  # 20: 급등 → MA5 교차
+            ]
+        ]
         # prev (bars[:20]): MA5 = avg(92,94,96,98,100) = 96, MA20 = avg(90*15, 92,94,96,98,100) = 92
         # → MA5(96) > MA20(92)? 이미 위에 있음. prev_prev도 확인:
         # prev of prev (bars[:19]): MA5 = avg(90,92,94,96,98) = 94, MA20 = (90*15+92+94+96+98)/19... 19개 미달
@@ -207,17 +227,13 @@ class TestMomentumContinuation:
     def test_bull_only(self):
         """BULL/STRONG_BULL에서만 작동."""
         bars = _make_bars_trend(25, start=100, step=0.5)
-        result = detect_momentum_continuation(
-            bars, MarketRegime.SIDEWAYS, llm_score=70
-        )
+        result = detect_momentum_continuation(bars, MarketRegime.SIDEWAYS, llm_score=70)
         assert not result.detected
 
     def test_low_llm_score(self):
         """LLM < 65 비활성."""
         bars = _make_bars_trend(25, start=100, step=0.5)
-        result = detect_momentum_continuation(
-            bars, MarketRegime.BULL, llm_score=50
-        )
+        result = detect_momentum_continuation(bars, MarketRegime.BULL, llm_score=50)
         assert not result.detected
 
 
@@ -246,12 +262,12 @@ class TestRSIRebound:
 class TestDipBuy:
     def test_valid_dip(self):
         """Watchlist D+1, 조정 매수."""
-        from datetime import datetime, timedelta, timezone
+        from datetime import datetime, timedelta
 
         bars = [_make_bar(close=100, high=102)] * 3
         bars.extend([_make_bar(close=99, high=100), _make_bar(close=98, high=99)])
         entry = _make_entry()
-        entry.scored_at = datetime.now(timezone.utc) - timedelta(days=1)
+        entry.scored_at = datetime.now(UTC) - timedelta(days=1)
 
         result = detect_dip_buy("005930", bars, entry, MarketRegime.BULL)
         # 조건 체크: 5개 바 고점 102, 현재 98 → dip = -3.9%
@@ -270,11 +286,11 @@ class TestDipBuy:
 
     def test_too_old(self):
         """D+6 이상이면 비활성."""
-        from datetime import datetime, timedelta, timezone
+        from datetime import datetime, timedelta
 
         bars = _make_bars_trend(5, start=100, step=-0.5)
         entry = _make_entry()
-        entry.scored_at = datetime.now(timezone.utc) - timedelta(days=10)
+        entry.scored_at = datetime.now(UTC) - timedelta(days=10)
 
         result = detect_dip_buy("005930", bars, entry, MarketRegime.BULL)
         assert not result.detected

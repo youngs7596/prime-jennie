@@ -8,11 +8,11 @@ Architecture:
     → on_message → parse tick → Redis XADD kis:prices
 """
 
+import contextlib
 import json
 import logging
 import threading
 import time
-from typing import Callable, Optional
 
 import redis
 
@@ -52,10 +52,10 @@ class KISWebSocketStreamer:
         self._ws_url = WS_URL_PAPER if is_paper else WS_URL_REAL
         self._subscription_codes: set[str] = set()
         self._ws = None
-        self._ws_thread: Optional[threading.Thread] = None
-        self._ping_thread: Optional[threading.Thread] = None
+        self._ws_thread: threading.Thread | None = None
+        self._ping_thread: threading.Thread | None = None
         self._is_running = False
-        self._approval_key: Optional[str] = None
+        self._approval_key: str | None = None
         self._approval_key_expires: float = 0.0
         self._lock = threading.Lock()
 
@@ -122,22 +122,16 @@ class KISWebSocketStreamer:
             return
 
         self._is_running = True
-        self._ws_thread = threading.Thread(
-            target=self._ws_loop, args=(approval_key,), daemon=True
-        )
+        self._ws_thread = threading.Thread(target=self._ws_loop, args=(approval_key,), daemon=True)
         self._ws_thread.start()
-        logger.info(
-            "Streamer started: %d codes, url=%s", len(self._subscription_codes), self._ws_url
-        )
+        logger.info("Streamer started: %d codes, url=%s", len(self._subscription_codes), self._ws_url)
 
     def stop(self) -> None:
         """WebSocket 연결 종료."""
         self._is_running = False
         if self._ws:
-            try:
+            with contextlib.suppress(Exception):
                 self._ws.close()
-            except Exception:
-                pass
         self._ws = None
         logger.info("Streamer stopped")
 
@@ -148,9 +142,7 @@ class KISWebSocketStreamer:
         # approval key는 캐시에서 재사용
         if self._approval_key:
             self._is_running = True
-            self._ws_thread = threading.Thread(
-                target=self._ws_loop, args=(self._approval_key,), daemon=True
-            )
+            self._ws_thread = threading.Thread(target=self._ws_loop, args=(self._approval_key,), daemon=True)
             self._ws_thread.start()
 
     def _ws_loop(self, approval_key: str) -> None:
@@ -165,13 +157,9 @@ class KISWebSocketStreamer:
         def on_open(ws):
             logger.info("KIS WebSocket connected")
             # 구독 요청 전송 (별도 스레드)
-            threading.Thread(
-                target=self._send_subscriptions, args=(ws, approval_key), daemon=True
-            ).start()
+            threading.Thread(target=self._send_subscriptions, args=(ws, approval_key), daemon=True).start()
             # Keepalive 핑
-            self._ping_thread = threading.Thread(
-                target=self._ping_loop, args=(ws,), daemon=True
-            )
+            self._ping_thread = threading.Thread(target=self._ping_loop, args=(ws,), daemon=True)
             self._ping_thread.start()
 
         def on_message(ws, message):
@@ -203,20 +191,22 @@ class KISWebSocketStreamer:
         for code in self._subscription_codes:
             if not self._is_running:
                 break
-            msg = json.dumps({
-                "header": {
-                    "approval_key": approval_key,
-                    "custtype": "P",
-                    "tr_type": "1",
-                    "content-type": "utf-8",
-                },
-                "body": {
-                    "input": {
-                        "tr_id": TR_ID_STOCK_EXEC,
-                        "tr_key": code,
-                    }
-                },
-            })
+            msg = json.dumps(
+                {
+                    "header": {
+                        "approval_key": approval_key,
+                        "custtype": "P",
+                        "tr_type": "1",
+                        "content-type": "utf-8",
+                    },
+                    "body": {
+                        "input": {
+                            "tr_id": TR_ID_STOCK_EXEC,
+                            "tr_key": code,
+                        }
+                    },
+                }
+            )
             try:
                 ws.send(msg)
             except Exception:

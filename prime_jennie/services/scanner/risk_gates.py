@@ -5,13 +5,13 @@
 """
 
 import logging
-from datetime import datetime, time, timezone
+from datetime import datetime, time
 
 from prime_jennie.domain.config import ScannerConfig
 from prime_jennie.domain.enums import MarketRegime, TradeTier, VixRegime
 from prime_jennie.domain.macro import TradingContext
 
-from .bar_engine import Bar, BarEngine
+from .bar_engine import Bar
 
 logger = logging.getLogger(__name__)
 
@@ -46,20 +46,14 @@ def _parse_time(s: str) -> time:
     return time(int(parts[0]), int(parts[1]))
 
 
-def check_min_bars(
-    bars: list[Bar], min_required: int = 20
-) -> GateResult:
+def check_min_bars(bars: list[Bar], min_required: int = 20) -> GateResult:
     """Gate 1: 최소 바 개수."""
     if len(bars) >= min_required:
         return GateResult(True, "min_bars")
-    return GateResult(
-        False, "min_bars", f"Need {min_required} bars, got {len(bars)}"
-    )
+    return GateResult(False, "min_bars", f"Need {min_required} bars, got {len(bars)}")
 
 
-def check_no_trade_window(
-    config: ScannerConfig, now: datetime | None = None
-) -> GateResult:
+def check_no_trade_window(config: ScannerConfig, now: datetime | None = None) -> GateResult:
     """Gate 2: 장초 노이즈 구간 (09:00-09:15 기본) 진입 금지."""
     now = now or _kst_now()
     start = _parse_time(config.no_trade_window_start)
@@ -75,9 +69,7 @@ def check_no_trade_window(
     return GateResult(True, "no_trade_window")
 
 
-def check_danger_zone(
-    config: ScannerConfig, now: datetime | None = None
-) -> GateResult:
+def check_danger_zone(config: ScannerConfig, now: datetime | None = None) -> GateResult:
     """Gate 3: 장 후반 위험 구간 (14:00-15:00 기본) 진입 금지."""
     now = now or _kst_now()
     start = _parse_time(config.danger_zone_start)
@@ -93,16 +85,12 @@ def check_danger_zone(
     return GateResult(True, "danger_zone")
 
 
-def check_rsi_guard(
-    rsi: float | None, max_rsi: float = 75.0
-) -> GateResult:
+def check_rsi_guard(rsi: float | None, max_rsi: float = 75.0) -> GateResult:
     """Gate 4: RSI 과열 체크."""
     if rsi is None:
         return GateResult(True, "rsi_guard", "RSI not available")
     if rsi > max_rsi:
-        return GateResult(
-            False, "rsi_guard", f"RSI {rsi:.1f} > {max_rsi}"
-        )
+        return GateResult(False, "rsi_guard", f"RSI {rsi:.1f} > {max_rsi}")
     return GateResult(True, "rsi_guard")
 
 
@@ -119,16 +107,12 @@ def check_macro_risk(context: TradingContext) -> GateResult:
     return GateResult(True, "macro_risk")
 
 
-def check_market_regime(
-    regime: MarketRegime, block_bear: bool = True
-) -> GateResult:
+def check_market_regime(regime: MarketRegime, block_bear: bool = True) -> GateResult:
     """Gate 6: BEAR/STRONG_BEAR 진입 차단."""
     if not block_bear:
         return GateResult(True, "market_regime")
     if regime in (MarketRegime.BEAR, MarketRegime.STRONG_BEAR):
-        return GateResult(
-            False, "market_regime", f"Bear market: {regime}"
-        )
+        return GateResult(False, "market_regime", f"Bear market: {regime}")
     return GateResult(True, "market_regime")
 
 
@@ -171,18 +155,14 @@ def check_cooldown(
     elapsed = t.time() - last_time
     if elapsed < cooldown_sec:
         remaining = int(cooldown_sec - elapsed)
-        return GateResult(
-            False, "cooldown", f"Cooldown: {remaining}s remaining"
-        )
+        return GateResult(False, "cooldown", f"Cooldown: {remaining}s remaining")
     return GateResult(True, "cooldown")
 
 
 def check_trade_tier(trade_tier: TradeTier) -> GateResult:
     """Gate 9: BLOCKED 티어 종목 차단."""
     if trade_tier == TradeTier.BLOCKED:
-        return GateResult(
-            False, "trade_tier", "BLOCKED tier (Scout Veto)"
-        )
+        return GateResult(False, "trade_tier", "BLOCKED tier (Scout Veto)")
     return GateResult(True, "trade_tier")
 
 
@@ -198,18 +178,13 @@ def check_micro_timing(bars: list[Bar]) -> GateResult:
     body = abs(last.close - last.open)
     upper_shadow = last.high - max(last.close, last.open)
     if body > 0 and upper_shadow > body * 2:
-        return GateResult(
-            False, "micro_timing", "Shooting Star pattern"
-        )
+        return GateResult(False, "micro_timing", "Shooting Star pattern")
 
     # Bearish Engulfing: 이전 양봉을 완전히 감싸는 음봉
     prev_bullish = prev.close > prev.open
     curr_bearish = last.close < last.open
-    if prev_bullish and curr_bearish:
-        if last.open >= prev.close and last.close <= prev.open:
-            return GateResult(
-                False, "micro_timing", "Bearish Engulfing pattern"
-            )
+    if prev_bullish and curr_bearish and last.open >= prev.close and last.close <= prev.open:
+        return GateResult(False, "micro_timing", "Bearish Engulfing pattern")
 
     return GateResult(True, "micro_timing")
 

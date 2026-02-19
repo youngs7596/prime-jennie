@@ -5,10 +5,7 @@ Usage:
     count = await collector.run_once()
 """
 
-import json
 import logging
-import time
-from datetime import datetime, timezone
 
 import redis
 

@@ -1,11 +1,11 @@
 """Sell Executor 단위 테스트."""
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from unittest.mock import MagicMock
 
 import pytest
 
-from prime_jennie.domain.enums import MarketRegime, SellReason
+from prime_jennie.domain.enums import SellReason
 from prime_jennie.domain.portfolio import Position
 from prime_jennie.domain.stock import StockSnapshot
 from prime_jennie.domain.trading import OrderResult, SellOrder
@@ -15,6 +15,7 @@ from prime_jennie.services.seller.executor import SellExecutor, SellResult
 @pytest.fixture(autouse=True)
 def _clear_config_cache():
     from prime_jennie.domain.config import get_config
+
     get_config.cache_clear()
     yield
     get_config.cache_clear()
@@ -27,7 +28,7 @@ def _make_sell_order(**overrides) -> SellOrder:
         "sell_reason": SellReason.TRAILING_STOP,
         "current_price": 77000,
         "quantity": 50,
-        "timestamp": datetime.now(timezone.utc),
+        "timestamp": datetime.now(UTC),
         "buy_price": 70000,
         "profit_pct": 10.0,
     }
@@ -41,7 +42,7 @@ def _mock_executor():
     kis.get_price.return_value = StockSnapshot(
         stock_code="005930",
         price=77000,
-        timestamp=datetime.now(timezone.utc),
+        timestamp=datetime.now(UTC),
     )
     kis.get_positions.return_value = [
         Position(
@@ -165,9 +166,7 @@ class TestSellExecutor:
 
 class TestSellResult:
     def test_to_dict(self):
-        result = SellResult(
-            "success", "005930", "삼성전자", "S001234", 50, 77000, 10.0
-        )
+        result = SellResult("success", "005930", "삼성전자", "S001234", 50, 77000, 10.0)
         d = result.to_dict()
         assert d["status"] == "success"
         assert d["quantity"] == 50

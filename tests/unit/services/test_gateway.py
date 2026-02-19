@@ -1,7 +1,7 @@
 """KIS Gateway 서비스 단위 테스트."""
 
 import sys
-from datetime import date, datetime, timezone
+from datetime import UTC, date, datetime
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -21,7 +21,6 @@ def _reset_caches():
 
 def _get_gateway_module():
     """Gateway app 모듈을 안전하게 가져오기."""
-    import prime_jennie.services.gateway.app
 
     return sys.modules["prime_jennie.services.gateway.app"]
 
@@ -66,7 +65,7 @@ class TestMarketSnapshot:
             low_price=71000,
             volume=15000000,
             change_pct=1.5,
-            timestamp=datetime.now(timezone.utc),
+            timestamp=datetime.now(UTC),
         )
 
         resp = client.post("/api/market/snapshot", json={"stock_code": "005930"})

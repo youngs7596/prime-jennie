@@ -1,12 +1,9 @@
 """뉴스 파이프라인 단위 테스트."""
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from unittest.mock import MagicMock, patch
 
-import pytest
-
 from prime_jennie.domain.news import NewsArticle
-
 
 # ─── NewsDeduplicator ────────────────────────────────────────
 
@@ -74,7 +71,7 @@ class TestNewsCollector:
                 press="한경",
                 headline="삼성전자 실적 호재",
                 article_url="https://example.com/1",
-                published_at=datetime.now(timezone.utc),
+                published_at=datetime.now(UTC),
                 source="NAVER",
             )
         ]
@@ -97,7 +94,7 @@ class TestNewsCollector:
                 press="한경",
                 headline="이미 수집된 뉴스",
                 article_url="https://example.com/dup",
-                published_at=datetime.now(timezone.utc),
+                published_at=datetime.now(UTC),
                 source="NAVER",
             )
         ]

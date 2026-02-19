@@ -22,7 +22,7 @@ jobs:
           cache: pip
 
       - name: Install dependencies
-        run: pip install -r requirements.txt
+        run: pip install -e ".[dev]"
 
       - name: Ruff lint
         run: ruff check prime_jennie/ tests/ scripts/
@@ -42,7 +42,7 @@ jobs:
           cache: pip
 
       - name: Install dependencies
-        run: pip install -r requirements.txt
+        run: pip install -e ".[dev]"
 
       - name: Run unit tests
         run: pytest tests/unit/ -v --tb=short -q
@@ -59,7 +59,7 @@ jobs:
           cache: pip
 
       - name: Install dependencies
-        run: pip install -r requirements.txt
+        run: pip install -e ".[dev]"
 
       - name: Run E2E tests
         run: pytest tests/e2e/ -v --tb=short -q

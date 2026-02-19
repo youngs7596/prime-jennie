@@ -10,7 +10,6 @@ Usage:
 
 import logging
 import sys
-from typing import Optional
 
 import structlog
 
@@ -47,10 +46,7 @@ def setup_logging(
         structlog.processors.UnicodeDecoder(),
     ]
 
-    if json_output:
-        renderer = structlog.processors.JSONRenderer(ensure_ascii=False)
-    else:
-        renderer = structlog.dev.ConsoleRenderer()
+    renderer = structlog.processors.JSONRenderer(ensure_ascii=False) if json_output else structlog.dev.ConsoleRenderer()
 
     structlog.configure(
         processors=[

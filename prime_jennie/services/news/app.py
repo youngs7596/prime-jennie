@@ -9,8 +9,6 @@ Data Flow:
 """
 
 import logging
-import threading
-import time
 from contextlib import asynccontextmanager
 
 from fastapi import Depends
@@ -45,9 +43,7 @@ _pipeline_status = {
 
 def _load_universe(session: Session) -> dict[str, str]:
     """활성 종목 유니버스 로드 (code→name)."""
-    stocks = session.exec(
-        select(StockMasterDB).where(StockMasterDB.is_active == True)
-    ).all()
+    stocks = session.exec(select(StockMasterDB).where(StockMasterDB.is_active)).all()
     return {s.stock_code: s.stock_name for s in stocks}
 
 
@@ -95,7 +91,7 @@ def trigger_collect(session: Session = Depends(get_db_session)) -> CollectRespon
         try:
             from prime_jennie.infra.llm.factory import LLMFactory
 
-            config = get_config()
+            get_config()
             llm = LLMFactory.get_provider("FAST")
             analyzer = NewsAnalyzer(r, llm, db_session_factory=_create_session)
             analyzed = analyzer.run_once(max_messages=collected + 50)

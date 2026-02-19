@@ -1,12 +1,12 @@
 """Portfolio API — 포트폴리오 상태, 보유 종목, 자산 히스토리."""
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from fastapi import APIRouter, Depends
 from pydantic import BaseModel
 from sqlmodel import Session
 
-from prime_jennie.domain.portfolio import DailySnapshot, Position, PortfolioState
+from prime_jennie.domain.portfolio import DailySnapshot, PortfolioState, Position
 from prime_jennie.infra.database.repositories import (
     AssetSnapshotRepository,
     PortfolioRepository,
@@ -57,7 +57,7 @@ def get_summary(session: Session = Depends(get_db_session)) -> PortfolioState:
         total_asset=total,
         stock_eval_amount=stock_eval,
         position_count=len(positions),
-        timestamp=datetime.now(timezone.utc),
+        timestamp=datetime.now(UTC),
     )
 
 
@@ -115,11 +115,7 @@ def get_performance(
     wins = [t for t in sell_trades if (t.profit_pct or 0) > 0]
     losses = [t for t in sell_trades if (t.profit_pct or 0) <= 0]
     total_profit = sum(t.profit_amount or 0 for t in sell_trades)
-    avg_return = (
-        sum(t.profit_pct or 0 for t in sell_trades) / len(sell_trades)
-        if sell_trades
-        else 0.0
-    )
+    avg_return = sum(t.profit_pct or 0 for t in sell_trades) / len(sell_trades) if sell_trades else 0.0
 
     return PerformanceSummary(
         total_trades=len(sell_trades),

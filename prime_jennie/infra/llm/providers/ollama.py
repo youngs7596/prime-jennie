@@ -8,9 +8,8 @@ vLLM OpenAI-compatible API를 직접 호출.
 
 import json
 import logging
-import os
 import re
-from typing import Any, Optional
+from typing import Any
 
 import httpx
 
@@ -78,7 +77,7 @@ class OllamaLLMProvider(BaseLLMProvider):
             "default_model": "LGAI-EXAONE/EXAONE-4.0-32B-AWQ",
         }
 
-    def _resolve_model(self, model_name: Optional[str] = None) -> str:
+    def _resolve_model(self, model_name: str | None = None) -> str:
         """Ollama 모델명 → vLLM 모델명 해석."""
         name = model_name or self._default_model
         return VLLM_MODEL_MAP.get(name, name)
@@ -98,10 +97,10 @@ class OllamaLLMProvider(BaseLLMProvider):
         self,
         prompt: str,
         *,
-        system: Optional[str] = None,
+        system: str | None = None,
         temperature: float = 0.7,
         max_tokens: int = 2048,
-        service: Optional[str] = None,
+        service: str | None = None,
     ) -> LLMResponse:
         model = self._resolve_model()
         clamped = self._clamp_max_tokens(prompt, max_tokens)
@@ -119,9 +118,7 @@ class OllamaLLMProvider(BaseLLMProvider):
         }
 
         async with httpx.AsyncClient(timeout=self._timeout) as client:
-            resp = await client.post(
-                f"{self._llm_url}/chat/completions", json=payload
-            )
+            resp = await client.post(f"{self._llm_url}/chat/completions", json=payload)
             resp.raise_for_status()
             data = resp.json()
 
@@ -143,10 +140,10 @@ class OllamaLLMProvider(BaseLLMProvider):
         prompt: str,
         schema: dict[str, Any],
         *,
-        system: Optional[str] = None,
+        system: str | None = None,
         temperature: float = 0.3,
         max_tokens: int = 2048,
-        service: Optional[str] = None,
+        service: str | None = None,
     ) -> dict[str, Any]:
         sys_msg = system or "You are a helpful assistant. Always respond with valid JSON only."
         response = await self.generate(
@@ -162,17 +159,15 @@ class OllamaLLMProvider(BaseLLMProvider):
 
         try:
             return _extract_json(content)
-        except (json.JSONDecodeError, ValueError):
+        except (json.JSONDecodeError, ValueError) as err:
             logger.warning("JSON parse failed (model=%s): %s", response.model, content[:200])
-            raise ValueError(f"Failed to parse JSON from LLM response: {content[:200]}")
+            raise ValueError(f"Failed to parse JSON from LLM response: {content[:200]}") from err
 
     async def generate_embeddings(self, texts: list[str]) -> list[list[float]]:
         payload = {"model": "nlpai-lab/KURE-v1", "input": texts}
 
         async with httpx.AsyncClient(timeout=60.0) as client:
-            resp = await client.post(
-                f"{self._embed_url}/embeddings", json=payload
-            )
+            resp = await client.post(f"{self._embed_url}/embeddings", json=payload)
             resp.raise_for_status()
             data = resp.json()
 

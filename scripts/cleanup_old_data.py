@@ -39,19 +39,11 @@ def main():
 
     with Session(engine) as session:
         # 뉴스 감성
-        result = session.exec(
-            delete(StockNewsSentimentDB).where(
-                StockNewsSentimentDB.news_date < cutoff
-            )
-        )
+        result = session.exec(delete(StockNewsSentimentDB).where(StockNewsSentimentDB.news_date < cutoff))
         news_deleted = result.rowcount if hasattr(result, "rowcount") else 0
 
         # 투자자 매매동향
-        result = session.exec(
-            delete(StockInvestorTradingDB).where(
-                StockInvestorTradingDB.trade_date < cutoff
-            )
-        )
+        result = session.exec(delete(StockInvestorTradingDB).where(StockInvestorTradingDB.trade_date < cutoff))
         trading_deleted = result.rowcount if hasattr(result, "rowcount") else 0
 
         session.commit()

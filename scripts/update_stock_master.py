@@ -26,16 +26,13 @@ logger = logging.getLogger(__name__)
 
 def main():
     config = get_config()
-    kis = KISClient(base_url=config.kis.gateway_url)
+    KISClient(base_url=config.kis.gateway_url)
     engine = get_engine()
 
     logger.info("종목 마스터 업데이트 시작")
 
     with Session(engine) as session:
-        existing = {
-            s.stock_code: s
-            for s in session.exec(select(StockMasterDB)).all()
-        }
+        existing = {s.stock_code: s for s in session.exec(select(StockMasterDB)).all()}
         logger.info("기존 종목: %d개", len(existing))
 
         # KIS 전 종목 조회는 Gateway 미지원 → DB 기존 데이터 검증만 수행

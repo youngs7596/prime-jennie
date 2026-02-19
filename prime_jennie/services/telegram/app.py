@@ -4,18 +4,13 @@
 """
 
 import logging
-import os
 import threading
 import time
-from contextlib import asynccontextmanager
-from typing import Optional
-
-from fastapi import FastAPI
 
 from prime_jennie.domain.config import get_config
 from prime_jennie.infra.database.engine import get_engine
-from prime_jennie.infra.redis.client import get_redis
 from prime_jennie.infra.kis.client import KISClient
+from prime_jennie.infra.redis.client import get_redis
 from prime_jennie.services.base import create_app
 
 from .bot import TelegramBot
@@ -23,9 +18,9 @@ from .handler import CommandHandler
 
 logger = logging.getLogger(__name__)
 
-_bot: Optional[TelegramBot] = None
-_handler: Optional[CommandHandler] = None
-_polling_thread: Optional[threading.Thread] = None
+_bot: TelegramBot | None = None
+_handler: CommandHandler | None = None
+_polling_thread: threading.Thread | None = None
 _polling_active = threading.Event()
 
 
@@ -92,9 +87,7 @@ def start_polling():
     handler = _get_handler()
 
     _polling_active.set()
-    _polling_thread = threading.Thread(
-        target=_poll_loop, args=(bot, handler), daemon=True
-    )
+    _polling_thread = threading.Thread(target=_poll_loop, args=(bot, handler), daemon=True)
     _polling_thread.start()
     return {"status": "started"}
 

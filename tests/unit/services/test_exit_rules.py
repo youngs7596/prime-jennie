@@ -10,7 +10,6 @@ from prime_jennie.services.monitor.exit_rules import (
     check_fixed_stop,
     check_hard_stop,
     check_profit_lock,
-    check_profit_target,
     check_rsi_overbought,
     check_scale_out,
     check_time_exit,
@@ -22,6 +21,7 @@ from prime_jennie.services.monitor.exit_rules import (
 @pytest.fixture(autouse=True)
 def _clear_config_cache():
     from prime_jennie.domain.config import get_config
+
     get_config.cache_clear()
     yield
     get_config.cache_clear()
@@ -165,6 +165,7 @@ class TestTrailingTakeProfit:
 
     def test_disabled_when_config_off(self, monkeypatch):
         import prime_jennie.domain.config as cfg
+
         cfg.get_config.cache_clear()
         monkeypatch.setenv("SELL_TRAILING_ENABLED", "false")
         cfg.get_config.cache_clear()

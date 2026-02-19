@@ -4,22 +4,11 @@
 """
 
 import logging
-from contextlib import asynccontextmanager
-from datetime import date, datetime, timezone
-from typing import Optional
+from datetime import date
 
 from fastapi import Depends
 from sqlmodel import Session
 
-from prime_jennie.domain.config import get_config
-from prime_jennie.domain.portfolio import DailySnapshot, Position
-from prime_jennie.infra.database.repositories import (
-    AssetSnapshotRepository,
-    MacroRepository,
-    PortfolioRepository,
-    StockRepository,
-    WatchlistRepository,
-)
 from prime_jennie.services.base import create_app
 from prime_jennie.services.deps import get_db_session
 
@@ -29,7 +18,7 @@ logger = logging.getLogger(__name__)
 
 app = create_app("daily-briefing", version="1.0.0", dependencies=["db"])
 
-_reporter: Optional[DailyReporter] = None
+_reporter: DailyReporter | None = None
 
 
 def _get_reporter() -> DailyReporter:

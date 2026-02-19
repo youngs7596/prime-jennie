@@ -1,6 +1,6 @@
 """Scout Unified Analyst 단위 테스트."""
 
-from datetime import date, datetime, timezone
+from datetime import UTC, date, datetime
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -30,8 +30,9 @@ from prime_jennie.services.scout.enrichment import (
 
 def _make_prices(n: int = 150, base: int = 70000, trend: float = 0.001) -> list:
     """n일치 일봉 생성 (상승 추세)."""
-    from prime_jennie.domain.stock import DailyPrice
     from datetime import date
+
+    from prime_jennie.domain.stock import DailyPrice
 
     prices = []
     for i in range(n):
@@ -52,7 +53,7 @@ def _make_prices(n: int = 150, base: int = 70000, trend: float = 0.001) -> list:
 
 # ─── Fixtures ────────────────────────────────────────────────────
 
-NOW = datetime(2026, 2, 19, 10, 0, 0, tzinfo=timezone.utc)
+NOW = datetime(2026, 2, 19, 10, 0, 0, tzinfo=UTC)
 
 
 def _quant(code: str = "005930", total: float = 60.0) -> QuantScore:
@@ -68,7 +69,15 @@ def _quant(code: str = "005930", total: float = 60.0) -> QuantScore:
         value_score=round(12.0 * ratio, 1),
         technical_score=round(8.0 * ratio, 1),
         news_score=round(7.0 * ratio, 1),
-        supply_demand_score=round(total - round(12.0 * ratio, 1) - round(10.0 * ratio, 1) - round(12.0 * ratio, 1) - round(8.0 * ratio, 1) - round(7.0 * ratio, 1), 1),
+        supply_demand_score=round(
+            total
+            - round(12.0 * ratio, 1)
+            - round(10.0 * ratio, 1)
+            - round(12.0 * ratio, 1)
+            - round(8.0 * ratio, 1)
+            - round(7.0 * ratio, 1),
+            1,
+        ),
     )
 
 

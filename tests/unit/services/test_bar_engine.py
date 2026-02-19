@@ -1,9 +1,5 @@
 """Bar Engine 단위 테스트."""
 
-import time
-
-import pytest
-
 from prime_jennie.services.scanner.bar_engine import Bar, BarEngine
 
 

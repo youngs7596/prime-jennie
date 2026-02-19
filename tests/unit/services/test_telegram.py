@@ -1,11 +1,6 @@
 """Telegram Command Handler 단위 테스트."""
 
-import json
-from datetime import date
 from unittest.mock import MagicMock, patch
-
-import pytest
-
 
 # ─── TelegramBot ──────────────────────────────────────────
 
@@ -264,11 +259,8 @@ class TestCommandHandler:
     def test_manual_trade_limit(self):
         handler, mock_redis, *_ = self._make_handler()
         # Set manual trade count to limit
-        mock_redis.get.side_effect = lambda key: (
-            str(LIMIT) if "manual_trades" in key else None
-        )
-
-        LIMIT = 20
+        limit = 20
+        mock_redis.get.side_effect = lambda key: str(limit) if "manual_trades" in key else None
         # Directly test the limit checker
         assert handler._check_manual_trade_limit("123") is False
 

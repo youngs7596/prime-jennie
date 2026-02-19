@@ -12,8 +12,6 @@
 """
 
 import logging
-import math
-from typing import Optional
 
 from prime_jennie.domain.scoring import QuantScore
 from prime_jennie.domain.stock import DailyPrice
@@ -321,7 +319,7 @@ def _supply_demand_score(candidate: EnrichedCandidate) -> float:
 # ─── Helpers ─────────────────────────────────────────────────────
 
 
-def _compute_rsi(closes: list[int | float], period: int = 14) -> Optional[float]:
+def _compute_rsi(closes: list[int | float], period: int = 14) -> float | None:
     """RSI 계산."""
     if len(closes) < period + 1:
         return None

@@ -3,19 +3,14 @@
 뉴스 감성 분석 + 경쟁사 리스크 탐지.
 """
 
-import json
+import contextlib
 import logging
-from datetime import date, datetime, timezone
-from typing import Optional
+from datetime import UTC, datetime
 
 import redis
-from sqlmodel import Session
 
-from prime_jennie.domain.config import get_config
-from prime_jennie.domain.news import NewsSentiment
 from prime_jennie.infra.database.models import StockNewsSentimentDB
-from prime_jennie.infra.database.repositories import StockRepository
-from prime_jennie.infra.llm.base import BaseLLMProvider, LLMResponse
+from prime_jennie.infra.llm.base import BaseLLMProvider
 
 logger = logging.getLogger(__name__)
 
@@ -25,10 +20,20 @@ ANALYZER_CONSUMER = "analyzer_1"
 BLOCK_MS = 2000
 
 # 긴급 키워드 (fast-track)
-EMERGENCY_KEYWORDS = frozenset([
-    "속보", "긴급", "전쟁", "관세", "Emergency", "Breaking",
-    "파병", "계엄", "공습", "폭격",
-])
+EMERGENCY_KEYWORDS = frozenset(
+    [
+        "속보",
+        "긴급",
+        "전쟁",
+        "관세",
+        "Emergency",
+        "Breaking",
+        "파병",
+        "계엄",
+        "공습",
+        "폭격",
+    ]
+)
 
 SENTIMENT_SCHEMA = {
     "type": "object",
@@ -77,7 +82,8 @@ class NewsAnalyzer:
         # 신규 메시지
         while processed < max_messages:
             messages = self._redis.xreadgroup(
-                ANALYZER_GROUP, ANALYZER_CONSUMER,
+                ANALYZER_GROUP,
+                ANALYZER_CONSUMER,
                 {NEWS_STREAM: ">"},
                 count=1,
                 block=BLOCK_MS,
@@ -85,7 +91,7 @@ class NewsAnalyzer:
             if not messages:
                 break
 
-            for stream_name, entries in messages:
+            for _stream_name, entries in messages:
                 for msg_id, data in entries:
                     try:
                         self._analyze_message(data)
@@ -102,7 +108,8 @@ class NewsAnalyzer:
         count = 0
         while True:
             pending = self._redis.xreadgroup(
-                ANALYZER_GROUP, ANALYZER_CONSUMER,
+                ANALYZER_GROUP,
+                ANALYZER_CONSUMER,
                 {NEWS_STREAM: "0"},
                 count=10,
             )
@@ -110,7 +117,7 @@ class NewsAnalyzer:
                 break
 
             has_messages = False
-            for stream_name, entries in pending:
+            for _stream_name, entries in pending:
                 if not entries:
                     continue
                 has_messages = True
@@ -156,12 +163,10 @@ class NewsAnalyzer:
 
         # DB 저장
         if self._session_factory and sentiment:
-            published_at = datetime.now(timezone.utc)
+            published_at = datetime.now(UTC)
             if published_str:
-                try:
+                with contextlib.suppress(ValueError):
                     published_at = datetime.fromisoformat(published_str)
-                except ValueError:
-                    pass
 
             self._save_sentiment(
                 stock_code=stock_code,
@@ -173,9 +178,7 @@ class NewsAnalyzer:
                 published_at=published_at,
             )
 
-    def _analyze_sentiment(
-        self, headline: str, stock_code: str, is_emergency: bool = False
-    ) -> dict | None:
+    def _analyze_sentiment(self, headline: str, stock_code: str, is_emergency: bool = False) -> dict | None:
         """LLM 감성 분석. 실패 시 기본값 반환."""
         import asyncio
 
@@ -214,9 +217,8 @@ class NewsAnalyzer:
         try:
             with self._session_factory() as session:
                 from sqlmodel import select
-                stmt = select(StockNewsSentimentDB).where(
-                    StockNewsSentimentDB.article_url == article_url
-                ).limit(1)
+
+                stmt = select(StockNewsSentimentDB).where(StockNewsSentimentDB.article_url == article_url).limit(1)
                 return session.exec(stmt).first() is not None
         except Exception:
             return False

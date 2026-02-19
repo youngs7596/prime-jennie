@@ -16,7 +16,6 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from sqlmodel import Session, select
 
-from prime_jennie.domain.config import get_config
 from prime_jennie.infra.crawlers.naver import build_naver_sector_mapping
 from prime_jennie.infra.database.engine import get_engine
 from prime_jennie.infra.database.models import StockMasterDB

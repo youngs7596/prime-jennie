@@ -6,7 +6,6 @@ from prime_jennie.domain.enums import SectorGroup, TradeTier
 from prime_jennie.domain.trading import PositionSizingRequest
 from prime_jennie.services.buyer.position_sizing import (
     MAX_QUANTITY,
-    PORTFOLIO_HEAT_LIMIT,
     calculate_atr,
     calculate_position_size,
     check_portfolio_heat,
@@ -21,6 +20,7 @@ from prime_jennie.services.buyer.position_sizing import (
 @pytest.fixture(autouse=True)
 def _clear_config_cache():
     from prime_jennie.domain.config import get_config
+
     get_config.cache_clear()
     yield
     get_config.cache_clear()
@@ -56,14 +56,10 @@ class TestSectorRiskMultiplier:
         assert get_sector_risk_multiplier(SectorGroup.SEMICONDUCTOR_IT, []) == 1.0
 
     def test_different_sector(self):
-        assert get_sector_risk_multiplier(
-            SectorGroup.SEMICONDUCTOR_IT, [SectorGroup.FINANCE]
-        ) == 1.0
+        assert get_sector_risk_multiplier(SectorGroup.SEMICONDUCTOR_IT, [SectorGroup.FINANCE]) == 1.0
 
     def test_same_sector_discount(self):
-        assert get_sector_risk_multiplier(
-            SectorGroup.SEMICONDUCTOR_IT, [SectorGroup.SEMICONDUCTOR_IT]
-        ) == 0.7
+        assert get_sector_risk_multiplier(SectorGroup.SEMICONDUCTOR_IT, [SectorGroup.SEMICONDUCTOR_IT]) == 0.7
 
     def test_none_sector(self):
         assert get_sector_risk_multiplier(None, [SectorGroup.FINANCE]) == 1.0

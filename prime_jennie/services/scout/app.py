@@ -14,13 +14,10 @@ Endpoints:
   GET  /health  → HealthStatus
 """
 
-import asyncio
-import json
 import logging
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
-from datetime import datetime, timezone
-from typing import Optional
+from datetime import UTC, datetime
 
 from fastapi import Depends
 from pydantic import BaseModel
@@ -44,7 +41,7 @@ logger = logging.getLogger(__name__)
 
 _current_phase: str = "idle"
 _progress_pct: int = 0
-_last_completed_at: Optional[datetime] = None
+_last_completed_at: datetime | None = None
 
 REDIS_WATCHLIST_KEY = "watchlist:active"
 REDIS_WATCHLIST_TTL = 86400  # 24h
@@ -65,7 +62,7 @@ class TriggerResponse(BaseModel):
 class StatusResponse(BaseModel):
     current_phase: str
     progress_pct: int
-    last_completed_at: Optional[datetime]
+    last_completed_at: datetime | None
 
 
 # ─── Lifespan ────────────────────────────────────────────────────
@@ -89,14 +86,14 @@ async def trigger(
     session: Session = Depends(get_db_session),
 ) -> TriggerResponse:
     """Airflow/수동 트리거 → 파이프라인 실행."""
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     job_id = f"scout-{now.strftime('%Y%m%d-%H%M')}"
 
     logger.info("Scout triggered: job_id=%s, source=%s", job_id, body.source)
 
     # 동기 실행 (Airflow 트리거는 완료까지 대기)
     try:
-        watchlist = await run_pipeline(session)
+        await run_pipeline(session)
         return TriggerResponse(job_id=job_id, status="completed")
     except Exception as e:
         logger.exception("Scout pipeline failed: %s", e)
@@ -137,7 +134,7 @@ async def run_pipeline(session: Session) -> HotWatchlist:
     # --- Phase 3: Quant Scoring ---
     _update_progress("quant_scoring", 45)
     quant_scores: list[QuantScore] = []
-    for code, candidate in enriched.items():
+    for _code, candidate in enriched.items():
         score = quant.score_candidate(candidate)
         quant_scores.append(score)
 
@@ -183,7 +180,7 @@ async def run_pipeline(session: Session) -> HotWatchlist:
     )
 
     _update_progress("idle", 100)
-    _last_completed_at = datetime.now(timezone.utc)
+    _last_completed_at = datetime.now(UTC)
 
     logger.info(
         "Scout pipeline completed: %d watchlist stocks, regime=%s",
@@ -219,7 +216,7 @@ def _compute_budget(
     enriched: dict[str, enrichment.EnrichedCandidate],
     context: TradingContext,
     redis_client,
-) -> Optional[SectorBudget]:
+) -> SectorBudget | None:
     """섹터 예산 계산."""
     config = get_config()
     if not config.risk.dynamic_sector_budget_enabled:
@@ -260,10 +257,3 @@ def _compute_budget(
     sector_budget.save_budget_to_redis(budget, redis_client)
 
     return budget
-
-
-def get_kis_client():
-    """KIS 클라이언트 가져오기."""
-    from prime_jennie.services.deps import get_kis_client as _get
-
-    return _get()

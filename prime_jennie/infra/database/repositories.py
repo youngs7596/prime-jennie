@@ -6,7 +6,6 @@
 
 import logging
 from datetime import date, timedelta
-from typing import Optional
 
 from sqlalchemy import desc
 from sqlmodel import Session, select
@@ -42,7 +41,7 @@ class StockRepository:
         return list(session.exec(stmt).all())
 
     @staticmethod
-    def get_stock(session: Session, stock_code: str) -> Optional[StockMasterDB]:
+    def get_stock(session: Session, stock_code: str) -> StockMasterDB | None:
         return session.get(StockMasterDB, stock_code)
 
     @staticmethod
@@ -76,7 +75,7 @@ class StockRepository:
         return list(session.exec(stmt).all())
 
     @staticmethod
-    def get_fundamentals(session: Session, stock_code: str) -> Optional[StockFundamentalDB]:
+    def get_fundamentals(session: Session, stock_code: str) -> StockFundamentalDB | None:
         stmt = (
             select(StockFundamentalDB)
             .where(StockFundamentalDB.stock_code == stock_code)
@@ -112,7 +111,7 @@ class PortfolioRepository:
         return list(session.exec(select(PositionDB)).all())
 
     @staticmethod
-    def get_position(session: Session, stock_code: str) -> Optional[PositionDB]:
+    def get_position(session: Session, stock_code: str) -> PositionDB | None:
         return session.get(PositionDB, stock_code)
 
     @staticmethod
@@ -123,11 +122,7 @@ class PortfolioRepository:
     @staticmethod
     def get_recent_trades(session: Session, days: int = 7) -> list[TradeLogDB]:
         cutoff = date.today() - timedelta(days=days)
-        stmt = (
-            select(TradeLogDB)
-            .where(TradeLogDB.trade_timestamp >= cutoff)
-            .order_by(desc(TradeLogDB.trade_timestamp))
-        )
+        stmt = select(TradeLogDB).where(TradeLogDB.trade_timestamp >= cutoff).order_by(desc(TradeLogDB.trade_timestamp))
         return list(session.exec(stmt).all())
 
 
@@ -138,12 +133,12 @@ class MacroRepository:
     """매크로 인사이트."""
 
     @staticmethod
-    def get_latest_insight(session: Session) -> Optional[DailyMacroInsightDB]:
+    def get_latest_insight(session: Session) -> DailyMacroInsightDB | None:
         stmt = select(DailyMacroInsightDB).order_by(desc(DailyMacroInsightDB.insight_date)).limit(1)
         return session.exec(stmt).first()
 
     @staticmethod
-    def get_insight_by_date(session: Session, target_date: date) -> Optional[DailyMacroInsightDB]:
+    def get_insight_by_date(session: Session, target_date: date) -> DailyMacroInsightDB | None:
         return session.get(DailyMacroInsightDB, target_date)
 
     @staticmethod
@@ -192,9 +187,9 @@ class WatchlistRepository:
     @staticmethod
     def get_latest(session: Session) -> list[WatchlistHistoryDB]:
         # 가장 최근 날짜의 워치리스트 조회
-        latest_date_stmt = select(WatchlistHistoryDB.snapshot_date).order_by(
-            desc(WatchlistHistoryDB.snapshot_date)
-        ).limit(1)
+        latest_date_stmt = (
+            select(WatchlistHistoryDB.snapshot_date).order_by(desc(WatchlistHistoryDB.snapshot_date)).limit(1)
+        )
         latest_date = session.exec(latest_date_stmt).first()
         if not latest_date:
             return []
@@ -224,10 +219,6 @@ class AssetSnapshotRepository:
         return list(session.exec(stmt).all())
 
     @staticmethod
-    def get_latest(session: Session) -> Optional[DailyAssetSnapshotDB]:
-        stmt = (
-            select(DailyAssetSnapshotDB)
-            .order_by(desc(DailyAssetSnapshotDB.snapshot_date))
-            .limit(1)
-        )
+    def get_latest(session: Session) -> DailyAssetSnapshotDB | None:
+        stmt = select(DailyAssetSnapshotDB).order_by(desc(DailyAssetSnapshotDB.snapshot_date)).limit(1)
         return session.exec(stmt).first()

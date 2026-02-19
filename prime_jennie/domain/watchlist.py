@@ -1,7 +1,6 @@
 """워치리스트 모델."""
 
 from datetime import datetime
-from typing import List, Optional
 
 from pydantic import BaseModel, Field
 
@@ -21,9 +20,9 @@ class WatchlistEntry(BaseModel):
     trade_tier: TradeTier
     risk_tag: RiskTag = RiskTag.NEUTRAL
     veto_applied: bool = False
-    sector_group: Optional[SectorGroup] = None
-    market_flow: Optional[dict] = None  # 수급 요약
-    scored_at: Optional[datetime] = None
+    sector_group: SectorGroup | None = None
+    market_flow: dict | None = None  # 수급 요약
+    scored_at: datetime | None = None
 
 
 class HotWatchlist(BaseModel):
@@ -31,16 +30,16 @@ class HotWatchlist(BaseModel):
 
     generated_at: datetime
     market_regime: MarketRegime
-    stocks: List[WatchlistEntry]
+    stocks: list[WatchlistEntry]
     version: str  # "v{timestamp}"
 
     @property
-    def stock_codes(self) -> List[str]:
+    def stock_codes(self) -> list[str]:
         return [s.stock_code for s in self.stocks]
 
     @property
-    def tradable_stocks(self) -> List[WatchlistEntry]:
+    def tradable_stocks(self) -> list[WatchlistEntry]:
         return [s for s in self.stocks if s.is_tradable]
 
-    def get_stock(self, code: str) -> Optional[WatchlistEntry]:
+    def get_stock(self, code: str) -> WatchlistEntry | None:
         return next((s for s in self.stocks if s.stock_code == code), None)

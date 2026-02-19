@@ -7,13 +7,10 @@
 - BuyExecutor ATR/sector_group 연동
 """
 
-from datetime import date, datetime, timezone
+from datetime import UTC, date, datetime
 from unittest.mock import MagicMock, patch
 
-import pytest
-
 from prime_jennie.services.buyer.position_sizing import calculate_atr, calculate_rsi, clamp_atr
-
 
 # ─── RSI Calculation ───────────────────────────────────────────
 
@@ -42,8 +39,7 @@ class TestCalculateRSI:
 
     def test_mixed_prices_in_range(self):
         """일반적인 등락 → 0~100 사이."""
-        prices = [100, 102, 101, 103, 100, 98, 101, 104, 103, 105,
-                  102, 99, 101, 103, 104, 106, 103, 101, 104, 107]
+        prices = [100, 102, 101, 103, 100, 98, 101, 104, 103, 105, 102, 99, 101, 103, 104, 106, 103, 101, 104, 107]
         rsi = calculate_rsi([float(p) for p in prices])
         assert rsi is not None
         assert 0.0 < rsi < 100.0
@@ -103,7 +99,7 @@ class TestBuySignalSectorGroup:
             trade_tier="TIER1",
             sector_group=SectorGroup.SEMICONDUCTOR_IT,
             market_regime="BULL",
-            timestamp=datetime.now(timezone.utc),
+            timestamp=datetime.now(UTC),
         )
         assert signal.sector_group == SectorGroup.SEMICONDUCTOR_IT
 
@@ -119,7 +115,7 @@ class TestBuySignalSectorGroup:
             hybrid_score=72.0,
             trade_tier="TIER1",
             market_regime="BULL",
-            timestamp=datetime.now(timezone.utc),
+            timestamp=datetime.now(UTC),
         )
         assert signal.sector_group is None
 

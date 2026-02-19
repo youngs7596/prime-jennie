@@ -4,11 +4,8 @@
 에러 격리: 종목별 실패 시 해당 필드만 None (파이프라인 중단 없음).
 """
 
-import asyncio
 import logging
 from concurrent.futures import ThreadPoolExecutor
-from datetime import date, timedelta
-from typing import Optional
 
 from pydantic import BaseModel
 from sqlmodel import Session
@@ -25,27 +22,27 @@ class InvestorTradingSummary(BaseModel):
 
     foreign_net_buy_sum: float = 0.0
     institution_net_buy_sum: float = 0.0
-    foreign_holding_ratio: Optional[float] = None
-    foreign_ratio_trend: Optional[float] = None  # 최근 20일 추세
+    foreign_holding_ratio: float | None = None
+    foreign_ratio_trend: float | None = None  # 최근 20일 추세
 
 
 class FinancialTrend(BaseModel):
     """재무 트렌드 데이터."""
 
-    per: Optional[float] = None
-    pbr: Optional[float] = None
-    roe: Optional[float] = None
+    per: float | None = None
+    pbr: float | None = None
+    roe: float | None = None
 
 
 class EnrichedCandidate(BaseModel):
     """Phase 2 출력 — 팩터 분석에 필요한 모든 데이터."""
 
     master: StockMaster
-    snapshot: Optional[StockSnapshot] = None
+    snapshot: StockSnapshot | None = None
     daily_prices: list[DailyPrice] = []
-    news_sentiment_avg: Optional[float] = None  # 최근 뉴스 평균 감성 점수
-    investor_trading: Optional[InvestorTradingSummary] = None
-    financial_trend: Optional[FinancialTrend] = None
+    news_sentiment_avg: float | None = None  # 최근 뉴스 평균 감성 점수
+    investor_trading: InvestorTradingSummary | None = None
+    financial_trend: FinancialTrend | None = None
 
 
 def enrich_candidates(
@@ -163,7 +160,7 @@ def _fetch_snapshots_parallel(
     """KIS 스냅샷 병렬 수집."""
     snapshots: dict[str, StockSnapshot] = {}
 
-    def fetch_one(code: str) -> tuple[str, Optional[StockSnapshot]]:
+    def fetch_one(code: str) -> tuple[str, StockSnapshot | None]:
         try:
             return code, kis.get_price(code)
         except Exception as e:

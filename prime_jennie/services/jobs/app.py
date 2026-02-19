@@ -5,15 +5,13 @@ Airflow http_conn_id="job_worker" → port 8095.
 """
 
 import logging
-from datetime import date, datetime, timedelta, timezone
-from typing import Optional
+from datetime import date, timedelta
 
 from fastapi import Depends
 from pydantic import BaseModel
 from sqlmodel import Session, select, text
 
 from prime_jennie.domain.config import get_config
-from prime_jennie.infra.database.engine import get_engine
 from prime_jennie.infra.database.models import (
     DailyAssetSnapshotDB,
     StockDailyPriceDB,
@@ -52,9 +50,7 @@ def daily_asset_snapshot(session: Session = Depends(get_db_session)) -> JobResul
         balance = kis.get_balance()
         positions = kis.get_positions()
 
-        stock_eval = sum(
-            (p.current_value or p.total_buy_amount) for p in positions
-        )
+        stock_eval = sum((p.current_value or p.total_buy_amount) for p in positions)
         cash = int(balance.get("cash_balance", 0))
         total = cash + stock_eval
 
@@ -78,9 +74,7 @@ def collect_full_market_data(session: Session = Depends(get_db_session)) -> JobR
     """KOSPI/KOSDAQ 일봉 수집 (활성 종목 전체)."""
     try:
         kis = _get_kis()
-        stocks = session.exec(
-            select(StockMasterDB).where(StockMasterDB.is_active == True)
-        ).all()
+        stocks = session.exec(select(StockMasterDB).where(StockMasterDB.is_active)).all()
 
         count = 0
         for stock in stocks:
@@ -94,16 +88,18 @@ def collect_full_market_data(session: Session = Depends(get_db_session)) -> JobR
                         )
                     ).first()
                     if not existing:
-                        session.add(StockDailyPriceDB(
-                            stock_code=p.stock_code,
-                            price_date=p.price_date,
-                            open_price=p.open_price,
-                            high_price=p.high_price,
-                            low_price=p.low_price,
-                            close_price=p.close_price,
-                            volume=p.volume,
-                            change_pct=p.change_pct,
-                        ))
+                        session.add(
+                            StockDailyPriceDB(
+                                stock_code=p.stock_code,
+                                price_date=p.price_date,
+                                open_price=p.open_price,
+                                high_price=p.high_price,
+                                low_price=p.low_price,
+                                close_price=p.close_price,
+                                volume=p.volume,
+                                change_pct=p.change_pct,
+                            )
+                        )
                         count += 1
             except Exception:
                 logger.debug("Skip %s", stock.stock_code)
@@ -122,16 +118,12 @@ def collect_investor_trading(session: Session = Depends(get_db_session)) -> JobR
         from pykrx import stock as pykrx_stock
 
         today_str = date.today().strftime("%Y%m%d")
-        stocks = session.exec(
-            select(StockMasterDB).where(StockMasterDB.is_active == True)
-        ).all()
+        stocks = session.exec(select(StockMasterDB).where(StockMasterDB.is_active)).all()
 
         count = 0
         for s in stocks[:50]:  # 배치 제한
             try:
-                df = pykrx_stock.get_market_trading_by_investor(
-                    today_str, today_str, s.stock_code
-                )
+                df = pykrx_stock.get_market_trading_by_investor(today_str, today_str, s.stock_code)
                 if df.empty:
                     continue
 
@@ -207,7 +199,6 @@ def macro_collect_global() -> JobResult:
     """글로벌 매크로 수집."""
     try:
         from pykrx import stock as pykrx_stock
-        import pandas as pd
 
         r = get_redis()
         today_str = date.today().strftime("%Y%m%d")
@@ -228,6 +219,7 @@ def macro_collect_global() -> JobResult:
 
         if data:
             import json
+
             r.set("macro:global:latest", json.dumps(data), ex=86400)
 
         return JobResult(message=f"Global macro collected: {list(data.keys())}")
@@ -262,10 +254,8 @@ def cleanup_old_data(session: Session = Depends(get_db_session)) -> JobResult:
     """365일 이전 데이터 정리."""
     try:
         cutoff = date.today() - timedelta(days=365)
-        result = session.exec(
-            text(
-                "DELETE FROM stock_daily_prices WHERE price_date < :cutoff"
-            ),
+        session.exec(
+            text("DELETE FROM stock_daily_prices WHERE price_date < :cutoff"),
             params={"cutoff": cutoff},
         )
         session.commit()
@@ -284,9 +274,7 @@ def update_naver_sectors(session: Session = Depends(get_db_session)) -> JobResul
         mapping = build_naver_sector_mapping()
         count = 0
         for code, sector in mapping.items():
-            stock = session.exec(
-                select(StockMasterDB).where(StockMasterDB.stock_code == code)
-            ).first()
+            stock = session.exec(select(StockMasterDB).where(StockMasterDB.stock_code == code)).first()
             if stock:
                 stock.sector_naver = sector
                 count += 1

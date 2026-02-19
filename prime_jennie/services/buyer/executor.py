@@ -3,9 +3,10 @@
 Scanner로부터 BuySignal을 수신하여 다단계 검증 후 KIS Gateway 주문.
 """
 
+import contextlib
 import logging
 import time
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 import redis
 
@@ -15,11 +16,9 @@ from prime_jennie.domain import (
     OrderResult,
     OrderType,
     Position,
-    TradeRecord,
-    TradeType,
 )
 from prime_jennie.domain.config import get_config
-from prime_jennie.domain.enums import MOMENTUM_STRATEGIES, MarketRegime, TradeTier
+from prime_jennie.domain.enums import MOMENTUM_STRATEGIES, TradeTier
 from prime_jennie.domain.trading import PositionSizingRequest
 from prime_jennie.infra.kis.client import KISClient
 
@@ -122,7 +121,9 @@ class BuyExecutor:
         # 3. Hard floor
         if signal.hybrid_score < self._config.scoring.hard_floor_score:
             return ExecutionResult(
-                "skipped", code, name,
+                "skipped",
+                code,
+                name,
                 reason=f"Hard floor: score {signal.hybrid_score} < {self._config.scoring.hard_floor_score}",
             )
 
@@ -149,9 +150,7 @@ class BuyExecutor:
         finally:
             self._release_lock(code)
 
-    def _execute_buy(
-        self, signal: BuySignal, positions: list[Position]
-    ) -> ExecutionResult:
+    def _execute_buy(self, signal: BuySignal, positions: list[Position]) -> ExecutionResult:
         """실제 매수 실행 (lock 내부)."""
         code = signal.stock_code
         name = signal.stock_name
@@ -172,18 +171,14 @@ class BuyExecutor:
 
         # Stale score
         stale_days = 0  # Scanner generates real-time signals
-        stale_mult = get_stale_multiplier(stale_days)
+        get_stale_multiplier(stale_days)
 
         # Held sectors
-        held_sectors = [
-            p.sector_group for p in positions if p.sector_group is not None
-        ]
+        held_sectors = [p.sector_group for p in positions if p.sector_group is not None]
 
         # Position sizing
         balance = self._get_cash_balance()
-        portfolio_value = sum(
-            (p.current_value or p.total_buy_amount) for p in positions
-        )
+        portfolio_value = sum((p.current_value or p.total_buy_amount) for p in positions)
 
         sizing_request = PositionSizingRequest(
             stock_code=code,
@@ -203,7 +198,9 @@ class BuyExecutor:
 
         if sizing.quantity <= 0:
             return ExecutionResult(
-                "skipped", code, name,
+                "skipped",
+                code,
+                name,
                 reason=f"Position size 0: {sizing.reasoning}",
             )
 
@@ -223,7 +220,9 @@ class BuyExecutor:
         )
         if not guard_result.passed:
             return ExecutionResult(
-                "skipped", code, name,
+                "skipped",
+                code,
+                name,
                 reason=f"Guard: {guard_result.reason}",
             )
 
@@ -231,7 +230,9 @@ class BuyExecutor:
         order_result = self._place_order(signal, sizing.quantity, current_price)
         if not order_result.success:
             return ExecutionResult(
-                "error", code, name,
+                "error",
+                code,
+                name,
                 reason=f"Order failed: {order_result.message}",
             )
 
@@ -256,17 +257,12 @@ class BuyExecutor:
             price=current_price,
         )
 
-    def _place_order(
-        self, signal: BuySignal, quantity: int, current_price: int
-    ) -> OrderResult:
+    def _place_order(self, signal: BuySignal, quantity: int, current_price: int) -> OrderResult:
         """주문 실행 (시장가 or 지정가)."""
         config = self._config.scanner
 
         # Momentum 전략: 지정가 주문
-        if (
-            config.momentum_limit_order_enabled
-            and signal.signal_type in MOMENTUM_STRATEGIES
-        ):
+        if config.momentum_limit_order_enabled and signal.signal_type in MOMENTUM_STRATEGIES:
             premium = config.momentum_limit_premium
             limit_price = int(current_price * (1 + premium))
             # KRX 호가 단위 정렬
@@ -327,10 +323,7 @@ class BuyExecutor:
         try:
             daily_prices = self._kis.get_daily_prices(stock_code, days=30)
             if len(daily_prices) >= 2:
-                price_dicts = [
-                    {"high": p.high_price, "low": p.low_price, "close": p.close_price}
-                    for p in daily_prices
-                ]
+                price_dicts = [{"high": p.high_price, "low": p.low_price, "close": p.close_price} for p in daily_prices]
                 atr = calculate_atr(price_dicts)
                 if atr > 0:
                     return clamp_atr(atr, current_price)
@@ -365,18 +358,16 @@ class BuyExecutor:
     def _check_daily_limit(self) -> bool:
         """일일 매수 횟수 제한."""
         try:
-            key = f"buy_count:{datetime.now(timezone.utc).strftime('%Y-%m-%d')}"
+            key = f"buy_count:{datetime.now(UTC).strftime('%Y-%m-%d')}"
             count = self._redis.get(key)
-            if count and int(count) >= self._config.risk.max_buy_count_per_day:
-                return False
-            return True
+            return not (count and int(count) >= self._config.risk.max_buy_count_per_day)
         except Exception:
             return True
 
     def _increment_buy_count(self) -> None:
         """일일 매수 카운트 증가."""
         try:
-            key = f"buy_count:{datetime.now(timezone.utc).strftime('%Y-%m-%d')}"
+            key = f"buy_count:{datetime.now(UTC).strftime('%Y-%m-%d')}"
             pipe = self._redis.pipeline()
             pipe.incr(key)
             pipe.expire(key, 86400)
@@ -387,18 +378,14 @@ class BuyExecutor:
     def _acquire_lock(self, stock_code: str, ttl: int = 180) -> bool:
         """분산 락 획득."""
         try:
-            return bool(
-                self._redis.set(f"{LOCK_PREFIX}{stock_code}", "1", nx=True, ex=ttl)
-            )
+            return bool(self._redis.set(f"{LOCK_PREFIX}{stock_code}", "1", nx=True, ex=ttl))
         except Exception:
             return False
 
     def _release_lock(self, stock_code: str) -> None:
         """분산 락 해제."""
-        try:
+        with contextlib.suppress(Exception):
             self._redis.delete(f"{LOCK_PREFIX}{stock_code}")
-        except Exception:
-            pass
 
 
 def _align_tick_size(price: int) -> int:

@@ -12,12 +12,13 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # 의존성 먼저 (캐시 최적화)
 COPY pyproject.toml /app/
 RUN --mount=type=cache,target=/root/.cache/pip \
-    pip install -e .
+    pip install -e ".[airflow]"
 
 # 패키지 소스
 COPY prime_jennie/ /app/prime_jennie/
 COPY prompts/ /app/prompts/
 COPY scripts/ /app/scripts/
+COPY dags/ /app/dags/
 
 # 패키지 재설치 (소스 반영, 의존성 캐시 활용)
 RUN pip install -e . --no-deps

@@ -1,7 +1,5 @@
 """Watchlist API — 현재 워치리스트 + DB 히스토리."""
 
-from typing import Optional
-
 import redis
 from fastapi import APIRouter, Depends
 from sqlmodel import Session

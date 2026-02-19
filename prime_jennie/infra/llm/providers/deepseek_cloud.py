@@ -7,8 +7,7 @@ Provider 체인 (순차 시도):
 """
 
 import logging
-import os
-from typing import Any, Optional
+from typing import Any
 
 from prime_jennie.infra.llm.base import BaseLLMProvider, LLMResponse
 from prime_jennie.infra.llm.factory import register_provider
@@ -25,8 +24,7 @@ class CloudFailoverProvider(BaseLLMProvider):
 
         if not self._providers:
             raise RuntimeError(
-                "CloudFailoverProvider: No providers available. "
-                "Set DEEPSEEK_API_KEY or OPENROUTER_API_KEY."
+                "CloudFailoverProvider: No providers available. Set DEEPSEEK_API_KEY or OPENROUTER_API_KEY."
             )
 
         names = [name for name, _ in self._providers]
@@ -87,19 +85,16 @@ class CloudFailoverProvider(BaseLLMProvider):
                 logger.warning("CloudFailover: %s failed: %s", name, e)
                 errors.append((name, e))
 
-        raise RuntimeError(
-            f"All CloudFailover providers failed: "
-            + ", ".join(f"{n}: {e}" for n, e in errors)
-        )
+        raise RuntimeError("All CloudFailover providers failed: " + ", ".join(f"{n}: {e}" for n, e in errors))
 
     async def generate(
         self,
         prompt: str,
         *,
-        system: Optional[str] = None,
+        system: str | None = None,
         temperature: float = 0.7,
         max_tokens: int = 2048,
-        service: Optional[str] = None,
+        service: str | None = None,
     ) -> LLMResponse:
         return await self._failover_call(
             "generate",
@@ -115,10 +110,10 @@ class CloudFailoverProvider(BaseLLMProvider):
         prompt: str,
         schema: dict[str, Any],
         *,
-        system: Optional[str] = None,
+        system: str | None = None,
         temperature: float = 0.3,
         max_tokens: int = 2048,
-        service: Optional[str] = None,
+        service: str | None = None,
     ) -> dict[str, Any]:
         return await self._failover_call(
             "generate_json",

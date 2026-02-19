@@ -8,8 +8,7 @@ Usage:
 import hashlib
 import logging
 import time
-from datetime import datetime, timezone
-from typing import Optional
+from datetime import UTC, datetime
 
 import httpx
 from bs4 import BeautifulSoup
@@ -92,11 +91,11 @@ def crawl_stock_news(
                 date_td = row.select_one("td.date")
                 date_str = date_td.get_text(strip=True) if date_td else ""
 
-                published_at = datetime.now(timezone.utc)
+                published_at = datetime.now(UTC)
                 if date_str:
                     try:
                         published_at = datetime.strptime(date_str, "%Y.%m.%d %H:%M")
-                        published_at = published_at.replace(tzinfo=timezone.utc)
+                        published_at = published_at.replace(tzinfo=UTC)
                     except ValueError:
                         pass
 
@@ -160,8 +159,7 @@ def _get_sector_stocks(sector_no: str) -> list[str]:
     """업종 내 종목 코드 목록."""
     url = "https://finance.naver.com/sise/sise_group_detail.naver"
     try:
-        resp = httpx.get(url, params={"type": "upjong", "no": sector_no},
-                         headers=NAVER_HEADERS, timeout=10)
+        resp = httpx.get(url, params={"type": "upjong", "no": sector_no}, headers=NAVER_HEADERS, timeout=10)
         resp.encoding = "euc-kr"
         soup = BeautifulSoup(resp.text, "html.parser")
 

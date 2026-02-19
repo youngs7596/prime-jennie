@@ -10,14 +10,13 @@ Usage:
 import argparse
 import logging
 import sys
-from datetime import date, datetime, timedelta, timezone
+from datetime import date, timedelta
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from sqlmodel import Session
 
-from prime_jennie.domain.config import get_config
 from prime_jennie.infra.database.engine import get_engine
 from prime_jennie.infra.database.models import StockInvestorTradingDB
 
@@ -45,13 +44,10 @@ def main():
     # KOSPI + KOSDAQ 주요 종목
     with Session(engine) as session:
         from sqlmodel import select
+
         from prime_jennie.infra.database.models import StockMasterDB
 
-        stocks = list(
-            session.exec(
-                select(StockMasterDB).where(StockMasterDB.is_active == True)
-            ).all()
-        )
+        stocks = list(session.exec(select(StockMasterDB).where(StockMasterDB.is_active)).all())
 
     logger.info("대상 종목: %d개", len(stocks))
     saved = 0

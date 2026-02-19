@@ -17,7 +17,6 @@ Usage:
     consumer.run()  # blocking
 """
 
-import json
 import logging
 import time
 from collections.abc import Callable
@@ -49,9 +48,7 @@ class TypedStreamPublisher(Generic[T]):
     def publish(self, message: T) -> str:
         """메시지 발행. 반환값: message ID."""
         data = {"payload": message.model_dump_json()}
-        msg_id = self._client.xadd(
-            self._stream, data, maxlen=self._maxlen, approximate=True
-        )
+        msg_id = self._client.xadd(self._stream, data, maxlen=self._maxlen, approximate=True)
         logger.debug(
             "Published to %s: id=%s type=%s",
             self._stream,
@@ -89,9 +86,7 @@ class TypedStreamConsumer(Generic[T]):
     def _ensure_group(self) -> None:
         """Consumer group 생성 (이미 존재하면 무시)."""
         try:
-            self._client.xgroup_create(
-                self._stream, self._group, id="0", mkstream=True
-            )
+            self._client.xgroup_create(self._stream, self._group, id="0", mkstream=True)
         except redis.exceptions.ResponseError as e:
             if "BUSYGROUP" not in str(e):
                 raise
@@ -121,7 +116,7 @@ class TypedStreamConsumer(Generic[T]):
                 if not messages:
                     continue
 
-                for stream_name, entries in messages:
+                for _stream_name, entries in messages:
                     for msg_id, data in entries:
                         self._process_message(msg_id, data)
 
@@ -153,16 +148,12 @@ class TypedStreamConsumer(Generic[T]):
             model = self._model_class.model_validate_json(payload)
             self._handler(model)
         except Exception:
-            logger.exception(
-                "Handler failed: stream=%s id=%s", self._stream, msg_id
-            )
+            logger.exception("Handler failed: stream=%s id=%s", self._stream, msg_id)
 
     def _recover_pending(self) -> None:
         """미완료 pending 메시지 복구."""
         try:
-            pending = self._client.xpending_range(
-                self._stream, self._group, "-", "+", count=100
-            )
+            pending = self._client.xpending_range(self._stream, self._group, "-", "+", count=100)
             if not pending:
                 return
 

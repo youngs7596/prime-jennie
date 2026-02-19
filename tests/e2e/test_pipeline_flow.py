@@ -4,7 +4,7 @@ Scout → Watchlist → Scanner → Executor → Monitor → Seller
 전체 파이프라인의 데이터 모델 호환성과 흐름을 검증.
 """
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -29,7 +29,6 @@ from prime_jennie.domain.trading import (
     TradeRecord,
 )
 
-
 # ─── Scout → Watchlist ────────────────────────────────────
 
 
@@ -50,7 +49,7 @@ class TestScoutToWatchlistFlow:
             is_tradable=True,
             trade_tier=TradeTier.TIER1,
             risk_tag=RiskTag.BULLISH,
-            scored_at=datetime.now(timezone.utc),
+            scored_at=datetime.now(UTC),
         )
 
         entry = WatchlistEntry(
@@ -85,7 +84,7 @@ class TestScoutToWatchlistFlow:
             trade_tier=TradeTier.BLOCKED,
             risk_tag=RiskTag.DISTRIBUTION_RISK,
             veto_applied=True,
-            scored_at=datetime.now(timezone.utc),
+            scored_at=datetime.now(UTC),
         )
 
         assert blocked.trade_tier == TradeTier.BLOCKED
@@ -113,7 +112,7 @@ class TestScannerToExecutorFlow:
             risk_tag=RiskTag.NEUTRAL,
             market_regime=MarketRegime.BULL,
             source="scanner",
-            timestamp=datetime.now(timezone.utc),
+            timestamp=datetime.now(UTC),
             rsi_value=45.0,
             volume_ratio=1.5,
             sector_group=SectorGroup.SEMICONDUCTOR_IT,
@@ -174,7 +173,7 @@ class TestScannerToExecutorFlow:
                 trade_tier=TradeTier.BLOCKED,
                 risk_tag=RiskTag.DISTRIBUTION_RISK,
                 market_regime=MarketRegime.BULL,
-                timestamp=datetime.now(timezone.utc),
+                timestamp=datetime.now(UTC),
             )
 
             result = executor.process_signal(signal)
@@ -215,7 +214,7 @@ class TestScannerToExecutorFlow:
                 is_tradable=True,
                 trade_tier=TradeTier.TIER2,
                 market_regime=MarketRegime.BULL,
-                timestamp=datetime.now(timezone.utc),
+                timestamp=datetime.now(UTC),
             )
 
             result = executor.process_signal(signal)
@@ -236,7 +235,7 @@ class TestMonitorToSellerFlow:
             sell_reason=SellReason.PROFIT_TARGET,
             current_price=80000,
             quantity=10,
-            timestamp=datetime.now(timezone.utc),
+            timestamp=datetime.now(UTC),
             buy_price=70000,
             profit_pct=14.3,
             holding_days=5,
@@ -273,7 +272,7 @@ class TestMonitorToSellerFlow:
                 sell_reason=SellReason.STOP_LOSS,
                 current_price=65000,
                 quantity=10,
-                timestamp=datetime.now(timezone.utc),
+                timestamp=datetime.now(UTC),
             )
 
             result = executor.process_signal(order)
@@ -323,7 +322,7 @@ class TestMonitorToSellerFlow:
                 sell_reason=SellReason.MANUAL,
                 current_price=65000,
                 quantity=10,
-                timestamp=datetime.now(timezone.utc),
+                timestamp=datetime.now(UTC),
             )
 
             result = executor.process_signal(order)
@@ -381,7 +380,7 @@ class TestCrossServiceModelCompatibility:
             llm_score=78.0,
             hybrid_score=75.0,
             trade_tier=TradeTier.TIER1,
-            timestamp=datetime.now(timezone.utc),
+            timestamp=datetime.now(UTC),
         )
         assert record.total_amount == 700000
 
@@ -408,8 +407,8 @@ class TestSectorBudgetFlow:
 
     def test_sector_taxonomy_to_budget(self):
         """네이버 세분류 → SectorGroup → Budget tier."""
-        from prime_jennie.domain.sector_taxonomy import get_sector_group
         from prime_jennie.domain.sector import SectorBudget, SectorBudgetEntry
+        from prime_jennie.domain.sector_taxonomy import get_sector_group
 
         # 반도체 → SEMICONDUCTOR_IT
         group = get_sector_group("반도체와반도체장비")
@@ -440,7 +439,7 @@ class TestSectorBudgetFlow:
                     effective_cap=2,
                 ),
             },
-            generated_at=datetime.now(timezone.utc).isoformat(),
+            generated_at=datetime.now(UTC).isoformat(),
         )
 
         assert budget.get_cap(SectorGroup.SEMICONDUCTOR_IT) == 5

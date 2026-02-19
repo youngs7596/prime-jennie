@@ -3,7 +3,6 @@
 import logging
 from contextlib import asynccontextmanager
 from datetime import date
-from typing import Optional
 
 import redis
 
@@ -12,7 +11,7 @@ from prime_jennie.domain.macro import MacroInsight, TradingContext
 from prime_jennie.infra.redis.cache import TypedCache
 from prime_jennie.services.base import create_app
 
-from .pipeline import CouncilInput, CouncilResult, MacroCouncilPipeline
+from .pipeline import CouncilInput, MacroCouncilPipeline
 
 logger = logging.getLogger(__name__)
 
@@ -40,7 +39,7 @@ app = create_app("macro-council", version="1.0.0", lifespan=lifespan)
 @app.post("/trigger")
 async def trigger_council(
     briefing_text: str = "",
-    target_date: Optional[str] = None,
+    target_date: str | None = None,
 ):
     """Council 파이프라인 트리거.
 

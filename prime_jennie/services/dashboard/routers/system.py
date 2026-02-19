@@ -1,7 +1,6 @@
 """System API — 서비스 헬스 체크, 시스템 상태."""
 
 import logging
-from typing import Optional
 
 import httpx
 from fastapi import APIRouter
@@ -34,9 +33,9 @@ class ServiceStatus(BaseModel):
     name: str
     port: int
     status: str  # "healthy" | "unhealthy" | "unreachable"
-    version: Optional[str] = None
-    uptime_seconds: Optional[float] = None
-    message: Optional[str] = None
+    version: str | None = None
+    uptime_seconds: float | None = None
+    message: str | None = None
 
 
 @router.get("/health")
@@ -49,9 +48,7 @@ async def get_all_health() -> list[ServiceStatus]:
     return results
 
 
-async def _check_service(
-    client: httpx.AsyncClient, name: str, port: int
-) -> ServiceStatus:
+async def _check_service(client: httpx.AsyncClient, name: str, port: int) -> ServiceStatus:
     """개별 서비스 헬스 체크."""
     try:
         resp = await client.get(f"http://localhost:{port}/health")
@@ -71,10 +68,6 @@ async def _check_service(
             message=f"HTTP {resp.status_code}",
         )
     except httpx.ConnectError:
-        return ServiceStatus(
-            name=name, port=port, status="unreachable", message="Connection refused"
-        )
+        return ServiceStatus(name=name, port=port, status="unreachable", message="Connection refused")
     except Exception as e:
-        return ServiceStatus(
-            name=name, port=port, status="unreachable", message=str(e)[:100]
-        )
+        return ServiceStatus(name=name, port=port, status="unreachable", message=str(e)[:100])

@@ -5,9 +5,9 @@ Council avoid → COOL 강제, favor → COOL→WARM 승격 (sector_budget에서
 """
 
 import logging
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
-from prime_jennie.domain.enums import MarketRegime, SectorGroup, TradeTier
+from prime_jennie.domain.enums import SectorGroup, TradeTier
 from prime_jennie.domain.macro import TradingContext
 from prime_jennie.domain.scoring import HybridScore
 from prime_jennie.domain.sector import SectorBudget
@@ -78,7 +78,7 @@ def select_watchlist(
         logger.info("Backfilled %d stocks to reach watchlist size", len(backfill))
 
     # 5. WatchlistEntry 변환
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     entries = []
     for rank, score in enumerate(selected, start=1):
         sector = _get_sector(score.stock_code, candidates)

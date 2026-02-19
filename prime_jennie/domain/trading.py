@@ -1,7 +1,6 @@
 """트레이딩 시그널 및 주문 모델."""
 
 from datetime import datetime
-from typing import Optional
 
 from pydantic import BaseModel, Field
 
@@ -34,11 +33,11 @@ class BuySignal(BaseModel):
     source: str = "scanner"  # scanner | conviction | manual
     timestamp: datetime
     # 기술 지표 컨텍스트
-    rsi_value: Optional[float] = None
-    volume_ratio: Optional[float] = None
-    vwap: Optional[float] = None
+    rsi_value: float | None = None
+    volume_ratio: float | None = None
+    vwap: float | None = None
     # 종목 컨텍스트
-    sector_group: Optional[SectorGroup] = None
+    sector_group: SectorGroup | None = None
     # 매크로 컨텍스트
     position_multiplier: Multiplier = 1.0
 
@@ -53,9 +52,9 @@ class SellOrder(BaseModel):
     quantity: Quantity
     timestamp: datetime
     # 수익률 컨텍스트
-    buy_price: Optional[int] = None
-    profit_pct: Optional[float] = None
-    holding_days: Optional[int] = None
+    buy_price: int | None = None
+    profit_pct: float | None = None
+    holding_days: int | None = None
 
 
 class OrderRequest(BaseModel):
@@ -64,18 +63,18 @@ class OrderRequest(BaseModel):
     stock_code: StockCode
     quantity: Quantity
     order_type: OrderType = OrderType.MARKET
-    price: Optional[int] = None  # limit 주문 시 필수
+    price: int | None = None  # limit 주문 시 필수
 
 
 class OrderResult(BaseModel):
     """KIS Gateway 주문 결과."""
 
     success: bool
-    order_no: Optional[str] = None
+    order_no: str | None = None
     stock_code: StockCode
     quantity: int
     price: int
-    message: Optional[str] = None
+    message: str | None = None
 
 
 class TradeRecord(BaseModel):
@@ -88,11 +87,11 @@ class TradeRecord(BaseModel):
     price: int
     total_amount: int
     reason: str
-    strategy_signal: Optional[str] = None
-    market_regime: Optional[MarketRegime] = None
-    llm_score: Optional[Score] = None
-    hybrid_score: Optional[Score] = None
-    trade_tier: Optional[TradeTier] = None
+    strategy_signal: str | None = None
+    market_regime: MarketRegime | None = None
+    llm_score: Score | None = None
+    hybrid_score: Score | None = None
+    trade_tier: TradeTier | None = None
     timestamp: datetime
 
 
@@ -106,7 +105,7 @@ class PositionSizingRequest(BaseModel):
     portfolio_value: int
     llm_score: Score
     trade_tier: TradeTier
-    sector_group: Optional[SectorGroup] = None
+    sector_group: SectorGroup | None = None
     held_sector_groups: list[SectorGroup] = Field(default_factory=list)
     portfolio_risk_pct: float = 0.0
     position_multiplier: Multiplier = 1.0

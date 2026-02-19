@@ -1,9 +1,5 @@
 """Configuration system unit tests."""
 
-import os
-
-import pytest
-
 from prime_jennie.domain.config import AppConfig, get_config
 from prime_jennie.domain.enums import MarketRegime
 

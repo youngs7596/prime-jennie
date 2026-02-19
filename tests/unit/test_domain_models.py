@@ -7,7 +7,6 @@ from pydantic import ValidationError
 
 from prime_jennie.domain import (
     BuySignal,
-    DailySnapshot,
     HotWatchlist,
     HybridScore,
     LLMAnalysis,
@@ -15,8 +14,8 @@ from prime_jennie.domain import (
     MarketRegime,
     OrderRequest,
     OrderType,
-    Position,
     PortfolioState,
+    Position,
     QuantScore,
     RiskTag,
     SectorBudget,
@@ -29,7 +28,6 @@ from prime_jennie.domain import (
     TradingContext,
     WatchlistEntry,
 )
-
 
 # ─── QuantScore ──────────────────────────────────────────────────
 

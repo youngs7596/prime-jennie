@@ -4,7 +4,6 @@ Telegram Bot API로 메시지 수신/발송, 명령 파싱.
 """
 
 import logging
-from typing import Optional
 
 import httpx
 
@@ -19,9 +18,7 @@ class TelegramBot:
         self._base_url = f"https://api.telegram.org/bot{token}"
         self._allowed_ids: set[str] = set()
         if allowed_chat_ids:
-            self._allowed_ids = {
-                cid.strip() for cid in allowed_chat_ids.split(",") if cid.strip()
-            }
+            self._allowed_ids = {cid.strip() for cid in allowed_chat_ids.split(",") if cid.strip()}
         self._last_update_id: int = 0
 
     def is_authorized(self, chat_id: str | int) -> bool:
@@ -76,7 +73,7 @@ class TelegramBot:
             return False
 
     @staticmethod
-    def parse_command(text: str) -> tuple[Optional[str], str]:
+    def parse_command(text: str) -> tuple[str | None, str]:
         """메시지 텍스트에서 명령어와 인자 추출.
 
         Returns:

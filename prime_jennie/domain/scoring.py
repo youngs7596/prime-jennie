@@ -1,7 +1,7 @@
 """스코어링 모델 — Quant, LLM, Hybrid 평가 결과."""
 
 from datetime import datetime
-from typing import List, Optional, Self
+from typing import Self
 
 from pydantic import BaseModel, field_validator, model_validator
 
@@ -21,11 +21,11 @@ class QuantScore(BaseModel):
     technical_score: float = 0.0  # 0-10
     news_score: float = 0.0  # 0-10
     supply_demand_score: float = 0.0  # 0-20
-    matched_conditions: List[str] = []
-    condition_win_rate: Optional[float] = None
-    condition_confidence: Optional[str] = None  # LOW | MID | HIGH
+    matched_conditions: list[str] = []
+    condition_win_rate: float | None = None
+    condition_confidence: str | None = None  # LOW | MID | HIGH
     is_valid: bool = True
-    invalid_reason: Optional[str] = None
+    invalid_reason: str | None = None
 
     @model_validator(mode="after")
     def check_total_vs_subscores(self) -> Self:

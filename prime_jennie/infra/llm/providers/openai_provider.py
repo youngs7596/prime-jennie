@@ -3,8 +3,7 @@
 import json
 import logging
 import os
-import re
-from typing import Any, Optional
+from typing import Any
 
 from prime_jennie.infra.llm.base import BaseLLMProvider, LLMResponse
 from prime_jennie.infra.llm.factory import register_provider
@@ -12,10 +11,18 @@ from prime_jennie.infra.llm.factory import register_provider
 logger = logging.getLogger(__name__)
 
 # Reasoning 모델 (temperature 미지원)
-REASONING_MODELS = frozenset({
-    "o1", "o1-mini", "o1-preview", "o3", "o3-mini",
-    "gpt-5-mini", "gpt-5", "gpt-5.2",
-})
+REASONING_MODELS = frozenset(
+    {
+        "o1",
+        "o1-mini",
+        "o1-preview",
+        "o3",
+        "o3-mini",
+        "gpt-5-mini",
+        "gpt-5",
+        "gpt-5.2",
+    }
+)
 
 
 class OpenAILLMProvider(BaseLLMProvider):
@@ -24,9 +31,9 @@ class OpenAILLMProvider(BaseLLMProvider):
     def __init__(
         self,
         *,
-        api_key: Optional[str] = None,
-        base_url: Optional[str] = None,
-        default_model: Optional[str] = None,
+        api_key: str | None = None,
+        base_url: str | None = None,
+        default_model: str | None = None,
     ) -> None:
         import openai
 
@@ -54,10 +61,10 @@ class OpenAILLMProvider(BaseLLMProvider):
         self,
         prompt: str,
         *,
-        system: Optional[str] = None,
+        system: str | None = None,
         temperature: float = 0.7,
         max_tokens: int = 2048,
-        service: Optional[str] = None,
+        service: str | None = None,
     ) -> LLMResponse:
         model = self._default_model
         messages = []
@@ -95,10 +102,10 @@ class OpenAILLMProvider(BaseLLMProvider):
         prompt: str,
         schema: dict[str, Any],
         *,
-        system: Optional[str] = None,
+        system: str | None = None,
         temperature: float = 0.3,
         max_tokens: int = 2048,
-        service: Optional[str] = None,
+        service: str | None = None,
     ) -> dict[str, Any]:
         model = self._default_model
         sys_msg = system or "You are a helpful assistant. Always respond with valid JSON."
@@ -123,9 +130,7 @@ class OpenAILLMProvider(BaseLLMProvider):
         return json.loads(content)
 
     async def generate_embeddings(self, texts: list[str]) -> list[list[float]]:
-        response = await self._client.embeddings.create(
-            model="text-embedding-3-small", input=texts
-        )
+        response = await self._client.embeddings.create(model="text-embedding-3-small", input=texts)
         return [item.embedding for item in response.data]
 
 
