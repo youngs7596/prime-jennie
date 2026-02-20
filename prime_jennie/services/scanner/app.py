@@ -72,10 +72,7 @@ class BuyScanner:
             logger.warning("No watchlist found in Redis")
             return False
         self._watchlist = wl
-        stock_summary = ", ".join(
-            f"{s.stock_name}({s.stock_code})[{s.hybrid_score:.0f}]"
-            for s in wl.stocks
-        )
+        stock_summary = ", ".join(f"{s.stock_name}({s.stock_code})[{s.hybrid_score:.0f}]" for s in wl.stocks)
         logger.info(
             "Loaded watchlist: %d stocks, regime=%s | %s",
             len(wl.stocks),

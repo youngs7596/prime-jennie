@@ -220,7 +220,7 @@ def macro_collect_global() -> JobResult:
                     last = df.iloc[-1]
                     last_date = df.index[-1]
                     if trading_date is None:
-                        trading_date = last_date.date() if hasattr(last_date, 'date') else last_date
+                        trading_date = last_date.date() if hasattr(last_date, "date") else last_date
                     # 전일 대비 등락률 계산
                     change_pct = 0.0
                     if len(df) >= 2:
@@ -240,7 +240,9 @@ def macro_collect_global() -> JobResult:
         for ticker, prefix in [("1001", "kospi"), ("2001", "kosdaq")]:
             try:
                 df_inv = pykrx_stock.get_market_trading_by_investor(
-                    td_str, td_str, ticker,
+                    td_str,
+                    td_str,
+                    ticker,
                 )
                 if df_inv.empty:
                     continue
@@ -249,13 +251,9 @@ def macro_collect_global() -> JobResult:
                     snapshot[f"{prefix}_foreign_net"] = val
                 if prefix == "kospi":
                     if "기관합계" in df_inv.index:
-                        snapshot["kospi_institutional_net"] = (
-                            float(df_inv.loc["기관합계", "순매수"]) / 1e8
-                        )
+                        snapshot["kospi_institutional_net"] = float(df_inv.loc["기관합계", "순매수"]) / 1e8
                     if "개인" in df_inv.index:
-                        snapshot["kospi_retail_net"] = (
-                            float(df_inv.loc["개인", "순매수"]) / 1e8
-                        )
+                        snapshot["kospi_retail_net"] = float(df_inv.loc["개인", "순매수"]) / 1e8
             except Exception:
                 pass
 
@@ -263,7 +261,7 @@ def macro_collect_global() -> JobResult:
         import json
         from datetime import datetime
 
-        td_iso = trading_date.isoformat() if hasattr(trading_date, 'isoformat') else str(trading_date)
+        td_iso = trading_date.isoformat() if hasattr(trading_date, "isoformat") else str(trading_date)
         existing_key = f"macro:data:snapshot:{td_iso}"
         existing_raw = r.get(existing_key)
         if existing_raw:
