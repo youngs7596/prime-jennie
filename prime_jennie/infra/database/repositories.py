@@ -5,7 +5,7 @@
 """
 
 import logging
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
 
 from sqlalchemy import desc
 from sqlmodel import Session, select
@@ -124,6 +124,35 @@ class PortfolioRepository:
         cutoff = date.today() - timedelta(days=days)
         stmt = select(TradeLogDB).where(TradeLogDB.trade_timestamp >= cutoff).order_by(desc(TradeLogDB.trade_timestamp))
         return list(session.exec(stmt).all())
+
+    @staticmethod
+    def upsert_position(session: Session, position: PositionDB) -> None:
+        """포지션 생성 또는 업데이트 (같은 종목 추가매수 시 평단가 갱신)."""
+        existing = session.get(PositionDB, position.stock_code)
+        if existing:
+            total_qty = existing.quantity + position.quantity
+            total_amount = existing.total_buy_amount + position.total_buy_amount
+            existing.quantity = total_qty
+            existing.total_buy_amount = total_amount
+            existing.average_buy_price = total_amount // total_qty
+            existing.updated_at = datetime.utcnow()
+        else:
+            session.add(position)
+        session.commit()
+
+    @staticmethod
+    def reduce_position(session: Session, stock_code: str, sell_qty: int) -> None:
+        """포지션 수량 감소. 전량 매도 시 삭제."""
+        pos = session.get(PositionDB, stock_code)
+        if not pos:
+            return
+        if sell_qty >= pos.quantity:
+            session.delete(pos)
+        else:
+            pos.quantity -= sell_qty
+            pos.total_buy_amount = pos.quantity * pos.average_buy_price
+            pos.updated_at = datetime.utcnow()
+        session.commit()
 
 
 # ─── Macro ───────────────────────────────────────────────────────

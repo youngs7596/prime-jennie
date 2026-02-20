@@ -10,14 +10,19 @@ import logging
 import threading
 from contextlib import asynccontextmanager
 
+from sqlmodel import Session
+
 from prime_jennie.domain import BuySignal
 from prime_jennie.domain.config import get_config
+from prime_jennie.infra.database.engine import get_engine
+from prime_jennie.infra.database.models import PositionDB, TradeLogDB
+from prime_jennie.infra.database.repositories import PortfolioRepository
 from prime_jennie.infra.kis.client import KISClient
 from prime_jennie.infra.redis.client import get_redis
 from prime_jennie.infra.redis.streams import TypedStreamConsumer
 from prime_jennie.services.base import create_app
 
-from .executor import BuyExecutor
+from .executor import BuyExecutor, ExecutionResult
 from .portfolio_guard import PortfolioGuard
 
 logger = logging.getLogger(__name__)
@@ -40,6 +45,10 @@ def _handle_signal(signal: BuySignal) -> None:
 
     try:
         result = _executor.process_signal(signal)
+
+        if result.status == "success":
+            _persist_buy(signal, result)
+
         logger.info(
             "[%s] %s: %s (qty=%d, price=%d)",
             signal.stock_code,
@@ -50,6 +59,40 @@ def _handle_signal(signal: BuySignal) -> None:
         )
     except Exception:
         logger.exception("[%s] Signal processing failed", signal.stock_code)
+
+
+def _persist_buy(signal: BuySignal, result: ExecutionResult) -> None:
+    """매수 체결 → trade_logs + positions 저장."""
+    try:
+        engine = get_engine()
+        with Session(engine) as session:
+            trade = TradeLogDB(
+                stock_code=result.stock_code,
+                stock_name=result.stock_name,
+                trade_type="BUY",
+                quantity=result.quantity,
+                price=result.price,
+                total_amount=result.quantity * result.price,
+                reason=signal.signal_type,
+                strategy_signal=signal.signal_type,
+                market_regime=str(signal.market_regime),
+                llm_score=signal.llm_score,
+                hybrid_score=signal.hybrid_score,
+                trade_tier=str(signal.trade_tier),
+            )
+            PortfolioRepository.save_trade_log(session, trade)
+
+            pos = PositionDB(
+                stock_code=result.stock_code,
+                stock_name=result.stock_name,
+                quantity=result.quantity,
+                average_buy_price=result.price,
+                total_buy_amount=result.quantity * result.price,
+                sector_group=str(signal.sector_group) if signal.sector_group else None,
+            )
+            PortfolioRepository.upsert_position(session, pos)
+    except Exception:
+        logger.exception("[%s] Failed to persist buy trade to DB", result.stock_code)
 
 
 @asynccontextmanager
