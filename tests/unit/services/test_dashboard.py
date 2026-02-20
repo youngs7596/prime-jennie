@@ -103,6 +103,18 @@ def _mock_insight_db(**overrides):
         "sectors_to_avoid": "바이오/헬스케어",
         "sector_signals_json": None,
         "council_cost_usd": 0.215,
+        "trading_reasoning": None,
+        "council_consensus": None,
+        "strategies_to_favor_json": None,
+        "strategies_to_avoid_json": None,
+        "risk_factors_json": None,
+        "opportunity_factors_json": None,
+        "kospi_change_pct": None,
+        "kosdaq_change_pct": None,
+        "kospi_foreign_net": None,
+        "kospi_institutional_net": None,
+        "kospi_retail_net": None,
+        "data_completeness_pct": None,
     }
     defaults.update(overrides)
     for k, v in defaults.items():

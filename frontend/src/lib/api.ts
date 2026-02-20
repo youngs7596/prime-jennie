@@ -70,8 +70,20 @@ export interface MacroInsight {
   kosdaq_index: number | null;
   sectors_to_favor: string | null;
   sectors_to_avoid: string | null;
-  sector_signals: Array<{ sector: string; signal: string; reason: string }>;
+  sector_signals: Array<{ sector_group: string; signal: string; confidence?: string; reasoning?: string }>;
   council_cost_usd: number | null;
+  trading_reasoning: string | null;
+  council_consensus: string | null;
+  strategies_to_favor: string[];
+  strategies_to_avoid: string[];
+  risk_factors: Array<{ name: string; severity: string }>;
+  opportunity_factors: string[];
+  kospi_change_pct: number | null;
+  kosdaq_change_pct: number | null;
+  kospi_foreign_net: number | null;
+  kospi_institutional_net: number | null;
+  kospi_retail_net: number | null;
+  data_completeness_pct: number | null;
 }
 
 export interface WatchlistEntry {

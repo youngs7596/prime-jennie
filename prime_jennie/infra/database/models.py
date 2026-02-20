@@ -6,7 +6,7 @@
 
 from datetime import date, datetime
 
-from sqlalchemy import Index, UniqueConstraint
+from sqlalchemy import Index, Text, UniqueConstraint
 from sqlmodel import Field, SQLModel
 
 # ─── Master Data ─────────────────────────────────────────────────
@@ -165,12 +165,22 @@ class DailyMacroInsightDB(SQLModel, table=True):
     usd_krw: float | None = None
     kospi_index: float | None = None
     kosdaq_index: float | None = None
-    sector_signals_json: str | None = None
-    key_themes_json: str | None = None
-    risk_factors_json: str | None = None
-    raw_council_output_json: str | None = None
+    sector_signals_json: str | None = Field(default=None, sa_type=Text)
+    key_themes_json: str | None = Field(default=None, sa_type=Text)
+    risk_factors_json: str | None = Field(default=None, sa_type=Text)
+    raw_council_output_json: str | None = Field(default=None, sa_type=Text)
     council_cost_usd: float | None = None
     data_completeness_pct: int | None = None
+    trading_reasoning: str | None = Field(default=None, sa_type=Text)
+    council_consensus: str | None = Field(default=None, max_length=30)
+    strategies_to_favor_json: str | None = Field(default=None, sa_type=Text)
+    strategies_to_avoid_json: str | None = Field(default=None, sa_type=Text)
+    opportunity_factors_json: str | None = Field(default=None, sa_type=Text)
+    kospi_change_pct: float | None = None
+    kosdaq_change_pct: float | None = None
+    kospi_foreign_net: float | None = None
+    kospi_institutional_net: float | None = None
+    kospi_retail_net: float | None = None
     updated_at: datetime = Field(default_factory=datetime.utcnow)
 
 

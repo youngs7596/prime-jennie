@@ -64,6 +64,11 @@ class CouncilResult:
 
     insight: MacroInsight | None = None
     raw_outputs: dict[str, Any] = field(default_factory=dict)
+    trading_reasoning: str = ""
+    council_consensus: str = ""
+    strategies_to_favor: list[str] = field(default_factory=list)
+    strategies_to_avoid: list[str] = field(default_factory=list)
+    opportunity_factors: list[str] = field(default_factory=list)
     total_cost_usd: float = 0.0
     success: bool = False
     error: str = ""
@@ -110,6 +115,7 @@ class MacroCouncilPipeline:
         try:
             step1 = await self._run_strategist(context)
             result.raw_outputs["strategist"] = step1
+            logger.info("Strategist output keys: %s", list(step1.keys()))
         except Exception as e:
             logger.error("Strategist failed: %s", e)
             result.error = f"Strategist failed: {e}"
@@ -119,6 +125,7 @@ class MacroCouncilPipeline:
         try:
             step2 = await self._run_risk_analyst(context, step1)
             result.raw_outputs["risk_analyst"] = step2
+            logger.info("Risk Analyst output keys: %s", list(step2.keys()))
         except Exception as e:
             logger.warning("Risk Analyst failed, using defaults: %s", e)
             step2 = self._default_risk_analyst(step1)
@@ -128,6 +135,7 @@ class MacroCouncilPipeline:
         try:
             step3 = await self._run_chief_judge(step1, step2)
             result.raw_outputs["chief_judge"] = step3
+            logger.info("Chief Judge output: %s", json.dumps(step3, ensure_ascii=False)[:500])
         except Exception as e:
             logger.warning("Chief Judge failed, merging Step 1+2: %s", e)
             step3 = self._fallback_merge(step1, step2)
@@ -135,6 +143,14 @@ class MacroCouncilPipeline:
 
         # Build MacroInsight
         result.insight = self._build_insight(target_date, input_data, step1, step2, step3)
+
+        # Extract extras for DB persistence (not part of domain MacroInsight)
+        result.trading_reasoning = step3.get("trading_reasoning", "")
+        result.council_consensus = step3.get("council_consensus", "")
+        result.strategies_to_favor = step3.get("strategies_to_favor", [])
+        result.strategies_to_avoid = step3.get("strategies_to_avoid", [])
+        result.opportunity_factors = step1.get("opportunity_factors", [])
+
         result.success = True
         return result
 
@@ -293,12 +309,25 @@ class MacroCouncilPipeline:
         # Regime hint (truncated)
         regime_hint = (chief_judge.get("final_regime_hint") or "unknown")[:50]
 
-        # Sector signals from strategist
+        # Sector signals from strategist (dict 또는 list 모두 허용)
         sector_signals = []
-        for name, sig in strategist.get("sector_signals", {}).items():
+        raw_signals = strategist.get("sector_signals", {})
+        if isinstance(raw_signals, dict):
+            signal_items = raw_signals.items()
+        elif isinstance(raw_signals, list):
+            # list of dicts: [{"sector": "...", "signal": "..."}] 형태
+            signal_items = []
+            for item in raw_signals:
+                if isinstance(item, dict):
+                    name_key = item.get("sector") or item.get("sector_group") or item.get("name", "")
+                    sig_key = item.get("signal", "neutral")
+                    signal_items.append((name_key, sig_key))
+        else:
+            signal_items = []
+        for name, sig in signal_items:
             try:
                 sg = SectorGroup(name)
-                sector_signals.append(SectorSignal(sector_group=sg, signal=sig.upper()))
+                sector_signals.append(SectorSignal(sector_group=sg, signal=str(sig).upper()))
             except ValueError:
                 continue
 

@@ -100,6 +100,26 @@ def _db_to_insight_dict(row) -> dict:
         with contextlib.suppress(json.JSONDecodeError):
             sector_signals = json.loads(row.sector_signals_json)
 
+    risk_factors = []
+    if row.risk_factors_json:
+        with contextlib.suppress(json.JSONDecodeError):
+            risk_factors = json.loads(row.risk_factors_json)
+
+    strategies_to_favor = []
+    if row.strategies_to_favor_json:
+        with contextlib.suppress(json.JSONDecodeError):
+            strategies_to_favor = json.loads(row.strategies_to_favor_json)
+
+    strategies_to_avoid = []
+    if row.strategies_to_avoid_json:
+        with contextlib.suppress(json.JSONDecodeError):
+            strategies_to_avoid = json.loads(row.strategies_to_avoid_json)
+
+    opportunity_factors = []
+    if row.opportunity_factors_json:
+        with contextlib.suppress(json.JSONDecodeError):
+            opportunity_factors = json.loads(row.opportunity_factors_json)
+
     return {
         "insight_date": row.insight_date.isoformat(),
         "sentiment": row.sentiment,
@@ -118,4 +138,16 @@ def _db_to_insight_dict(row) -> dict:
         "sectors_to_avoid": row.sectors_to_avoid,
         "sector_signals": sector_signals,
         "council_cost_usd": row.council_cost_usd,
+        "trading_reasoning": row.trading_reasoning,
+        "council_consensus": row.council_consensus,
+        "strategies_to_favor": strategies_to_favor,
+        "strategies_to_avoid": strategies_to_avoid,
+        "risk_factors": risk_factors,
+        "opportunity_factors": opportunity_factors,
+        "kospi_change_pct": row.kospi_change_pct,
+        "kosdaq_change_pct": row.kosdaq_change_pct,
+        "kospi_foreign_net": row.kospi_foreign_net,
+        "kospi_institutional_net": row.kospi_institutional_net,
+        "kospi_retail_net": row.kospi_retail_net,
+        "data_completeness_pct": row.data_completeness_pct,
     }

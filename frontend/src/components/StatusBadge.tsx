@@ -29,6 +29,11 @@ const STATUS_COLORS: Record<string, string> = {
   NEUTRAL: "bg-accent-yellow/15 text-accent-yellow",
   CAUTION: "bg-accent-orange/15 text-accent-orange",
   DISTRIBUTION_RISK: "bg-accent-red/15 text-accent-red",
+  // Council consensus
+  strong_agree: "bg-accent-green/15 text-accent-green",
+  agree: "bg-accent-blue/15 text-accent-blue",
+  partial_disagree: "bg-accent-yellow/15 text-accent-yellow",
+  disagree: "bg-accent-red/15 text-accent-red",
 };
 
 const LABELS: Record<string, string> = {
