@@ -148,7 +148,13 @@ app.state.limiter = _limiter
 
 @app.exception_handler(RateLimitExceeded)
 async def rate_limit_handler(request: Request, exc: RateLimitExceeded):
-    return {"error": "Rate limit exceeded", "detail": str(exc)}, 429
+    from fastapi.responses import JSONResponse
+
+    return JSONResponse(
+        status_code=429,
+        content={"error": "Rate limit exceeded", "detail": str(exc)},
+        headers={"Retry-After": "1"},
+    )
 
 
 # ─── Market Endpoints ────────────────────────────────────────────

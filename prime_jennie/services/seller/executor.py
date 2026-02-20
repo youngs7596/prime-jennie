@@ -24,6 +24,7 @@ logger = logging.getLogger(__name__)
 LOCK_PREFIX = "lock:sell:"
 EMERGENCY_STOP_KEY = "trading:stopped"
 COOLDOWN_PREFIX = "stoploss_cooldown:"
+DRYRUN_KEY = "trading_flags:dryrun"
 
 
 class SellResult:
@@ -154,7 +155,7 @@ class SellExecutor:
             profit_pct = round((current_price - buy_price) / buy_price * 100, 2)
 
         # === DRYRUN 모드: 실주문 대신 가짜 성공 반환 ===
-        if self._config.dry_run:
+        if self._config.dry_run or self._redis.get(DRYRUN_KEY):
             logger.info(
                 "[DRYRUN][%s] SELL %d shares at %d (skipping KIS API)",
                 code,

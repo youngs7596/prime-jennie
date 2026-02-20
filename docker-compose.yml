@@ -239,6 +239,9 @@ services:
   scout-job:
     <<: *service-defaults
     profiles: ["real"]
+    depends_on:
+      kis-gateway:
+        condition: service_healthy
     environment:
       <<: *env-common
       PORT: "8087"
@@ -257,6 +260,9 @@ services:
   buy-scanner:
     <<: *service-defaults
     profiles: ["real"]
+    depends_on:
+      kis-gateway:
+        condition: service_healthy
     environment:
       <<: *env-common
       PORT: "8081"
@@ -271,6 +277,9 @@ services:
   buy-executor:
     <<: *service-defaults
     profiles: ["real"]
+    depends_on:
+      kis-gateway:
+        condition: service_healthy
     environment:
       <<: *env-common
       PORT: "8082"
@@ -286,6 +295,9 @@ services:
   sell-executor:
     <<: *service-defaults
     profiles: ["real"]
+    depends_on:
+      kis-gateway:
+        condition: service_healthy
     environment:
       <<: *env-common
       PORT: "8083"
@@ -297,6 +309,9 @@ services:
   price-monitor:
     <<: *service-defaults
     profiles: ["real"]
+    depends_on:
+      kis-gateway:
+        condition: service_healthy
     environment:
       <<: *env-common
       PORT: "8088"
@@ -319,7 +334,7 @@ services:
       TELEGRAM_API_ID: "${TELEGRAM_API_ID}"
       TELEGRAM_API_HASH: "${TELEGRAM_API_HASH}"
     volumes:
-      - ./.telegram_sessions:/app/.telegram_sessions:ro
+      - ./.telegram_sessions:/app/.telegram_sessions
     command: ["uvicorn", "prime_jennie.services.council.app:app", "--host", "0.0.0.0", "--port", "8089"]
     labels:
       - app=macro-council
@@ -438,6 +453,9 @@ services:
   airflow-scheduler:
     <<: *service-defaults
     profiles: ["real"]
+    depends_on:
+      airflow-webserver:
+        condition: service_healthy
     entrypoint: ["bash", "/app/scripts/airflow-entrypoint.sh"]
     environment:
       <<: *env-common

@@ -36,6 +36,7 @@ logger = logging.getLogger(__name__)
 LOCK_PREFIX = "lock:buy:"
 EMERGENCY_STOP_KEY = "trading:stopped"
 TRADING_PAUSED_KEY = "trading:paused"
+DRYRUN_KEY = "trading_flags:dryrun"
 
 
 class ExecutionResult:
@@ -260,7 +261,7 @@ class BuyExecutor:
     def _place_order(self, signal: BuySignal, quantity: int, current_price: int) -> OrderResult:
         """주문 실행 (시장가 or 지정가)."""
         # === DRYRUN 모드: 실주문 대신 가짜 성공 반환 ===
-        if self._config.dry_run:
+        if self._config.dry_run or self._redis.get(DRYRUN_KEY):
             logger.info(
                 "[DRYRUN][%s] BUY %d shares at %d (skipping KIS API)",
                 signal.stock_code,

@@ -108,11 +108,24 @@ class OpenAILLMProvider(BaseLLMProvider):
         service: str | None = None,
     ) -> dict[str, Any]:
         model = self._default_model
-        sys_msg = system or "You are a helpful assistant. Always respond with valid JSON."
+        sys_msg = system or "You are a helpful assistant."
+        # DeepSeek 등 일부 API는 json_object response_format 사용 시
+        # 프롬프트에 "json" 단어가 반드시 포함되어야 함
+        if "json" not in sys_msg.lower():
+            sys_msg += " Always respond with valid JSON."
+
+        # 스키마를 프롬프트에 포함 (DeepSeek 등 json_schema 미지원 모델용)
+        schema_instruction = ""
+        if schema:
+            schema_instruction = (
+                f"\n\nYou MUST respond with a JSON object that follows this exact schema:\n"
+                f"```json\n{json.dumps(schema, ensure_ascii=False, indent=2)}\n```\n"
+                f"Use exactly the field names shown above. Do not use different key names."
+            )
 
         messages = [
             {"role": "system", "content": sys_msg},
-            {"role": "user", "content": prompt},
+            {"role": "user", "content": prompt + schema_instruction},
         ]
 
         kwargs: dict[str, Any] = {

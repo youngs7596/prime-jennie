@@ -196,33 +196,94 @@ def daily_report() -> JobResult:
 
 @app.post("/jobs/macro-collect-global")
 def macro_collect_global() -> JobResult:
-    """글로벌 매크로 수집."""
+    """글로벌 매크로 수집 — 직전 거래일 KOSPI/KOSDAQ + 글로벌 지표.
+
+    pykrx는 최근 7일 범위로 조회하여 직전 거래일 데이터를 확보.
+    결과를 macro:data:snapshot:{거래일} 키로 Redis에 저장 (council 호환).
+    """
     try:
         from pykrx import stock as pykrx_stock
 
         r = get_redis()
-        today_str = date.today().strftime("%Y%m%d")
+        today = date.today()
+        start_str = (today - timedelta(days=7)).strftime("%Y%m%d")
+        today_str = today.strftime("%Y%m%d")
 
-        # KOSPI/KOSDAQ 지수 수집
-        data = {}
-        for ticker, name in [("1001", "kospi"), ("2001", "kosdaq")]:
+        # 직전 거래일 KOSPI/KOSDAQ 종가 수집 (7일 범위)
+        snapshot: dict = {}
+        trading_date = None
+
+        for ticker, prefix in [("1001", "kospi"), ("2001", "kosdaq")]:
             try:
-                df = pykrx_stock.get_index_ohlcv(today_str, today_str, ticker)
+                df = pykrx_stock.get_index_ohlcv(start_str, today_str, ticker)
                 if not df.empty:
-                    row = df.iloc[-1]
-                    data[name] = {
-                        "close": float(row["종가"]),
-                        "change_pct": float(row["등락률"]),
-                    }
+                    last = df.iloc[-1]
+                    last_date = df.index[-1]
+                    if trading_date is None:
+                        trading_date = last_date.date() if hasattr(last_date, 'date') else last_date
+                    # 전일 대비 등락률 계산
+                    change_pct = 0.0
+                    if len(df) >= 2:
+                        prev_close = float(df.iloc[-2]["종가"])
+                        if prev_close > 0:
+                            change_pct = round((float(last["종가"]) - prev_close) / prev_close * 100, 2)
+                    snapshot[f"{prefix}_index"] = float(last["종가"])
+                    snapshot[f"{prefix}_change_pct"] = change_pct
+            except Exception:
+                logger.debug("pykrx %s collection failed", prefix)
+
+        if not trading_date:
+            return JobResult(success=False, message="No trading data available from pykrx")
+
+        # 외국인/기관 수급 (직전 거래일)
+        td_str = str(trading_date).replace("-", "")
+        for ticker, prefix in [("1001", "kospi"), ("2001", "kosdaq")]:
+            try:
+                df_inv = pykrx_stock.get_market_trading_by_investor(
+                    td_str, td_str, ticker,
+                )
+                if df_inv.empty:
+                    continue
+                if "외국인합계" in df_inv.index:
+                    val = float(df_inv.loc["외국인합계", "순매수"]) / 1e8
+                    snapshot[f"{prefix}_foreign_net"] = val
+                if prefix == "kospi":
+                    if "기관합계" in df_inv.index:
+                        snapshot["kospi_institutional_net"] = (
+                            float(df_inv.loc["기관합계", "순매수"]) / 1e8
+                        )
+                    if "개인" in df_inv.index:
+                        snapshot["kospi_retail_net"] = (
+                            float(df_inv.loc["개인", "순매수"]) / 1e8
+                        )
             except Exception:
                 pass
 
-        if data:
-            import json
+        # 글로벌 지표 수집 (FRED, Finnhub 등은 기존 스냅샷 보존)
+        import json
+        from datetime import datetime
 
-            r.set("macro:global:latest", json.dumps(data), ex=86400)
+        td_iso = trading_date.isoformat() if hasattr(trading_date, 'isoformat') else str(trading_date)
+        existing_key = f"macro:data:snapshot:{td_iso}"
+        existing_raw = r.get(existing_key)
+        if existing_raw:
+            # 기존 글로벌 지표 유지, 한국 시장 데이터만 갱신
+            existing = json.loads(existing_raw)
+            existing.update(snapshot)
+            existing["snapshot_time"] = datetime.now().astimezone().isoformat()
+            snapshot = existing
+        else:
+            snapshot["snapshot_date"] = td_iso
+            snapshot["snapshot_time"] = datetime.now().astimezone().isoformat()
+            snapshot["data_sources"] = ["pykrx"]
 
-        return JobResult(message=f"Global macro collected: {list(data.keys())}")
+        r.set(existing_key, json.dumps(snapshot, ensure_ascii=False, default=str), ex=7 * 86400)
+
+        kospi = snapshot.get("kospi_index", "?")
+        kosdaq = snapshot.get("kosdaq_index", "?")
+        return JobResult(
+            message=f"Global macro collected: trading_date={td_iso}, KOSPI={kospi}, KOSDAQ={kosdaq}",
+        )
     except Exception as e:
         logger.exception("Global macro collection failed")
         return JobResult(success=False, message=str(e))
