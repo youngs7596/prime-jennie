@@ -71,9 +71,7 @@ async def trigger_council(
         logger.warning("Telegram collection failed, continuing without it", exc_info=True)
 
     # 브리핑 텍스트 병합: 텔레그램 + 레거시 인사이트 + 외부 briefing
-    combined_briefing = "\n\n".join(
-        filter(None, [telegram_briefing, legacy_briefing, briefing_text])
-    )
+    combined_briefing = "\n\n".join(filter(None, [telegram_briefing, legacy_briefing, briefing_text]))
 
     input_data = CouncilInput(
         briefing_text=combined_briefing,
@@ -158,8 +156,12 @@ def _load_global_snapshot(r: redis.Redis, target_date: date) -> GlobalSnapshot |
             completeness_pct=data.get("completeness_score", 0) * 100,
             data_sources=data.get("data_sources", []),
         )
-        logger.info("Loaded macro snapshot: date=%s, VIX=%.1f, KOSPI=%.0f",
-                     target_date, snapshot.vix or 0, snapshot.kospi_index or 0)
+        logger.info(
+            "Loaded macro snapshot: date=%s, VIX=%.1f, KOSPI=%.0f",
+            target_date,
+            snapshot.vix or 0,
+            snapshot.kospi_index or 0,
+        )
         return snapshot
     except Exception:
         logger.exception("Failed to parse macro snapshot from Redis")
@@ -253,31 +255,31 @@ def _persist_insight_to_db(
             usd_krw=insight.usd_krw,
             kospi_index=insight.kospi_index,
             kosdaq_index=insight.kosdaq_index,
-            sector_signals_json=json.dumps(
-                [s.model_dump() for s in insight.sector_signals], ensure_ascii=False
-            ) if insight.sector_signals else None,
-            key_themes_json=json.dumps(
-                [t.model_dump() for t in insight.key_themes], ensure_ascii=False
-            ) if insight.key_themes else None,
-            risk_factors_json=json.dumps(
-                [r.model_dump() for r in insight.risk_factors], ensure_ascii=False
-            ) if insight.risk_factors else None,
-            raw_council_output_json=json.dumps(
-                result.raw_outputs, ensure_ascii=False, default=str
-            ) if result.raw_outputs else None,
+            sector_signals_json=json.dumps([s.model_dump() for s in insight.sector_signals], ensure_ascii=False)
+            if insight.sector_signals
+            else None,
+            key_themes_json=json.dumps([t.model_dump() for t in insight.key_themes], ensure_ascii=False)
+            if insight.key_themes
+            else None,
+            risk_factors_json=json.dumps([r.model_dump() for r in insight.risk_factors], ensure_ascii=False)
+            if insight.risk_factors
+            else None,
+            raw_council_output_json=json.dumps(result.raw_outputs, ensure_ascii=False, default=str)
+            if result.raw_outputs
+            else None,
             council_cost_usd=insight.council_cost_usd,
             # New fields from CouncilResult
             trading_reasoning=result.trading_reasoning or None,
             council_consensus=result.council_consensus or None,
-            strategies_to_favor_json=json.dumps(
-                result.strategies_to_favor, ensure_ascii=False
-            ) if result.strategies_to_favor else None,
-            strategies_to_avoid_json=json.dumps(
-                result.strategies_to_avoid, ensure_ascii=False
-            ) if result.strategies_to_avoid else None,
-            opportunity_factors_json=json.dumps(
-                result.opportunity_factors, ensure_ascii=False
-            ) if result.opportunity_factors else None,
+            strategies_to_favor_json=json.dumps(result.strategies_to_favor, ensure_ascii=False)
+            if result.strategies_to_favor
+            else None,
+            strategies_to_avoid_json=json.dumps(result.strategies_to_avoid, ensure_ascii=False)
+            if result.strategies_to_avoid
+            else None,
+            opportunity_factors_json=json.dumps(result.opportunity_factors, ensure_ascii=False)
+            if result.opportunity_factors
+            else None,
             # Fields from GlobalSnapshot
             kospi_change_pct=global_snapshot.kospi_change_pct if global_snapshot else None,
             kosdaq_change_pct=global_snapshot.kosdaq_change_pct if global_snapshot else None,
@@ -285,9 +287,7 @@ def _persist_insight_to_db(
             kospi_institutional_net=global_snapshot.kospi_institutional_net if global_snapshot else None,
             kospi_retail_net=global_snapshot.kospi_retail_net if global_snapshot else None,
             data_completeness_pct=(
-                int(global_snapshot.completeness_pct)
-                if global_snapshot and global_snapshot.completeness_pct
-                else None
+                int(global_snapshot.completeness_pct) if global_snapshot and global_snapshot.completeness_pct else None
             ),
         )
 

@@ -16,9 +16,27 @@ CHANNEL_NAME = "키움증권 전략/시황 한지영"
 
 # 매크로 키워드 (감지용)
 MACRO_KEYWORDS = [
-    "금리", "환율", "FOMC", "물가", "CPI", "GDP", "경기", "침체",
-    "인플레이션", "관세", "트럼프", "달러", "연준", "BOK", "기준금리",
-    "VIX", "원/달러", "국채", "고용", "PMI", "ISM",
+    "금리",
+    "환율",
+    "FOMC",
+    "물가",
+    "CPI",
+    "GDP",
+    "경기",
+    "침체",
+    "인플레이션",
+    "관세",
+    "트럼프",
+    "달러",
+    "연준",
+    "BOK",
+    "기준금리",
+    "VIX",
+    "원/달러",
+    "국채",
+    "고용",
+    "PMI",
+    "ISM",
 ]
 
 # 세션 파일 탐색 경로
@@ -103,16 +121,18 @@ async def collect_hedgecat_briefing(hours: int = 24, max_messages: int = 30) -> 
     try:
         async with TelegramClient(session_path, int(api_id), api_hash) as client:
             entity = await client.get_entity(CHANNEL_USERNAME)
-            history = await client(GetHistoryRequest(
-                peer=entity,
-                limit=max_messages,
-                offset_id=0,
-                offset_date=None,
-                add_offset=0,
-                max_id=0,
-                min_id=0,
-                hash=0,
-            ))
+            history = await client(
+                GetHistoryRequest(
+                    peer=entity,
+                    limit=max_messages,
+                    offset_id=0,
+                    offset_date=None,
+                    add_offset=0,
+                    max_id=0,
+                    min_id=0,
+                    hash=0,
+                )
+            )
 
             for msg in history.messages:
                 if not msg.message:
@@ -127,11 +147,13 @@ async def collect_hedgecat_briefing(hours: int = 24, max_messages: int = 30) -> 
                 if len(text) < 20:
                     continue
 
-                collected.append({
-                    "text": text,
-                    "date": msg_time,
-                    "macro_keywords": _detect_macro_keywords(text),
-                })
+                collected.append(
+                    {
+                        "text": text,
+                        "date": msg_time,
+                        "macro_keywords": _detect_macro_keywords(text),
+                    }
+                )
 
         logger.info("Telegram: collected %d messages from @%s", len(collected), CHANNEL_USERNAME)
 
