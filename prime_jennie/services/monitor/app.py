@@ -1,15 +1,25 @@
 """Price Monitor — 실시간 포지션 감시 + 매도 시그널 발행.
 
-KIS Gateway에서 보유 종목 가격을 주기적으로 폴링하고,
-다층 매도 규칙(exit_rules)을 평가하여 SellOrder를 Redis Stream에 발행.
+kis:prices Redis Stream에서 실시간 틱을 소비하여
+보유 포지션 가격 변동 시 즉시 다층 매도 규칙(exit_rules)을 평가,
+SellOrder를 Redis Stream에 발행.
+
+Data Flow:
+  KIS WebSocket → Gateway → Redis kis:prices → Monitor (XREADGROUP)
+  → exit_rules 평가 → Redis stream:sell-orders → Sell Executor
+
+5분 주기: kis.get_positions() → _positions 갱신 + RSI 일괄 계산
 """
 
 import contextlib
 import logging
 import threading
 import time
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 from datetime import UTC, datetime
 
+import httpx
 import redis
 
 from prime_jennie.domain.config import get_config
@@ -19,7 +29,9 @@ from prime_jennie.domain.portfolio import Position
 from prime_jennie.domain.trading import SellOrder
 from prime_jennie.infra.kis.client import KISClient
 from prime_jennie.infra.redis.cache import TypedCache
+from prime_jennie.infra.redis.client import get_redis
 from prime_jennie.infra.redis.streams import TypedStreamPublisher
+from prime_jennie.services.base import create_app
 
 from .exit_rules import ExitSignal, PositionContext, evaluate_exit
 
@@ -32,12 +44,15 @@ RSI_SOLD_PREFIX = "rsi_sold:"
 COOLDOWN_PREFIX = "stoploss_cooldown:"
 MONITOR_STATUS_KEY = "monitoring:price_monitor"
 
-# Stream
+# Streams
 SELL_SIGNAL_STREAM = "stream:sell-orders"
+PRICE_STREAM = "kis:prices"
+PRICE_GROUP = "monitor-group"
+PRICE_CONSUMER = "monitor-1"
 
 # Timing
-POLL_INTERVAL_SEC = 30
-STATUS_LOG_INTERVAL_SEC = 300  # 5 minutes
+POSITION_REFRESH_INTERVAL = 300  # 5분마다 포지션 + RSI 갱신
+STATUS_LOG_INTERVAL_SEC = 300
 
 
 class PriceMonitor:
@@ -60,50 +75,74 @@ class PriceMonitor:
         self._redis = redis_client
         self._publisher = TypedStreamPublisher(redis_client, SELL_SIGNAL_STREAM, SellOrder)
         self._context_cache = context_cache
-        self._stop_event = threading.Event()
         self._last_status_log = 0.0
 
-    def run(self) -> None:
-        """메인 모니터링 루프 (blocking)."""
-        logger.info("Price Monitor started")
+        # 인메모리 포지션 + RSI 캐시
+        self._positions: dict[str, Position] = {}
+        self._rsi_cache: dict[str, float | None] = {}
 
-        while not self._stop_event.is_set():
-            try:
-                self._tick()
-            except Exception:
-                logger.exception("Monitor tick failed")
+    # --- Public API ---
 
-            self._stop_event.wait(timeout=POLL_INTERVAL_SEC)
+    def refresh_positions(self) -> list[str]:
+        """kis.get_positions() → _positions 갱신, RSI 일괄 계산.
 
-        logger.info("Price Monitor stopped")
+        Returns:
+            현재 보유 종목 코드 리스트
+        """
+        try:
+            positions = self._kis.get_positions()
+        except Exception:
+            logger.error("Failed to get positions")
+            return list(self._positions.keys())
 
-    def stop(self) -> None:
-        """모니터링 중지."""
-        self._stop_event.set()
+        new_codes = {p.stock_code for p in positions}
+        old_codes = set(self._positions.keys())
 
-    def _tick(self) -> None:
-        """한 사이클: 포지션 조회 → 가격 평가 → 시그널 발행."""
-        positions = self._get_positions()
-        if not positions:
+        # 사라진 포지션 Redis 상태 정리
+        for code in old_codes - new_codes:
+            self._cleanup_position_state(code)
+            self._rsi_cache.pop(code, None)
+
+        # _positions 갱신
+        self._positions = {p.stock_code: p for p in positions}
+
+        # RSI 일괄 계산
+        for code in new_codes:
+            self._rsi_cache[code] = self._compute_rsi(code)
+
+        logger.info("Positions refreshed: %d held", len(self._positions))
+        return list(new_codes)
+
+    def process_tick(self, stock_code: str, price: float, high: float = 0) -> None:
+        """보유 종목 틱 → 매도 규칙 평가 → 시그널 발행."""
+        pos = self._positions.get(stock_code)
+        if pos is None:
             return
+
+        # 현재가 갱신 (인메모리)
+        pos = pos.model_copy(update={"current_price": int(price)})
+        self._positions[stock_code] = pos
 
         context = self._get_trading_context()
         regime = context.market_regime if context else MarketRegime.SIDEWAYS
         macro_stop_mult = context.stop_loss_multiplier if context else 1.0
 
-        for pos in positions:
-            try:
-                signal = self._evaluate_position(pos, regime, macro_stop_mult)
-                if signal and signal.should_sell:
-                    self._emit_sell_order(pos, signal)
-            except Exception:
-                logger.exception("Evaluation failed for %s", pos.stock_code)
+        try:
+            signal = self._evaluate_position(pos, regime, macro_stop_mult)
+            if signal and signal.should_sell:
+                self._emit_sell_order(pos, signal)
+        except Exception:
+            logger.exception("Evaluation failed for %s", stock_code)
 
-        # 상태 로깅
-        now = time.time()
-        if now - self._last_status_log >= STATUS_LOG_INTERVAL_SEC:
-            self._log_status(positions)
-            self._last_status_log = now
+    def get_status(self) -> dict:
+        """현재 상태 반환."""
+        return {
+            "position_count": len(self._positions),
+            "positions": list(self._positions.keys()),
+            "rsi_cached": len(self._rsi_cache),
+        }
+
+    # --- Position Evaluation ---
 
     def _evaluate_position(
         self,
@@ -130,9 +169,9 @@ class PriceMonitor:
 
         high_profit_pct = (hw - buy) / buy * 100.0 if buy > 0 else 0.0
 
-        # ATR & RSI from daily prices
+        # ATR & RSI
         atr = float(pos.current_price) * 0.02 if pos.current_price else buy * 0.02
-        rsi = self._compute_rsi(pos.stock_code)
+        rsi = self._rsi_cache.get(pos.stock_code)
 
         # Holding days
         holding_days = 0
@@ -195,22 +234,15 @@ class PriceMonitor:
         if signal.reason == SellReason.RSI_OVERBOUGHT:
             self._set_rsi_sold(pos.stock_code)
 
-        # 전량 매도 시 Redis 상태 정리
+        # 전량 매도 시 Redis 상태 정리 + 인메모리 제거
         if signal.quantity_pct >= 100:
             self._cleanup_position_state(pos.stock_code)
+            self._positions.pop(pos.stock_code, None)
+            self._rsi_cache.pop(pos.stock_code, None)
 
-    # --- Position Data ---
-
-    def _get_positions(self) -> list[Position]:
-        """보유 포지션 목록 (가격 포함)."""
-        try:
-            return self._kis.get_positions()
-        except Exception:
-            logger.error("Failed to get positions")
-            return []
+    # --- Trading Context ---
 
     def _get_trading_context(self) -> TradingContext | None:
-        """트레이딩 컨텍스트."""
         if self._context_cache:
             return self._context_cache.get()
         return None
@@ -234,7 +266,6 @@ class PriceMonitor:
     # --- High Watermark ---
 
     def _get_high_watermark(self, stock_code: str, buy_price: float) -> float:
-        """보유 종목 최고가 조회 (Redis)."""
         try:
             raw = self._redis.get(f"{WATERMARK_PREFIX}{stock_code}")
             if raw:
@@ -244,11 +275,10 @@ class PriceMonitor:
         return buy_price
 
     def _set_high_watermark(self, stock_code: str, price: float) -> None:
-        """최고가 갱신."""
         with contextlib.suppress(Exception):
             self._redis.setex(
                 f"{WATERMARK_PREFIX}{stock_code}",
-                30 * 86400,  # 30 days TTL
+                30 * 86400,
                 str(price),
             )
 
@@ -285,7 +315,6 @@ class PriceMonitor:
     # --- Cleanup ---
 
     def _cleanup_position_state(self, stock_code: str) -> None:
-        """전량 매도 시 Redis 상태 정리."""
         try:
             pipe = self._redis.pipeline()
             pipe.delete(f"{WATERMARK_PREFIX}{stock_code}")
@@ -297,11 +326,15 @@ class PriceMonitor:
 
     # --- Status ---
 
-    def _log_status(self, positions: list[Position]) -> None:
-        """상태 로깅."""
+    def _log_status(self) -> None:
+        now = time.time()
+        if now - self._last_status_log < STATUS_LOG_INTERVAL_SEC:
+            return
+        self._last_status_log = now
+
         logger.info(
             "Monitor status: watching %d positions",
-            len(positions),
+            len(self._positions),
         )
         try:
             import json
@@ -312,7 +345,7 @@ class PriceMonitor:
                 json.dumps(
                     {
                         "status": "online",
-                        "watching_count": len(positions),
+                        "watching_count": len(self._positions),
                         "updated_at": datetime.now(UTC).isoformat(),
                     }
                 ),
@@ -321,45 +354,171 @@ class PriceMonitor:
             pass
 
 
-# --- FastAPI App ---
+# ─── Tick Consumer ─────────────────────────────────────────────
+
+_monitor: PriceMonitor | None = None
+_tick_thread: threading.Thread | None = None
+_tick_running = False
 
 
-def create_monitor_app():
-    """Price Monitor FastAPI 앱."""
-    from prime_jennie.services.base import create_app
+def _consume_ticks(r: redis.Redis, monitor: PriceMonitor) -> None:
+    """kis:prices Redis Stream 소비 루프 (백그라운드 스레드).
 
-    app = create_app("price-monitor", version="1.0.0")
+    Gateway의 KISWebSocketStreamer가 XADD한 raw tick을 읽어
+    monitor.process_tick()에 전달.
+    5분마다 refresh_positions() + 신규 종목 gateway 구독.
+    """
+    global _tick_running
 
-    _monitor: PriceMonitor | None = None
-    _thread: threading.Thread | None = None
+    # Consumer group 생성
+    try:
+        r.xgroup_create(PRICE_STREAM, PRICE_GROUP, id="0", mkstream=True)
+    except redis.exceptions.ResponseError as e:
+        if "BUSYGROUP" not in str(e):
+            raise
 
-    @app.post("/start")
-    def start_monitoring():
-        nonlocal _monitor, _thread
-        if _thread and _thread.is_alive():
-            return {"status": "already_running"}
+    logger.info("Tick consumer started: stream=%s group=%s", PRICE_STREAM, PRICE_GROUP)
+    last_refresh = time.time()
+    tick_count = 0
 
-        r = redis.Redis.from_url(get_config().redis.url, decode_responses=True)
-        kis = KISClient()
-        _monitor = PriceMonitor(kis, r)
-        _thread = threading.Thread(target=_monitor.run, daemon=True)
-        _thread.start()
-        return {"status": "started"}
+    while _tick_running:
+        try:
+            # 주기적 포지션 갱신 + RSI 재계산
+            now = time.time()
+            if now - last_refresh > POSITION_REFRESH_INTERVAL:
+                old_codes = set(monitor._positions.keys())
+                codes = monitor.refresh_positions()
+                new_codes = set(codes) - old_codes
+                if new_codes:
+                    _subscribe_to_gateway(list(new_codes))
+                last_refresh = now
 
-    @app.post("/stop")
-    def stop_monitoring():
-        nonlocal _monitor
-        if _monitor:
-            _monitor.stop()
-        return {"status": "stopped"}
+            messages = r.xreadgroup(
+                PRICE_GROUP,
+                PRICE_CONSUMER,
+                {PRICE_STREAM: ">"},
+                count=50,
+                block=2000,
+            )
+            if not messages:
+                continue
 
-    @app.get("/status")
-    def monitor_status():
-        return {
-            "running": _thread.is_alive() if _thread else False,
-        }
+            for _stream_name, entries in messages:
+                for msg_id, data in entries:
+                    # ACK first (at-most-once)
+                    r.xack(PRICE_STREAM, PRICE_GROUP, msg_id)
 
-    return app
+                    code = data.get("code", "")
+                    price_str = data.get("price", "0")
+                    high_str = data.get("high", "0")
+
+                    try:
+                        price = float(price_str)
+                        high = float(high_str)
+                    except (ValueError, TypeError):
+                        continue
+
+                    if price > 0 and code:
+                        monitor.process_tick(code, price, high)
+                        tick_count += 1
+
+            # 주기적 상태 로깅
+            monitor._log_status()
+
+            if tick_count > 0 and tick_count % 10000 == 0:
+                logger.info("Processed %d ticks", tick_count)
+
+        except redis.exceptions.ConnectionError:
+            logger.error("Redis connection lost, retrying in 5s...")
+            time.sleep(5)
+        except Exception:
+            logger.exception("Tick consumer error")
+            time.sleep(1)
+
+    logger.info("Tick consumer stopped (processed %d ticks)", tick_count)
 
 
-app = create_monitor_app()
+def _subscribe_to_gateway(codes: list[str]) -> None:
+    """Gateway에 실시간 구독 요청."""
+    if not codes:
+        return
+    config = get_config()
+    gateway_url = config.kis.gateway_url
+    try:
+        resp = httpx.post(
+            f"{gateway_url}/api/realtime/subscribe",
+            json={"codes": codes},
+            timeout=10.0,
+        )
+        resp.raise_for_status()
+        data = resp.json()
+        logger.info(
+            "Gateway subscribe: added=%d, total=%d",
+            len(data.get("added", [])),
+            data.get("total_subscriptions", 0),
+        )
+    except Exception as e:
+        logger.warning("Failed to subscribe via Gateway (will use existing feed): %s", e)
+
+
+# ─── FastAPI App ────────────────────────────────────────────────
+
+
+@asynccontextmanager
+async def lifespan(app) -> AsyncIterator[None]:
+    global _monitor, _tick_thread, _tick_running
+
+    r = get_redis()
+    kis = KISClient()
+    _monitor = PriceMonitor(kis, r)
+
+    # 초기 포지션 로드 + RSI 계산
+    codes = _monitor.refresh_positions()
+
+    # Gateway에 구독 요청
+    if codes:
+        _subscribe_to_gateway(codes)
+
+    # Tick consumer 시작
+    _tick_running = True
+    _tick_thread = threading.Thread(target=_consume_ticks, args=(r, _monitor), daemon=True)
+    _tick_thread.start()
+    logger.info("Price Monitor started with tick consumer")
+
+    yield
+
+    # 종료
+    _tick_running = False
+    if _tick_thread:
+        _tick_thread.join(timeout=5)
+    logger.info("Price Monitor stopped")
+
+
+app = create_app("price-monitor", version="1.0.0", lifespan=lifespan, dependencies=["redis"])
+
+
+@app.get("/status")
+async def status():
+    """Monitor 상태 (tick consumer 포함)."""
+    base = _monitor.get_status() if _monitor else {}
+    base["tick_consumer_running"] = _tick_running
+    return base
+
+
+@app.post("/refresh-positions")
+async def refresh_positions():
+    """포지션 수동 갱신 + Gateway 재구독."""
+    if _monitor is None:
+        return {"success": False, "message": "Monitor not initialized"}
+
+    old_codes = set(_monitor._positions.keys())
+    codes = _monitor.refresh_positions()
+    new_codes = set(codes) - old_codes
+    if new_codes:
+        _subscribe_to_gateway(list(new_codes))
+
+    return {
+        "success": True,
+        "position_count": len(codes),
+        "new_subscriptions": list(new_codes),
+    }
