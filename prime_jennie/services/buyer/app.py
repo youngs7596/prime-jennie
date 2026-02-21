@@ -9,17 +9,18 @@ Data Flow:
 import logging
 import threading
 from contextlib import asynccontextmanager
+from datetime import UTC, datetime
 
 from sqlmodel import Session
 
-from prime_jennie.domain import BuySignal
+from prime_jennie.domain import BuySignal, TradeNotification
 from prime_jennie.domain.config import get_config
 from prime_jennie.infra.database.engine import get_engine
 from prime_jennie.infra.database.models import PositionDB, TradeLogDB
 from prime_jennie.infra.database.repositories import PortfolioRepository
 from prime_jennie.infra.kis.client import KISClient
 from prime_jennie.infra.redis.client import get_redis
-from prime_jennie.infra.redis.streams import TypedStreamConsumer
+from prime_jennie.infra.redis.streams import TypedStreamConsumer, TypedStreamPublisher
 from prime_jennie.services.base import create_app
 
 from .executor import BuyExecutor, ExecutionResult
@@ -29,12 +30,14 @@ logger = logging.getLogger(__name__)
 
 # Stream 키
 STREAM_BUY_SIGNALS = "stream:buy-signals"
+STREAM_TRADE_NOTIFICATIONS = "stream:trade-notifications"
 GROUP_BUY_EXECUTOR = "group_buy_executor"
 
 # 모듈 레벨 싱글턴
 _executor: BuyExecutor | None = None
 _consumer: TypedStreamConsumer | None = None
 _consumer_thread: threading.Thread | None = None
+_notifier: TypedStreamPublisher | None = None
 
 
 def _handle_signal(signal: BuySignal) -> None:
@@ -48,6 +51,7 @@ def _handle_signal(signal: BuySignal) -> None:
 
         if result.status == "success":
             _persist_buy(signal, result)
+            _notify_buy(signal, result)
 
         logger.info(
             "[%s] %s: %s (qty=%d, price=%d)",
@@ -95,10 +99,32 @@ def _persist_buy(signal: BuySignal, result: ExecutionResult) -> None:
         logger.exception("[%s] Failed to persist buy trade to DB", result.stock_code)
 
 
+def _notify_buy(signal: BuySignal, result: ExecutionResult) -> None:
+    """매수 체결 알림 발행 (fire-and-forget)."""
+    if _notifier is None:
+        return
+    try:
+        notification = TradeNotification(
+            trade_type="BUY",
+            stock_code=result.stock_code,
+            stock_name=result.stock_name,
+            quantity=result.quantity,
+            price=result.price,
+            total_amount=result.quantity * result.price,
+            signal_type=str(signal.signal_type),
+            trade_tier=str(signal.trade_tier),
+            hybrid_score=signal.hybrid_score,
+            timestamp=datetime.now(UTC),
+        )
+        _notifier.publish(notification)
+    except Exception:
+        logger.exception("[%s] Failed to publish buy notification", result.stock_code)
+
+
 @asynccontextmanager
 async def lifespan(app):
     """서비스 시작/종료 관리."""
-    global _executor, _consumer, _consumer_thread
+    global _executor, _consumer, _consumer_thread, _notifier
 
     config = get_config()
     redis_client = get_redis()
@@ -106,6 +132,7 @@ async def lifespan(app):
     guard = PortfolioGuard(redis_client)
 
     _executor = BuyExecutor(kis_client, redis_client, guard)
+    _notifier = TypedStreamPublisher(redis_client, STREAM_TRADE_NOTIFICATIONS, TradeNotification)
 
     # Stream consumer 시작 (daemon thread)
     _consumer = TypedStreamConsumer(

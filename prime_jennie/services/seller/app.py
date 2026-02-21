@@ -3,17 +3,19 @@
 import logging
 import threading
 from contextlib import asynccontextmanager
+from datetime import UTC, datetime
 
 import redis
 from sqlmodel import Session
 
 from prime_jennie.domain.config import get_config
+from prime_jennie.domain.notification import TradeNotification
 from prime_jennie.domain.trading import SellOrder
 from prime_jennie.infra.database.engine import get_engine
 from prime_jennie.infra.database.models import TradeLogDB
 from prime_jennie.infra.database.repositories import PortfolioRepository
 from prime_jennie.infra.kis.client import KISClient
-from prime_jennie.infra.redis.streams import TypedStreamConsumer
+from prime_jennie.infra.redis.streams import TypedStreamConsumer, TypedStreamPublisher
 from prime_jennie.services.base import create_app
 
 from .executor import SellExecutor, SellResult
@@ -22,6 +24,7 @@ logger = logging.getLogger(__name__)
 
 SELL_SIGNAL_STREAM = "stream:sell-orders"
 SELL_GROUP = "group_sell_executor"
+STREAM_TRADE_NOTIFICATIONS = "stream:trade-notifications"
 
 
 @asynccontextmanager
@@ -32,12 +35,14 @@ async def lifespan(app):
     kis = KISClient()
     executor = SellExecutor(kis, r)
     app.state.executor = executor
+    notifier = TypedStreamPublisher(r, STREAM_TRADE_NOTIFICATIONS, TradeNotification)
 
     def handler(order: SellOrder):
         result = executor.process_signal(order)
 
         if result.status == "success":
             _persist_sell(order, result)
+            _notify_sell(order, result, notifier)
 
         logger.info(
             "[%s] Sell result: %s (%s)",
@@ -93,6 +98,26 @@ def _persist_sell(order: SellOrder, result: SellResult) -> None:
             PortfolioRepository.reduce_position(session, result.stock_code, result.quantity)
     except Exception:
         logger.exception("[%s] Failed to persist sell trade to DB", result.stock_code)
+
+
+def _notify_sell(order: SellOrder, result: SellResult, notifier: TypedStreamPublisher) -> None:
+    """매도 체결 알림 발행 (fire-and-forget)."""
+    try:
+        notification = TradeNotification(
+            trade_type="SELL",
+            stock_code=result.stock_code,
+            stock_name=result.stock_name,
+            quantity=result.quantity,
+            price=result.price,
+            total_amount=result.quantity * result.price,
+            sell_reason=str(order.sell_reason),
+            profit_pct=result.profit_pct,
+            holding_days=order.holding_days,
+            timestamp=datetime.now(UTC),
+        )
+        notifier.publish(notification)
+    except Exception:
+        logger.exception("[%s] Failed to publish sell notification", result.stock_code)
 
 
 @app.get("/status")

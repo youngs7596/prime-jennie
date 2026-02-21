@@ -38,6 +38,9 @@ from .macro import (
 # --- News ---
 from .news import NewsArticle, NewsSentiment
 
+# --- Notification ---
+from .notification import TradeNotification
+
 # --- Portfolio ---
 from .portfolio import DailySnapshot, PortfolioState, Position
 
@@ -123,6 +126,8 @@ __all__ = [
     # News
     "NewsArticle",
     "NewsSentiment",
+    # Notification
+    "TradeNotification",
     # Health
     "DependencyHealth",
     "HealthStatus",
