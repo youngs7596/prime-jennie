@@ -33,12 +33,17 @@ def main():
     logger.info("일일 자산 스냅샷 수집 시작")
 
     try:
-        # 계좌 잔고 조회
-        positions = kis.get_positions()
-        cash = kis.get_cash_balance()
+        # 계좌 잔고 조회 (KIS API tot_evlu_amt 직접 사용)
+        balance = kis.get_balance()
+        positions = balance.get("positions", [])
 
-        stock_eval = sum(p.quantity * (p.current_price or p.average_buy_price) for p in positions)
-        total_asset = cash + stock_eval
+        total_asset = int(balance.get("total_asset", 0))
+        cash = int(balance.get("cash_balance", 0))
+        stock_eval = int(balance.get("stock_eval_amount", 0))
+
+        # total_asset이 0이면 fallback
+        if total_asset <= 0:
+            total_asset = cash + stock_eval
 
         snapshot = DailyAssetSnapshotDB(
             snapshot_date=date.today(),

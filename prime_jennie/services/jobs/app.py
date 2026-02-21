@@ -44,15 +44,23 @@ def _get_kis() -> KISClient:
 
 @app.post("/jobs/daily-asset-snapshot")
 def daily_asset_snapshot(session: Session = Depends(get_db_session)) -> JobResult:
-    """일일 자산 스냅샷 저장."""
+    """일일 자산 스냅샷 저장.
+
+    KIS API의 tot_evlu_amt(총 평가금액)을 직접 사용.
+    cash + stock_eval 수동 합산은 예수금 이중 계산 문제가 있어 사용하지 않음.
+    """
     try:
         kis = _get_kis()
         balance = kis.get_balance()
-        positions = kis.get_positions()
+        positions = balance.get("positions", [])
 
-        stock_eval = sum((p.current_value or p.total_buy_amount) for p in positions)
+        total = int(balance.get("total_asset", 0))
         cash = int(balance.get("cash_balance", 0))
-        total = cash + stock_eval
+        stock_eval = int(balance.get("stock_eval_amount", 0))
+
+        # total_asset이 0이면 fallback (API 응답 이상)
+        if total <= 0:
+            total = cash + stock_eval
 
         snapshot = DailyAssetSnapshotDB(
             snapshot_date=date.today(),
