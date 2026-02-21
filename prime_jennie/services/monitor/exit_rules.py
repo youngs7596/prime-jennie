@@ -135,10 +135,7 @@ def check_breakeven_stop(ctx: PositionContext) -> ExitSignal | None:
     config = get_config().sell
     if not config.breakeven_enabled:
         return None
-    if (
-        ctx.high_profit_pct >= config.breakeven_activation_pct
-        and ctx.profit_pct < config.breakeven_floor_pct
-    ):
+    if ctx.high_profit_pct >= config.breakeven_activation_pct and ctx.profit_pct < config.breakeven_floor_pct:
         return ExitSignal(
             should_sell=True,
             reason=SellReason.BREAKEVEN_STOP,

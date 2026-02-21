@@ -146,11 +146,7 @@ async def run_pipeline(session: Session) -> HotWatchlist:
         sector_returns_20d.setdefault(group, []).append(ret)
 
     # 종목 5개 미만 섹터는 대표성 부족 → 제외 (중립 점수 적용)
-    sector_avg = {
-        g: sum(r) / len(r)
-        for g, r in sector_returns_20d.items()
-        if len(r) >= 5
-    }
+    sector_avg = {g: sum(r) / len(r) for g, r in sector_returns_20d.items() if len(r) >= 5}
     for candidate in enriched.values():
         group = candidate.master.sector_group
         if group:

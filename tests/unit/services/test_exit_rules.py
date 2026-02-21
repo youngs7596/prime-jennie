@@ -212,9 +212,7 @@ class TestBreakevenStop:
         """Profit Lock L1이 먼저 체크되므로, floor 이상이면 Lock이 잡음."""
         # L1 trigger=3.0%, high=3.5% >= 3.0%, profit=0.1% < L1 floor(0.2%)
         # → Profit Lock L1이 먼저 발동
-        ctx = _make_ctx(
-            buy_price=70000, atr=1400, high_profit_pct=3.5, profit_pct=0.1
-        )
+        ctx = _make_ctx(buy_price=70000, atr=1400, high_profit_pct=3.5, profit_pct=0.1)
         signal = evaluate_exit(ctx)
         assert signal is not None
         assert "Profit Lock" in signal.description
@@ -573,8 +571,10 @@ class TestEvaluateExit:
         하지만 breakeven floor(0.3%) 미만이므로 Breakeven 발동.
         """
         ctx = _make_ctx(
-            buy_price=70000, atr=1400,
-            high_profit_pct=3.5, profit_pct=0.25,
+            buy_price=70000,
+            atr=1400,
+            high_profit_pct=3.5,
+            profit_pct=0.25,
         )
         signal = evaluate_exit(ctx)
         assert signal is not None

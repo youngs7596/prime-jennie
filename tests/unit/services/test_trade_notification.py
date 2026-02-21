@@ -306,8 +306,12 @@ class TestSellerNotifySell:
         order.holding_days = 3
 
         result = SellResult(
-            "success", stock_code="005930", stock_name="삼성전자",
-            quantity=50, price=65000, profit_pct=-5.0,
+            "success",
+            stock_code="005930",
+            stock_name="삼성전자",
+            quantity=50,
+            price=65000,
+            profit_pct=-5.0,
         )
 
         # Should not raise

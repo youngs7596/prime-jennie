@@ -145,9 +145,7 @@ class BacktestEngine:
             atr = self._calc_atr(code, day)
             rsi = calculate_rsi(close_prices, period=14) if len(close_prices) >= 15 else None
             death_cross = check_death_cross(close_prices) if len(close_prices) >= 21 else False
-            macd_bearish = (
-                check_macd_bearish_divergence(close_prices) if len(close_prices) >= 36 else False
-            )
+            macd_bearish = check_macd_bearish_divergence(close_prices) if len(close_prices) >= 36 else False
 
             holding_days = pos.holding_days(day)
 
@@ -174,9 +172,7 @@ class BacktestEngine:
             signal_low = evaluate_exit(ctx_low, regime, macro_stop_mult)
             if signal_low and signal_low.should_sell and self._is_stop_loss_signal(signal_low):
                 sell_qty = self._calc_sell_quantity(pos.quantity, signal_low.quantity_pct)
-                self.portfolio.execute_sell(
-                    code, ohlcv.low_price, sell_qty, day, signal_low.reason, regime
-                )
+                self.portfolio.execute_sell(code, ohlcv.low_price, sell_qty, day, signal_low.reason, regime)
                 if code not in self.portfolio.positions:
                     continue  # 전량 매도
 
@@ -210,9 +206,7 @@ class BacktestEngine:
             signal_high = evaluate_exit(ctx_high, regime, macro_stop_mult)
             if signal_high and signal_high.should_sell and self._is_take_profit_signal(signal_high):
                 sell_qty = self._calc_sell_quantity(pos.quantity, signal_high.quantity_pct)
-                self.portfolio.execute_sell(
-                    code, ohlcv.high_price, sell_qty, day, signal_high.reason, regime
-                )
+                self.portfolio.execute_sell(code, ohlcv.high_price, sell_qty, day, signal_high.reason, regime)
                 if code not in self.portfolio.positions:
                     continue
 
@@ -246,9 +240,7 @@ class BacktestEngine:
             signal_close = evaluate_exit(ctx_close, regime, macro_stop_mult)
             if signal_close and signal_close.should_sell:
                 sell_qty = self._calc_sell_quantity(pos.quantity, signal_close.quantity_pct)
-                self.portfolio.execute_sell(
-                    code, ohlcv.close_price, sell_qty, day, signal_close.reason, regime
-                )
+                self.portfolio.execute_sell(code, ohlcv.close_price, sell_qty, day, signal_close.reason, regime)
 
     # --- ENTRY ---
 
@@ -361,9 +353,7 @@ class BacktestEngine:
         history = self.prices.get_history_until(stock_code, day, n=30)
         if len(history) < 2:
             return 0.0
-        price_dicts = [
-            {"high": p.high_price, "low": p.low_price, "close": p.close_price} for p in history
-        ]
+        price_dicts = [{"high": p.high_price, "low": p.low_price, "close": p.close_price} for p in history]
         atr = calculate_atr(price_dicts, period=14)
         # 주가 대비 클램프
         close = history[-1].close_price

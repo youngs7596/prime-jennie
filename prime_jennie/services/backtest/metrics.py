@@ -120,9 +120,7 @@ def calculate_metrics(
 
         # Profit Factor
         gross_profit = sum(t.profit_amount for t in sells if t.profit_amount and t.profit_amount > 0)
-        gross_loss = abs(
-            sum(t.profit_amount for t in sells if t.profit_amount and t.profit_amount < 0)
-        )
+        gross_loss = abs(sum(t.profit_amount for t in sells if t.profit_amount and t.profit_amount < 0))
         m.profit_factor = gross_profit / gross_loss if gross_loss > 0 else float("inf")
 
         # 평균 보유일
@@ -194,9 +192,7 @@ def print_report(m: BacktestMetrics) -> None:
         print("  BY EXIT REASON")
         print(f"{'-' * 60}")
         print(f"  {'Reason':<25} {'Count':>6} {'Win%':>7} {'AvgPnL':>8}")
-        for name, s in sorted(
-            m.exit_reason_stats.items(), key=lambda x: x[1]["count"], reverse=True
-        ):
+        for name, s in sorted(m.exit_reason_stats.items(), key=lambda x: x[1]["count"], reverse=True):
             print(f"  {name:<25} {s['count']:>6} {s['win_rate']:>6.1f}% {s['avg_pnl']:>7.2f}%")
 
     print(f"\n{sep}\n")
@@ -214,65 +210,73 @@ def export_csv(
     trades_path = os.path.join(output_dir, "trades.csv")
     with open(trades_path, "w", newline="", encoding="utf-8") as f:
         writer = csv.writer(f)
-        writer.writerow([
-            "date",
-            "stock_code",
-            "stock_name",
-            "type",
-            "quantity",
-            "price",
-            "total_amount",
-            "fee",
-            "signal",
-            "tier",
-            "sell_reason",
-            "profit_pct",
-            "profit_amount",
-            "holding_days",
-            "regime",
-        ])
+        writer.writerow(
+            [
+                "date",
+                "stock_code",
+                "stock_name",
+                "type",
+                "quantity",
+                "price",
+                "total_amount",
+                "fee",
+                "signal",
+                "tier",
+                "sell_reason",
+                "profit_pct",
+                "profit_amount",
+                "holding_days",
+                "regime",
+            ]
+        )
         for t in trade_logs:
-            writer.writerow([
-                t.trade_date,
-                t.stock_code,
-                t.stock_name,
-                t.trade_type,
-                t.quantity,
-                t.price,
-                t.total_amount,
-                t.fee,
-                t.signal_type or "",
-                t.trade_tier or "",
-                t.sell_reason or "",
-                f"{t.profit_pct:.2f}" if t.profit_pct is not None else "",
-                t.profit_amount or "",
-                t.holding_days or "",
-                t.regime or "",
-            ])
+            writer.writerow(
+                [
+                    t.trade_date,
+                    t.stock_code,
+                    t.stock_name,
+                    t.trade_type,
+                    t.quantity,
+                    t.price,
+                    t.total_amount,
+                    t.fee,
+                    t.signal_type or "",
+                    t.trade_tier or "",
+                    t.sell_reason or "",
+                    f"{t.profit_pct:.2f}" if t.profit_pct is not None else "",
+                    t.profit_amount or "",
+                    t.holding_days or "",
+                    t.regime or "",
+                ]
+            )
 
     # 일별 스냅샷
     snapshots_path = os.path.join(output_dir, "daily_snapshots.csv")
     with open(snapshots_path, "w", newline="", encoding="utf-8") as f:
         writer = csv.writer(f)
-        writer.writerow([
-            "date",
-            "cash",
-            "portfolio_value",
-            "total_value",
-            "position_count",
-            "daily_return_pct",
-            "regime",
-        ])
+        writer.writerow(
+            [
+                "date",
+                "cash",
+                "portfolio_value",
+                "total_value",
+                "position_count",
+                "daily_return_pct",
+                "regime",
+            ]
+        )
         for s in snapshots:
-            writer.writerow([
-                s.snapshot_date,
-                s.cash,
-                s.portfolio_value,
-                s.total_value,
-                s.position_count,
-                f"{s.daily_return_pct:.4f}",
-                s.regime,
-            ])
+            writer.writerow(
+                [
+                    s.snapshot_date,
+                    s.cash,
+                    s.portfolio_value,
+                    s.total_value,
+                    s.position_count,
+                    f"{s.daily_return_pct:.4f}",
+                    s.regime,
+                ]
+            )
 
     print(f"Exported: {trades_path}")
     print(f"Exported: {snapshots_path}")
@@ -296,7 +300,7 @@ def _analyze_by_strategy(sells: list[TradeLog]) -> dict[str, dict]:
             "count": len(trades),
             "win_rate": len(wins) / len(profits) * 100 if profits else 0,
             "avg_pnl": sum(profits) / len(profits) if profits else 0,
-            "total_pnl": sum(t.profit_amount for t in trades if t.profit_amount) ,
+            "total_pnl": sum(t.profit_amount for t in trades if t.profit_amount),
         }
     return result
 

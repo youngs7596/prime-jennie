@@ -477,8 +477,7 @@ def _log_shadow_comparison(
     if abs(total_delta) >= 3.0:
         old_total = result.total_score - total_delta
         logger.info(
-            "[SHADOW] %s(%s): v2.0=%.1f → v2.1=%.1f (Δ%+.1f) "
-            "[RSI %+.1f, Value %+.1f, Sector %+.1f]",
+            "[SHADOW] %s(%s): v2.0=%.1f → v2.1=%.1f (Δ%+.1f) [RSI %+.1f, Value %+.1f, Sector %+.1f]",
             result.stock_name,
             result.stock_code,
             max(0, old_total),
