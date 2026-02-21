@@ -493,10 +493,12 @@ class TestConfigConsistency:
             SellReason.TRAILING_STOP,
             SellReason.RSI_OVERBOUGHT,
             SellReason.TIME_EXIT,
+            SellReason.PROFIT_FLOOR,
+            SellReason.DEATH_CROSS,
             SellReason.RISK_OFF,
             SellReason.MANUAL,
         ]
-        assert len(reasons) == 7
+        assert len(reasons) == 9
 
     def test_all_signal_types_in_enum(self):
         """매수 시그널 enum 완전성."""

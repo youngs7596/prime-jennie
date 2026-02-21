@@ -8,7 +8,7 @@ Data Flow:
   KIS WebSocket → Gateway → Redis kis:prices → Monitor (XREADGROUP)
   → exit_rules 평가 → Redis stream:sell-orders → Sell Executor
 
-5분 주기: kis.get_positions() → _positions 갱신 + RSI 일괄 계산
+5분 주기: kis.get_positions() → _positions 갱신 + RSI/ATR/지표 일괄 계산
 """
 
 import contextlib
@@ -17,6 +17,7 @@ import threading
 import time
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
+from dataclasses import dataclass
 from datetime import UTC, datetime
 
 import httpx
@@ -42,6 +43,7 @@ WATERMARK_PREFIX = "watermark:"
 SCALE_OUT_PREFIX = "scale_out:"
 RSI_SOLD_PREFIX = "rsi_sold:"
 COOLDOWN_PREFIX = "stoploss_cooldown:"
+PROFIT_FLOOR_PREFIX = "profit_floor:"
 MONITOR_STATUS_KEY = "monitoring:price_monitor"
 
 # Streams
@@ -53,6 +55,14 @@ PRICE_CONSUMER = "monitor-1"
 # Timing
 POSITION_REFRESH_INTERVAL = 300  # 5분마다 포지션 + RSI 갱신
 STATUS_LOG_INTERVAL_SEC = 300
+
+
+@dataclass
+class IndicatorCache:
+    """종목별 기술적 지표 캐시."""
+
+    macd_bearish: bool = False
+    death_cross: bool = False
 
 
 class PriceMonitor:
@@ -77,14 +87,16 @@ class PriceMonitor:
         self._context_cache = context_cache
         self._last_status_log = 0.0
 
-        # 인메모리 포지션 + RSI 캐시
+        # 인메모리 캐시
         self._positions: dict[str, Position] = {}
         self._rsi_cache: dict[str, float | None] = {}
+        self._atr_cache: dict[str, float] = {}
+        self._indicator_cache: dict[str, IndicatorCache] = {}
 
     # --- Public API ---
 
     def refresh_positions(self) -> list[str]:
-        """kis.get_positions() → _positions 갱신, RSI 일괄 계산.
+        """kis.get_positions() → _positions 갱신, RSI/ATR/지표 일괄 계산.
 
         Returns:
             현재 보유 종목 코드 리스트
@@ -102,13 +114,15 @@ class PriceMonitor:
         for code in old_codes - new_codes:
             self._cleanup_position_state(code)
             self._rsi_cache.pop(code, None)
+            self._atr_cache.pop(code, None)
+            self._indicator_cache.pop(code, None)
 
         # _positions 갱신
         self._positions = {p.stock_code: p for p in positions}
 
-        # RSI 일괄 계산
+        # daily_prices 1회 fetch → RSI + ATR + indicators 일괄 계산
         for code in new_codes:
-            self._rsi_cache[code] = self._compute_rsi(code)
+            self._compute_all_indicators(code)
 
         logger.info("Positions refreshed: %d held", len(self._positions))
         return list(new_codes)
@@ -140,6 +154,8 @@ class PriceMonitor:
             "position_count": len(self._positions),
             "positions": list(self._positions.keys()),
             "rsi_cached": len(self._rsi_cache),
+            "atr_cached": len(self._atr_cache),
+            "indicator_cached": len(self._indicator_cache),
         }
 
     # --- Position Evaluation ---
@@ -169,9 +185,21 @@ class PriceMonitor:
 
         high_profit_pct = (hw - buy) / buy * 100.0 if buy > 0 else 0.0
 
-        # ATR & RSI
-        atr = float(pos.current_price) * 0.02 if pos.current_price else buy * 0.02
+        # Profit floor 상태 관리
+        sell_config = self._config.sell
+        profit_floor_active = self._get_profit_floor(pos.stock_code)
+        if not profit_floor_active and high_profit_pct >= sell_config.profit_floor_activation:
+            profit_floor_active = True
+            self._set_profit_floor(pos.stock_code)
+
+        # ATR (실제 계산값, 캐시)
+        atr = self._atr_cache.get(pos.stock_code, 0.0)
+
+        # RSI (캐시)
         rsi = self._rsi_cache.get(pos.stock_code)
+
+        # 기술적 지표 (캐시)
+        indicators = self._indicator_cache.get(pos.stock_code, IndicatorCache())
 
         # Holding days
         holding_days = 0
@@ -192,6 +220,10 @@ class PriceMonitor:
             holding_days=holding_days,
             scale_out_level=self._get_scale_out_level(pos.stock_code),
             rsi_sold=self._is_rsi_sold(pos.stock_code),
+            macd_bearish=indicators.macd_bearish,
+            death_cross=indicators.death_cross,
+            profit_floor_active=profit_floor_active,
+            profit_floor_level=sell_config.profit_floor_level,
         )
 
         return evaluate_exit(ctx, regime, macro_stop_mult)
@@ -239,6 +271,8 @@ class PriceMonitor:
             self._cleanup_position_state(pos.stock_code)
             self._positions.pop(pos.stock_code, None)
             self._rsi_cache.pop(pos.stock_code, None)
+            self._atr_cache.pop(pos.stock_code, None)
+            self._indicator_cache.pop(pos.stock_code, None)
 
     # --- Trading Context ---
 
@@ -247,21 +281,62 @@ class PriceMonitor:
             return self._context_cache.get()
         return None
 
-    # --- RSI Computation ---
+    # --- All-in-one Indicator Computation ---
 
-    def _compute_rsi(self, stock_code: str) -> float | None:
-        """일봉 종가 기반 RSI 계산 (14-period). 실패 시 None."""
+    def _compute_all_indicators(self, stock_code: str) -> None:
+        """daily_prices 1회 fetch → RSI + ATR + death_cross + MACD 일괄 계산."""
+        try:
+            daily_prices = self._kis.get_daily_prices(stock_code, days=60)
+        except Exception:
+            logger.debug("[%s] Daily prices fetch failed", stock_code)
+            self._rsi_cache[stock_code] = None
+            self._atr_cache[stock_code] = 0.0
+            self._indicator_cache[stock_code] = IndicatorCache()
+            return
+
+        close_prices = [float(p.close_price) for p in daily_prices]
+
+        # RSI
+        self._rsi_cache[stock_code] = self._compute_rsi_from_prices(close_prices)
+
+        # ATR
+        self._atr_cache[stock_code] = self._compute_atr_from_prices(daily_prices)
+
+        # Technical indicators
+        indicators = IndicatorCache()
+        if len(close_prices) >= 21:
+            try:
+                from .indicators import check_death_cross, check_macd_bearish_divergence
+
+                indicators.death_cross = check_death_cross(close_prices)
+                if len(close_prices) >= 36:
+                    indicators.macd_bearish = check_macd_bearish_divergence(close_prices)
+            except Exception:
+                logger.debug("[%s] Indicator computation failed", stock_code)
+        self._indicator_cache[stock_code] = indicators
+
+    def _compute_rsi_from_prices(self, close_prices: list[float]) -> float | None:
+        """종가 리스트로부터 RSI 계산."""
+        if len(close_prices) < 15:
+            return None
         try:
             from prime_jennie.services.buyer.position_sizing import calculate_rsi
 
-            daily_prices = self._kis.get_daily_prices(stock_code, days=30)
-            if len(daily_prices) < 15:
-                return None
-            close_prices = [float(p.close_price) for p in daily_prices]
             return calculate_rsi(close_prices)
         except Exception:
-            logger.debug("[%s] RSI computation failed", stock_code)
             return None
+
+    def _compute_atr_from_prices(self, daily_prices: list) -> float:
+        """일봉 데이터로부터 ATR 계산."""
+        if len(daily_prices) < 2:
+            return 0.0
+        try:
+            from prime_jennie.services.buyer.position_sizing import calculate_atr
+
+            price_dicts = [{"high": p.high_price, "low": p.low_price, "close": p.close_price} for p in daily_prices]
+            return calculate_atr(price_dicts)
+        except Exception:
+            return 0.0
 
     # --- High Watermark ---
 
@@ -312,6 +387,18 @@ class PriceMonitor:
         with contextlib.suppress(Exception):
             self._redis.setex(f"{RSI_SOLD_PREFIX}{stock_code}", 86400, "1")
 
+    # --- Profit Floor ---
+
+    def _get_profit_floor(self, stock_code: str) -> bool:
+        try:
+            return bool(self._redis.get(f"{PROFIT_FLOOR_PREFIX}{stock_code}"))
+        except Exception:
+            return False
+
+    def _set_profit_floor(self, stock_code: str) -> None:
+        with contextlib.suppress(Exception):
+            self._redis.setex(f"{PROFIT_FLOOR_PREFIX}{stock_code}", 60 * 86400, "1")
+
     # --- Cleanup ---
 
     def _cleanup_position_state(self, stock_code: str) -> None:
@@ -320,6 +407,7 @@ class PriceMonitor:
             pipe.delete(f"{WATERMARK_PREFIX}{stock_code}")
             pipe.delete(f"{SCALE_OUT_PREFIX}{stock_code}")
             pipe.delete(f"{RSI_SOLD_PREFIX}{stock_code}")
+            pipe.delete(f"{PROFIT_FLOOR_PREFIX}{stock_code}")
             pipe.execute()
         except Exception:
             pass
@@ -472,7 +560,7 @@ async def lifespan(app) -> AsyncIterator[None]:
     kis = KISClient()
     _monitor = PriceMonitor(kis, r)
 
-    # 초기 포지션 로드 + RSI 계산
+    # 초기 포지션 로드 + RSI/ATR/지표 계산
     codes = _monitor.refresh_positions()
 
     # Gateway에 구독 요청

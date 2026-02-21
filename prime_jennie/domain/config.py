@@ -166,16 +166,65 @@ class ScoutConfig(BaseSettings):
 class SellConfig(BaseSettings):
     """매도 설정."""
 
-    rsi_overbought_threshold: float = 75.0
+    # ATR / Stop
+    atr_multiplier: float = 2.0
+    stop_loss_pct: float = 6.0
+    # Trailing
     trailing_enabled: bool = True
     trailing_activation_pct: float = 5.0
     trailing_atr_mult: float = 1.5
-    profit_target_pct: float = 8.0
-    stop_loss_pct: float = 5.0
+    trailing_min_profit_pct: float = 3.0
+    trailing_drop_from_high_pct: float = 3.5
+    # Scale-out
+    scale_out_enabled: bool = True
+    # RSI
+    rsi_overbought_threshold: float = 75.0
+    rsi_min_profit_pct: float = 3.0
+    # Profit target
+    profit_target_pct: float = 10.0
+    # Time exit
+    max_holding_days: int = 30
     time_exit_bull_days: int = 20
     time_exit_sideways_days: int = 35
+    # Profit Floor (15%+ 도달 후 floor 미만 시 전량 매도)
+    profit_floor_activation: float = 15.0
+    profit_floor_level: float = 10.0
+    # Profit Lock L1 (ATR 기반)
+    profit_lock_l1_mult: float = 1.5
+    profit_lock_l1_min: float = 1.5
+    profit_lock_l1_max: float = 3.0
+    profit_lock_l1_floor: float = 0.2
+    # Profit Lock L2 (ATR 기반)
+    profit_lock_l2_mult: float = 2.5
+    profit_lock_l2_min: float = 3.0
+    profit_lock_l2_max: float = 5.0
+    profit_lock_l2_floor: float = 1.0
+    # Scale-out levels (국면별, "profit_pct:sell_pct,..." 형식)
+    scale_out_levels_bull: str = "3.0:25,7.0:25,15.0:25,25.0:15"
+    scale_out_levels_bear: str = "2.0:25,5.0:25,8.0:25,12.0:15"
+    scale_out_levels_sideways: str = "3.0:25,7.0:25,12.0:25,18.0:15"
+    # 최소 거래 가드
+    min_transaction_amount: float = 500_000
+    min_sell_quantity: int = 50
 
     model_config = {"env_prefix": "SELL_"}
+
+    def get_scale_out_levels(self, regime: "MarketRegime") -> list[tuple[float, float]]:
+        """국면별 스케일아웃 레벨 파싱. Returns [(profit_pct, sell_pct), ...]."""
+        raw = {
+            MarketRegime.STRONG_BULL: self.scale_out_levels_bull,
+            MarketRegime.BULL: self.scale_out_levels_bull,
+            MarketRegime.SIDEWAYS: self.scale_out_levels_sideways,
+            MarketRegime.BEAR: self.scale_out_levels_bear,
+            MarketRegime.STRONG_BEAR: self.scale_out_levels_bear,
+        }.get(regime, self.scale_out_levels_sideways)
+
+        levels = []
+        for pair in raw.split(","):
+            parts = pair.strip().split(":")
+            if len(parts) == 2:
+                levels.append((float(parts[0]), float(parts[1])))
+        return levels
 
 
 class SignalConfig(BaseSettings):

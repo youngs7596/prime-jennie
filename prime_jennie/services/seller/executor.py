@@ -268,6 +268,7 @@ class SellExecutor:
             pipe.delete(f"watermark:{stock_code}")
             pipe.delete(f"scale_out:{stock_code}")
             pipe.delete(f"rsi_sold:{stock_code}")
+            pipe.delete(f"profit_floor:{stock_code}")
             pipe.execute()
         except Exception:
             pass

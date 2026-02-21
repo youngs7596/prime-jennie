@@ -220,9 +220,9 @@ class TestExecutorATR:
 
 
 class TestMonitorRSI:
-    """PriceMonitor._compute_rsi 메서드."""
+    """PriceMonitor._compute_all_indicators → RSI/ATR/지표 캐시."""
 
-    def test_compute_rsi_returns_value(self):
+    def test_compute_all_indicators_populates_caches(self):
         from prime_jennie.domain.stock import DailyPrice
         from prime_jennie.services.monitor.app import PriceMonitor
 
@@ -243,12 +243,16 @@ class TestMonitorRSI:
 
         monitor = PriceMonitor.__new__(PriceMonitor)
         monitor._kis = mock_kis
+        monitor._rsi_cache = {}
+        monitor._atr_cache = {}
+        monitor._indicator_cache = {}
 
-        rsi = monitor._compute_rsi("005930")
-        assert rsi is not None
-        assert 0.0 <= rsi <= 100.0
+        monitor._compute_all_indicators("005930")
+        assert monitor._rsi_cache["005930"] is not None
+        assert 0.0 <= monitor._rsi_cache["005930"] <= 100.0
+        assert monitor._atr_cache["005930"] >= 0.0
 
-    def test_compute_rsi_returns_none_on_error(self):
+    def test_compute_all_indicators_handles_error(self):
         from prime_jennie.services.monitor.app import PriceMonitor
 
         mock_kis = MagicMock()
@@ -256,11 +260,15 @@ class TestMonitorRSI:
 
         monitor = PriceMonitor.__new__(PriceMonitor)
         monitor._kis = mock_kis
+        monitor._rsi_cache = {}
+        monitor._atr_cache = {}
+        monitor._indicator_cache = {}
 
-        rsi = monitor._compute_rsi("005930")
-        assert rsi is None
+        monitor._compute_all_indicators("005930")
+        assert monitor._rsi_cache["005930"] is None
+        assert monitor._atr_cache["005930"] == 0.0
 
-    def test_compute_rsi_returns_none_insufficient_data(self):
+    def test_compute_all_indicators_insufficient_data(self):
         from prime_jennie.domain.stock import DailyPrice
         from prime_jennie.services.monitor.app import PriceMonitor
 
@@ -280,6 +288,9 @@ class TestMonitorRSI:
 
         monitor = PriceMonitor.__new__(PriceMonitor)
         monitor._kis = mock_kis
+        monitor._rsi_cache = {}
+        monitor._atr_cache = {}
+        monitor._indicator_cache = {}
 
-        rsi = monitor._compute_rsi("005930")
-        assert rsi is None
+        monitor._compute_all_indicators("005930")
+        assert monitor._rsi_cache["005930"] is None

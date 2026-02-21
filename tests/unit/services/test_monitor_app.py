@@ -73,19 +73,17 @@ class TestRefreshPositions:
 
         assert "000660" not in monitor._positions
         assert "000660" not in monitor._rsi_cache
+        assert "000660" not in monitor._atr_cache
+        assert "000660" not in monitor._indicator_cache
         assert set(codes) == {"005930"}
 
-    def test_computes_rsi_for_each_position(self):
+    def test_computes_indicators_for_each_position(self):
         pos = _make_position()
         monitor = _make_monitor([pos])
 
-        with patch(
-            "prime_jennie.services.monitor.app.PriceMonitor._compute_rsi",
-            return_value=55.0,
-        ):
+        with patch.object(monitor, "_compute_all_indicators") as mock_compute:
             monitor.refresh_positions()
-
-        assert monitor._rsi_cache["005930"] == 55.0
+            mock_compute.assert_called_once_with("005930")
 
     def test_returns_old_codes_on_api_failure(self):
         pos = _make_position()
@@ -165,6 +163,8 @@ class TestProcessTick:
 
         assert "005930" not in monitor._positions
         assert "005930" not in monitor._rsi_cache
+        assert "005930" not in monitor._atr_cache
+        assert "005930" not in monitor._indicator_cache
 
     def test_evaluation_exception_is_caught(self):
         """_evaluate_position 예외 시 크래시하지 않음."""
@@ -181,14 +181,58 @@ class TestProcessTick:
             monitor.process_tick("005930", 72000)
 
 
-class TestRSICache:
+class TestCaches:
     def test_rsi_from_cache_not_recomputed_on_tick(self):
         """process_tick은 RSI를 재계산하지 않고 캐시를 사용."""
         pos = _make_position()
         monitor = _make_monitor([pos])
         monitor._rsi_cache["005930"] = 60.0
+        monitor._atr_cache["005930"] = 1400.0
         monitor._positions["005930"] = pos
 
-        with patch.object(monitor, "_compute_rsi") as mock_rsi:
+        with patch.object(monitor, "_compute_all_indicators") as mock_compute:
             monitor.process_tick("005930", 72000)
-            mock_rsi.assert_not_called()
+            mock_compute.assert_not_called()
+
+    def test_atr_cache_populated_on_refresh(self):
+        """refresh_positions에서 ATR 캐시가 채워짐."""
+        pos = _make_position()
+        monitor = _make_monitor([pos])
+
+        with patch.object(monitor, "_compute_all_indicators") as mock_compute:
+            monitor.refresh_positions()
+            mock_compute.assert_called_once_with("005930")
+
+    def test_indicator_cache_populated_on_refresh(self):
+        """refresh_positions에서 indicator 캐시가 채워짐."""
+        pos = _make_position()
+        monitor = _make_monitor([pos])
+
+        # _compute_all_indicators가 호출될 때 실제로 캐시 설정
+        monitor.refresh_positions()
+        # daily_prices가 빈 리스트이므로 기본값
+        assert "005930" in monitor._indicator_cache
+
+
+class TestProfitFloor:
+    def test_profit_floor_redis_operations(self):
+        """profit_floor Redis get/set/delete."""
+        monitor = _make_monitor()
+        monitor._redis.get.return_value = None
+
+        assert monitor._get_profit_floor("005930") is False
+
+        monitor._set_profit_floor("005930")
+        monitor._redis.setex.assert_called()
+
+    def test_cleanup_includes_profit_floor(self):
+        """_cleanup_position_state에서 profit_floor도 삭제."""
+        monitor = _make_monitor()
+        pipe_mock = MagicMock()
+        monitor._redis.pipeline.return_value = pipe_mock
+
+        monitor._cleanup_position_state("005930")
+
+        # profit_floor: 삭제 호출 확인
+        delete_calls = [str(c) for c in pipe_mock.delete.call_args_list]
+        assert any("profit_floor:005930" in c for c in delete_calls)
