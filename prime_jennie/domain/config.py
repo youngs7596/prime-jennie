@@ -204,6 +204,15 @@ class SellConfig(BaseSettings):
     scale_out_levels_bull: str = "3.0:25,7.0:25,15.0:25,25.0:15"
     scale_out_levels_bear: str = "2.0:25,5.0:25,8.0:25,12.0:15"
     scale_out_levels_sideways: str = "3.0:25,7.0:25,12.0:25,18.0:15"
+    # Breakeven Stop: +X% 도달 후 floor 미만 → 전량 매도
+    breakeven_enabled: bool = True
+    breakeven_activation_pct: float = 3.0  # +3% 도달 시 활성화
+    breakeven_floor_pct: float = 0.3  # 바닥 = +0.3% (수수료 커버)
+    # Time-based stop tightening: 장기 보유 시 손절선 점진 축소
+    time_tighten_enabled: bool = True
+    time_tighten_start_days: int = 10  # SIDEWAYS/BEAR: 10일부터 시작
+    time_tighten_start_days_bull: int = 15  # BULL: 15일 (모멘텀 2차 상승 여유)
+    time_tighten_max_reduction_pct: float = 2.0  # 최대 2%p 축소 (-5% → -3%)
     # 최소 거래 가드
     min_transaction_amount: float = 500_000
     min_sell_quantity: int = 50

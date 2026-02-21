@@ -1,4 +1,4 @@
-"""Exit Rules 단위 테스트 — ATR 기반 profit lock, 레거시 정렬."""
+"""Exit Rules 단위 테스트 — ATR 기반 profit lock, breakeven stop, time-tightening."""
 
 import pytest
 
@@ -7,6 +7,7 @@ from prime_jennie.services.monitor.exit_rules import (
     ExitSignal,
     PositionContext,
     check_atr_stop,
+    check_breakeven_stop,
     check_death_cross,
     check_fixed_stop,
     check_hard_stop,
@@ -168,6 +169,57 @@ class TestProfitLock:
         assert "L1" in signal.description
 
 
+class TestBreakevenStop:
+    """Breakeven Stop: +3% 도달 후 floor(+0.3%) 미만 → 전량 매도."""
+
+    def test_triggers_when_high_reached_and_below_floor(self):
+        """고점 3.5%, 현재 0.2% → breakeven floor(0.3%) 미만 → 매도."""
+        ctx = _make_ctx(high_profit_pct=3.5, profit_pct=0.2)
+        signal = check_breakeven_stop(ctx)
+        assert signal is not None
+        assert signal.should_sell
+        assert signal.reason == SellReason.BREAKEVEN_STOP
+        assert signal.quantity_pct == 100.0
+        assert "Breakeven stop" in signal.description
+
+    def test_triggers_when_profit_negative(self):
+        """고점 4%, 현재 -1% → 마이너스도 캐치."""
+        ctx = _make_ctx(high_profit_pct=4.0, profit_pct=-1.0)
+        signal = check_breakeven_stop(ctx)
+        assert signal is not None
+        assert "Breakeven stop" in signal.description
+
+    def test_no_trigger_above_floor(self):
+        """고점 3.5%, 현재 0.5% → floor(0.3%) 이상 → 매도 안 함."""
+        ctx = _make_ctx(high_profit_pct=3.5, profit_pct=0.5)
+        assert check_breakeven_stop(ctx) is None
+
+    def test_no_trigger_high_not_reached(self):
+        """고점 2% → activation(3%) 미달 → 매도 안 함."""
+        ctx = _make_ctx(high_profit_pct=2.0, profit_pct=-1.0)
+        assert check_breakeven_stop(ctx) is None
+
+    def test_disabled_when_config_off(self, monkeypatch):
+        import prime_jennie.domain.config as cfg
+
+        cfg.get_config.cache_clear()
+        monkeypatch.setenv("SELL_BREAKEVEN_ENABLED", "false")
+        cfg.get_config.cache_clear()
+        ctx = _make_ctx(high_profit_pct=5.0, profit_pct=-1.0)
+        assert check_breakeven_stop(ctx) is None
+
+    def test_profit_lock_catches_before_breakeven(self):
+        """Profit Lock L1이 먼저 체크되므로, floor 이상이면 Lock이 잡음."""
+        # L1 trigger=3.0%, high=3.5% >= 3.0%, profit=0.1% < L1 floor(0.2%)
+        # → Profit Lock L1이 먼저 발동
+        ctx = _make_ctx(
+            buy_price=70000, atr=1400, high_profit_pct=3.5, profit_pct=0.1
+        )
+        signal = evaluate_exit(ctx)
+        assert signal is not None
+        assert "Profit Lock" in signal.description
+
+
 class TestATRStop:
     def test_triggers_below_stop(self):
         # stop = 70000 - 1400*2 = 67200
@@ -235,6 +287,62 @@ class TestFixedStop:
         ctx = _make_ctx(profit_pct=-7.0)
         assert check_fixed_stop(ctx, 1.0) is not None
         assert check_fixed_stop(ctx, 1.5) is None
+
+    def test_time_tighten_day20(self):
+        """20일 보유: threshold = -6% + 2.0*10/20 = -5.0%.
+        profit=-5.5% <= -5.0% → 매도.
+        """
+        ctx = _make_ctx(profit_pct=-5.5, holding_days=20)
+        signal = check_fixed_stop(ctx)
+        assert signal is not None
+        assert "day 20" in signal.description
+
+    def test_time_tighten_day30_max(self):
+        """30일 보유(max): threshold = -6% + 2.0 = -4.0%.
+        profit=-4.5% <= -4.0% → 매도.
+        """
+        ctx = _make_ctx(profit_pct=-4.5, holding_days=30)
+        signal = check_fixed_stop(ctx)
+        assert signal is not None
+
+    def test_time_tighten_no_effect_before_start(self):
+        """10일 이하: tightening 미적용. threshold=-6.0%.
+        profit=-5.5% > -6.0% → 매도 안 함.
+        """
+        ctx = _make_ctx(profit_pct=-5.5, holding_days=10)
+        assert check_fixed_stop(ctx) is None
+
+    def test_time_tighten_disabled(self, monkeypatch):
+        """비활성화 시 기존 동작 유지."""
+        import prime_jennie.domain.config as cfg
+
+        cfg.get_config.cache_clear()
+        monkeypatch.setenv("SELL_TIME_TIGHTEN_ENABLED", "false")
+        cfg.get_config.cache_clear()
+        # 20일 보유지만 tightening 비활성 → threshold=-6.0%
+        ctx = _make_ctx(profit_pct=-5.5, holding_days=20)
+        assert check_fixed_stop(ctx) is None
+
+    def test_time_tighten_bull_starts_later(self):
+        """BULL 국면: 15일부터 시작 (기본 10일보다 5일 늦음).
+        12일 보유, SIDEWAYS: threshold=-6+0.2=-5.8%, profit=-5.9% → 매도.
+        12일 보유, BULL: threshold=-6.0% (미적용), profit=-5.9% → 매도 안 함.
+        """
+        ctx = _make_ctx(profit_pct=-5.9, holding_days=12)
+        # SIDEWAYS: 12일 > 10일 → tighten=2.0*2/20=0.2 → threshold=-5.8% → 매도
+        signal_sw = check_fixed_stop(ctx, regime=MarketRegime.SIDEWAYS)
+        assert signal_sw is not None
+        # BULL: 12일 <= 15일 → tightening 미적용, threshold=-6.0% → 매도 안 함
+        signal_bull = check_fixed_stop(ctx, regime=MarketRegime.BULL)
+        assert signal_bull is None
+
+    def test_time_tighten_bull_day20(self):
+        """BULL 20일: threshold = -6% + 2.0*5/15 = -5.33%.
+        profit=-5.5% <= -5.33% → 매도.
+        """
+        ctx = _make_ctx(profit_pct=-5.5, holding_days=20)
+        signal = check_fixed_stop(ctx, regime=MarketRegime.BULL)
+        assert signal is not None
 
 
 class TestTrailingTakeProfit:
@@ -457,6 +565,20 @@ class TestEvaluateExit:
         )
         signal = evaluate_exit(ctx)
         assert signal is None
+
+    def test_breakeven_catches_after_profit_lock(self):
+        """Profit Lock에 안 걸리지만 Breakeven에 걸리는 케이스.
+
+        high=3.5%: L1 trigger=3.0% 활성. profit=0.25% → L1 floor(0.2%) 이상이므로 Lock 미발동.
+        하지만 breakeven floor(0.3%) 미만이므로 Breakeven 발동.
+        """
+        ctx = _make_ctx(
+            buy_price=70000, atr=1400,
+            high_profit_pct=3.5, profit_pct=0.25,
+        )
+        signal = evaluate_exit(ctx)
+        assert signal is not None
+        assert "Breakeven stop" in signal.description
 
     def test_returns_first_match(self):
         """여러 조건 동시 충족 시 우선순위 높은 것 반환."""

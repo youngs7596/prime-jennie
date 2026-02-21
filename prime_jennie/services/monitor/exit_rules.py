@@ -1,17 +1,18 @@
-"""Exit Rules — 다층 매도 조건 판정 엔진 (레거시 sell_logic_unified.py 기준).
+"""Exit Rules — 다층 매도 조건 판정 엔진.
 
-조건 우선순위 (11개):
-  0. Hard Stop (-10%, gap-down safety)
-  1. Profit Floor (15%+ 도달 후 floor 미만 → 전량)
-  2. Profit Lock (ATR 기반 동적 trigger, L1/L2)
-  3. ATR Stop (MACD/death cross 시 ×0.75/×0.8)
-  4. Fixed Stop (-6%)
-  5. Trailing Take-Profit (MACD/death cross 시 activation 축소)
-  6. Scale-Out (config 기반 + 최소 거래 가드)
-  7. RSI Overbought (50% 부분 매도)
-  8. Target Profit (trailing 비활성 시 10% 전량)
-  9. Death Cross (5MA/20MA 하향 돌파 → 전량)
- 10. Time Exit (max_holding_days=30)
+조건 우선순위 (12개):
+  0.  Hard Stop (-10%, gap-down safety)
+  1.  Profit Floor (15%+ 도달 후 floor 미만 → 전량)
+  2.  Profit Lock (ATR 기반 동적 trigger, L1/L2)
+  2.5 Breakeven Stop (+3% 도달 후 floor(+0.3%) 미만 → 전량)
+  3.  ATR Stop (MACD/death cross 시 ×0.75/×0.8)
+  4.  Fixed Stop (-5%, 시간 기반 tightening 적용)
+  5.  Trailing Take-Profit (MACD/death cross 시 activation 축소)
+  6.  Scale-Out (config 기반 + 최소 거래 가드)
+  7.  RSI Overbought (50% 부분 매도)
+  8.  Target Profit (trailing 비활성 시 10% 전량)
+  9.  Death Cross (5MA/20MA 하향 돌파 → 전량)
+ 10.  Time Exit (max_holding_days=30)
 """
 
 import logging
@@ -129,6 +130,28 @@ def check_profit_lock(ctx: PositionContext) -> ExitSignal | None:
     return None
 
 
+def check_breakeven_stop(ctx: PositionContext) -> ExitSignal | None:
+    """[2.5] Breakeven Stop: 한번 +X% 도달 후 floor 이하 → 전량 매도."""
+    config = get_config().sell
+    if not config.breakeven_enabled:
+        return None
+    if (
+        ctx.high_profit_pct >= config.breakeven_activation_pct
+        and ctx.profit_pct < config.breakeven_floor_pct
+    ):
+        return ExitSignal(
+            should_sell=True,
+            reason=SellReason.BREAKEVEN_STOP,
+            quantity_pct=100.0,
+            description=(
+                f"Breakeven stop: high={ctx.high_profit_pct:.1f}% >= "
+                f"{config.breakeven_activation_pct}%, "
+                f"now={ctx.profit_pct:.1f}% < floor={config.breakeven_floor_pct}%"
+            ),
+        )
+    return None
+
+
 def check_atr_stop(ctx: PositionContext, macro_stop_mult: float = 1.0) -> ExitSignal | None:
     """[3] ATR Trailing Stop: buy_price - ATR*mult 이하면 손절.
 
@@ -159,16 +182,43 @@ def check_atr_stop(ctx: PositionContext, macro_stop_mult: float = 1.0) -> ExitSi
     return None
 
 
-def check_fixed_stop(ctx: PositionContext, macro_stop_mult: float = 1.0) -> ExitSignal | None:
-    """[4] Fixed Stop Loss: 설정 비율 이하면 손절 (기본 -6%)."""
+def check_fixed_stop(
+    ctx: PositionContext,
+    macro_stop_mult: float = 1.0,
+    regime: MarketRegime = MarketRegime.SIDEWAYS,
+) -> ExitSignal | None:
+    """[4] Fixed Stop Loss: 설정 비율 이하면 손절 (기본 -5%).
+
+    Time-tightening: start_days~max_holding_days에 걸쳐 손절선을 최대 2%p 축소.
+    BULL/STRONG_BULL: 15일 시작 (모멘텀 2차 상승 여유), 그 외: 10일 시작.
+    """
     config = get_config()
-    threshold = -config.sell.stop_loss_pct * macro_stop_mult
+    sell_cfg = config.sell
+    threshold = -sell_cfg.stop_loss_pct * macro_stop_mult
+
+    # 국면별 tightening 시작일
+    if regime in (MarketRegime.STRONG_BULL, MarketRegime.BULL):
+        start_days = sell_cfg.time_tighten_start_days_bull
+    else:
+        start_days = sell_cfg.time_tighten_start_days
+
+    # 시간 기반 조임: start_days~max_holding_days에 걸쳐 최대 reduction_pct 축소
+    if sell_cfg.time_tighten_enabled and ctx.holding_days > start_days:
+        days_over = ctx.holding_days - start_days
+        max_span = sell_cfg.max_holding_days - start_days
+        if max_span > 0:
+            tighten = min(
+                sell_cfg.time_tighten_max_reduction_pct,
+                sell_cfg.time_tighten_max_reduction_pct * days_over / max_span,
+            )
+            threshold += tighten  # -5% → -4% → -3% (점진적)
+
     if ctx.profit_pct <= threshold:
         return ExitSignal(
             should_sell=True,
             reason=SellReason.STOP_LOSS,
             quantity_pct=100.0,
-            description=f"Fixed stop: {ctx.profit_pct:.1f}% <= {threshold:.1f}%",
+            description=f"Fixed stop: {ctx.profit_pct:.1f}% <= {threshold:.1f}% (day {ctx.holding_days})",
         )
     return None
 
@@ -345,8 +395,9 @@ def evaluate_exit(
         lambda: check_hard_stop(ctx),
         lambda: check_profit_floor(ctx),
         lambda: check_profit_lock(ctx),
+        lambda: check_breakeven_stop(ctx),
         lambda: check_atr_stop(ctx, macro_stop_mult),
-        lambda: check_fixed_stop(ctx, macro_stop_mult),
+        lambda: check_fixed_stop(ctx, macro_stop_mult, regime),
         lambda: check_trailing_take_profit(ctx, regime),
         lambda: check_scale_out(ctx, regime),
         lambda: check_rsi_overbought(ctx),
