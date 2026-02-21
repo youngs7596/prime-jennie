@@ -206,7 +206,12 @@ def run_all_gates(
         lambda: check_min_bars(bars, config.min_required_bars),
         lambda: check_no_trade_window(config),
         lambda: check_danger_zone(config),
-        lambda: check_rsi_guard(rsi, config.rsi_guard_max),
+        lambda: check_rsi_guard(
+            rsi,
+            config.rsi_guard_bull_max
+            if context.market_regime in (MarketRegime.BULL, MarketRegime.STRONG_BULL)
+            else config.rsi_guard_max,
+        ),
         lambda: check_macro_risk(context),
         lambda: check_market_regime(context.market_regime),
         lambda: check_combined_risk(

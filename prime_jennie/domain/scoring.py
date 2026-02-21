@@ -10,7 +10,7 @@ from .types import Score, StockCode
 
 
 class QuantScore(BaseModel):
-    """Quant Scorer v2 출력 — 6개 서브팩터 합산."""
+    """Quant Scorer v2 출력 — 7개 서브팩터 합산 (100pt 캡)."""
 
     stock_code: StockCode
     stock_name: str
@@ -21,6 +21,7 @@ class QuantScore(BaseModel):
     technical_score: float = 0.0  # 0-10
     news_score: float = 0.0  # 0-10
     supply_demand_score: float = 0.0  # 0-20
+    sector_momentum_score: float = 0.0  # 0-10
     matched_conditions: list[str] = []
     condition_win_rate: float | None = None
     condition_confidence: str | None = None  # LOW | MID | HIGH
@@ -29,17 +30,19 @@ class QuantScore(BaseModel):
 
     @model_validator(mode="after")
     def check_total_vs_subscores(self) -> Self:
-        expected = (
+        raw_sum = (
             self.momentum_score
             + self.quality_score
             + self.value_score
             + self.technical_score
             + self.news_score
             + self.supply_demand_score
+            + self.sector_momentum_score
         )
+        expected = max(0.0, min(100.0, raw_sum))
         if abs(self.total_score - expected) > 1.5:
             raise ValueError(
-                f"total_score({self.total_score:.1f}) != subscores sum({expected:.1f}), "
+                f"total_score({self.total_score:.1f}) != capped subscores({expected:.1f}), "
                 f"diff={abs(self.total_score - expected):.1f}"
             )
         return self

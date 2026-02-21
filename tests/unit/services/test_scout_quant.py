@@ -2,7 +2,7 @@
 
 from datetime import UTC, date, datetime
 
-from prime_jennie.domain.enums import SectorGroup
+from prime_jennie.domain.enums import MarketRegime, SectorGroup
 from prime_jennie.domain.scoring import QuantScore
 from prime_jennie.domain.stock import DailyPrice, StockMaster, StockSnapshot
 from prime_jennie.services.scout.enrichment import (
@@ -17,6 +17,7 @@ from prime_jennie.services.scout.quant import (
     _momentum_score,
     _news_score,
     _quality_score,
+    _sector_momentum_score,
     _supply_demand_score,
     _technical_score,
     _value_score,
@@ -108,6 +109,7 @@ class TestScoreCandidate:
             + result.technical_score
             + result.news_score
             + result.supply_demand_score
+            + result.sector_momentum_score
         )
         assert abs(result.total_score - expected) <= 1.5
 
@@ -116,7 +118,7 @@ class TestScoreCandidate:
         result = score_candidate(candidate)
 
         assert result.is_valid is False
-        assert result.total_score == 50.0
+        assert result.total_score == sum(V2_NEUTRAL.values())
 
     def test_score_bounded_0_100(self):
         candidate = _make_candidate(
@@ -139,6 +141,16 @@ class TestScoreCandidate:
         result = score_candidate(candidate)
         assert 0 <= result.total_score <= 100
 
+    def test_bull_regime_boosts_momentum(self):
+        """BULL 국면에서 RSI 높은 종목은 SIDEWAYS보다 높은 점수."""
+        candidate = _make_candidate(
+            prices=_make_prices(150, trend=0.008),
+            ft=FinancialTrend(per=12.0, pbr=1.0, roe=15.0),
+        )
+        bull = score_candidate(candidate, market_regime=MarketRegime.BULL)
+        sideways = score_candidate(candidate, market_regime=MarketRegime.SIDEWAYS)
+        assert bull.total_score >= sideways.total_score
+
 
 # ─── Sub-factors ─────────────────────────────────────────────────
 
@@ -153,6 +165,15 @@ class TestMomentumScore:
         prices = _make_prices(150, trend=0.003)
         result = _momentum_score(prices, None)
         assert result > 5.0  # 상승 추세면 기본값(V2_NEUTRAL=10)의 절반 이상
+
+    def test_rsi_70_80_bull_no_penalty(self):
+        """BULL 국면에서 RSI 70-80은 5pt (페널티 없음)."""
+        # RSI ~75 되도록 강한 상승 추세
+        prices = _make_prices(150, trend=0.008)
+        bull_score = _momentum_score(prices, None, is_bull=True)
+        normal_score = _momentum_score(prices, None, is_bull=False)
+        # BULL에서는 동일하거나 더 높아야 함
+        assert bull_score >= normal_score
 
 
 class TestQualityScore:
@@ -181,7 +202,7 @@ class TestValueScore:
     def test_high_per_low_score(self):
         candidate = _make_candidate(ft=FinancialTrend(per=100.0, pbr=5.0))
         result = _value_score(candidate)
-        assert result < 5.0
+        assert result < 6.0  # 고PER 하한 완화 후 (1.5 + 1.0 = 2.5 without snapshot)
 
 
 class TestTechnicalScore:
@@ -212,6 +233,32 @@ class TestNewsScore:
         candidate = _make_candidate()
         result = _news_score(candidate)
         assert result == V2_NEUTRAL["news"]
+
+
+class TestSectorMomentumScore:
+    def test_hot_sector_high_score(self):
+        candidate = _make_candidate()
+        candidate.sector_avg_return_20d = 15.0  # HOT 섹터
+        result = _sector_momentum_score(candidate)
+        assert result >= 9.5
+
+    def test_cool_sector_low_score(self):
+        candidate = _make_candidate()
+        candidate.sector_avg_return_20d = -5.0  # COOL 섹터
+        result = _sector_momentum_score(candidate)
+        assert result <= 0.5
+
+    def test_none_returns_neutral(self):
+        candidate = _make_candidate()
+        candidate.sector_avg_return_20d = None
+        result = _sector_momentum_score(candidate)
+        assert result == V2_NEUTRAL["sector_momentum"]
+
+    def test_moderate_sector(self):
+        candidate = _make_candidate()
+        candidate.sector_avg_return_20d = 5.0  # 중간
+        result = _sector_momentum_score(candidate)
+        assert 4.0 <= result <= 6.0
 
 
 class TestSupplyDemandScore:

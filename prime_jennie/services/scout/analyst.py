@@ -111,18 +111,18 @@ def classify_risk_tag(quant: QuantScore, candidate: EnrichedCandidate) -> RiskTa
         high_52w = snapshot.high_52w or max(closes)
         drawdown_pct = (snapshot.price / high_52w - 1) * 100 if high_52w > 0 else -100
 
-        # 수급 악화
-        foreign_negative = it and it.foreign_net_buy_sum < -1e9
-        inst_negative = it and it.institution_net_buy_sum < -1e9
+        # 수급 악화 (3배 강화: 소규모 이탈은 DISTRIBUTION_RISK 미발동)
+        foreign_negative = it and it.foreign_net_buy_sum < -3e9
+        inst_negative = it and it.institution_net_buy_sum < -3e9
 
         if drawdown_pct > -3 and rsi and rsi > 70 and foreign_negative and inst_negative:
             return RiskTag.DISTRIBUTION_RISK
 
-    # CAUTION: 고가+과열 OR 수급 급감
+    # CAUTION: 극단 과매수 OR 수급 급감
     if snapshot and prices and len(prices) >= 14:
         closes = [p.close_price for p in prices]
         rsi = _compute_rsi_quick(closes)
-        if rsi and rsi > 70:
+        if rsi and rsi > 80:
             return RiskTag.CAUTION
 
     if it and it.foreign_net_buy_sum < -3e9:

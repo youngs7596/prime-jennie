@@ -43,6 +43,7 @@ class EnrichedCandidate(BaseModel):
     news_sentiment_avg: float | None = None  # 최근 뉴스 평균 감성 점수
     investor_trading: InvestorTradingSummary | None = None
     financial_trend: FinancialTrend | None = None
+    sector_avg_return_20d: float | None = None  # 섹터 20일 평균 수익률 (%)
 
 
 def enrich_candidates(

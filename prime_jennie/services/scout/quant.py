@@ -1,18 +1,20 @@
 """Scout Phase 3: Quant Scorer v2 — 잠재력 기반 스코어링.
 
-6개 서브팩터 (100점 만점):
+7개 서브팩터 (100점 만점, 캡 적용):
   - 모멘텀 (0-20): RSI, MACD, 가격 모멘텀, 눌림목 감지
   - 품질 (0-20): ROE 트렌드, 재무 건전성
   - 가치 (0-20): PER 할인, PBR 평가
   - 기술 (0-10): 이평선, 거래량 패턴
   - 뉴스 (0-10): 감성 모멘텀
   - 수급 (0-20): 외인/기관 매수 추세, 외인 비율 추세
+  - 섹터 모멘텀 (0-10): 섹터 20일 평균 수익률
 
 핵심 전환: "현재 수준" → "변화/개선" (v1 대비).
 """
 
 import logging
 
+from prime_jennie.domain.enums import MarketRegime
 from prime_jennie.domain.scoring import QuantScore
 from prime_jennie.domain.stock import DailyPrice
 
@@ -29,6 +31,7 @@ V2_WEIGHTS = {
     "technical": 10,
     "news": 10,
     "supply_demand": 20,
+    "sector_momentum": 10,
 }
 
 # ─── v2 기본값 (데이터 없을 때) ──────────────────────────────────
@@ -40,39 +43,44 @@ V2_NEUTRAL = {
     "technical": 5.0,
     "news": 5.0,
     "supply_demand": 10.0,
+    "sector_momentum": 5.0,
 }
 
 
 def score_candidate(
     candidate: EnrichedCandidate,
     benchmark_prices: list[DailyPrice] | None = None,
+    market_regime: MarketRegime | None = None,
 ) -> QuantScore:
     """Phase 3: v2 잠재력 기반 스코어링.
 
     Args:
         candidate: 보강된 후보 종목
         benchmark_prices: KOSPI 벤치마크 일봉 (상대 모멘텀 계산용)
+        market_regime: 시장 국면 (RSI 페널티 Regime 연동)
 
     Returns:
-        QuantScore with 6 subscores
+        QuantScore with 7 subscores
     """
     prices = candidate.daily_prices
+    is_bull = market_regime in (MarketRegime.BULL, MarketRegime.STRONG_BULL)
 
     # 데이터 부족 시 중립 점수 반환
     if len(prices) < 20:
         return _neutral_score(candidate, reason=f"Insufficient data: {len(prices)} days")
 
-    momentum = _momentum_score(prices, benchmark_prices)
+    momentum = _momentum_score(prices, benchmark_prices, is_bull=is_bull)
     quality = _quality_score(candidate)
     value = _value_score(candidate)
     technical = _technical_score(prices)
     news = _news_score(candidate)
     supply_demand = _supply_demand_score(candidate)
+    sector_momentum = _sector_momentum_score(candidate)
 
-    total = momentum + quality + value + technical + news + supply_demand
+    total = momentum + quality + value + technical + news + supply_demand + sector_momentum
     total = max(0.0, min(100.0, total))
 
-    return QuantScore(
+    result = QuantScore(
         stock_code=candidate.master.stock_code,
         stock_name=candidate.master.stock_name,
         total_score=round(total, 1),
@@ -82,13 +90,24 @@ def score_candidate(
         technical_score=round(technical, 1),
         news_score=round(news, 1),
         supply_demand_score=round(supply_demand, 1),
+        sector_momentum_score=round(sector_momentum, 1),
     )
+
+    # Shadow mode: 변경 전 기준 점수 비교 로깅
+    _log_shadow_comparison(candidate, result, prices, benchmark_prices)
+
+    return result
 
 
 # ─── Sub-factor Scoring ─────────────────────────────────────────
 
 
-def _momentum_score(prices: list[DailyPrice], benchmark: list[DailyPrice] | None) -> float:
+def _momentum_score(
+    prices: list[DailyPrice],
+    benchmark: list[DailyPrice] | None,
+    *,
+    is_bull: bool = False,
+) -> float:
     """모멘텀 점수 (0-20): RSI + 가격 모멘텀 + 눌림목."""
     if len(prices) < 20:
         return V2_NEUTRAL["momentum"]
@@ -96,17 +115,19 @@ def _momentum_score(prices: list[DailyPrice], benchmark: list[DailyPrice] | None
     score = 0.0
     closes = [p.close_price for p in prices]
 
-    # 1. RSI 기반 (0-5): 30-70 범위가 최적, 극단은 감점
+    # 1. RSI 기반 (0-5): Regime 연동 — BULL에서 70-80은 페널티 없음
     rsi = _compute_rsi(closes, period=14)
     if rsi is not None:
-        if 40 <= rsi <= 60:
+        if 40 <= rsi <= 70:
             score += 5.0
-        elif 30 <= rsi < 40 or 60 < rsi <= 70:
+        elif 70 < rsi <= 80:
+            score += 5.0 if is_bull else 3.0  # BULL: 강한 추세, 그 외: 모멘텀 인정
+        elif 30 <= rsi < 40:
             score += 3.5
         elif rsi < 30:
             score += 4.0  # 과매도 = 반등 잠재력
         else:
-            score += 1.0  # 과매수
+            score += 1.0  # 극단 과매수 (>80)
 
     # 2. 6개월 상대 모멘텀 (0-5)
     if len(closes) >= 120:
@@ -186,7 +207,7 @@ def _value_score(candidate: EnrichedCandidate) -> float:
 
     score = 0.0
 
-    # PER 할인 (0-10): 업종 평균 대비 저평가
+    # PER 할인 (0-10): 업종 평균 대비 저평가 (고PER 하한 완화)
     if ft.per is not None and ft.per > 0:
         if ft.per < 8:
             score += 10.0
@@ -195,11 +216,13 @@ def _value_score(candidate: EnrichedCandidate) -> float:
         elif ft.per < 18:
             score += 4.0
         elif ft.per < 30:
+            score += 2.5
+        elif ft.per < 50:
             score += 2.0
         else:
-            score += 0.5
+            score += 1.5
 
-    # PBR 평가 (0-5)
+    # PBR 평가 (0-5): 고PBR 하한선 추가
     if ft.pbr is not None and ft.pbr > 0:
         if ft.pbr < 0.7:
             score += 5.0
@@ -208,9 +231,11 @@ def _value_score(candidate: EnrichedCandidate) -> float:
         elif ft.pbr < 1.5:
             score += 2.5
         elif ft.pbr < 3.0:
+            score += 1.5
+        else:
             score += 1.0
 
-    # 52주 고점 대비 할인 (0-5): 스냅샷 데이터 활용
+    # 52주 고점 대비 (0-5): 고점 근접 = 강한 추세 인정
     if snap and snap.high_52w and snap.price:
         drawdown = (snap.price / snap.high_52w - 1) * 100
         if drawdown < -30:
@@ -220,7 +245,7 @@ def _value_score(candidate: EnrichedCandidate) -> float:
         elif drawdown < -5:
             score += 3.5
         else:
-            score += 1.5  # 고점 근접
+            score += 3.0  # 고점 근접 = 강한 추세
 
     return min(20.0, score)
 
@@ -272,6 +297,14 @@ def _news_score(candidate: EnrichedCandidate) -> float:
 
     # sentiment_score: 0=극부정, 50=중립, 100=극긍정
     return _linear_map(sentiment, 20, 80, 0, 10)
+
+
+def _sector_momentum_score(candidate: EnrichedCandidate) -> float:
+    """섹터 모멘텀 점수 (0-10): 섹터 20일 평균 수익률."""
+    sector_avg = candidate.sector_avg_return_20d
+    if sector_avg is None:
+        return V2_NEUTRAL["sector_momentum"]
+    return _linear_map(sector_avg, -5.0, 15.0, 0.0, 10.0)
 
 
 def _supply_demand_score(candidate: EnrichedCandidate) -> float:
@@ -355,18 +388,122 @@ def _linear_map(value: float, in_min: float, in_max: float, out_min: float, out_
     return out_min + ratio * (out_max - out_min)
 
 
+def _log_shadow_comparison(
+    candidate: EnrichedCandidate,
+    result: QuantScore,
+    prices: list[DailyPrice],
+    benchmark: list[DailyPrice] | None,
+) -> None:
+    """Shadow mode: 변경 전(v2.0) 기준으로 점수를 계산하고 차이를 로깅.
+
+    변경 전 기준:
+      - RSI 70-80 = 1pt (현재: 3pt 또는 5pt)
+      - PER ≥30 = 0.5pt (현재: 1.5~2.5pt)
+      - PBR ≥3 = 0pt (현재: 1.0pt)
+      - 52주 고점 근접 = 1.5pt (현재: 3.0pt)
+      - 섹터 모멘텀 없음 (현재: 0-10pt)
+    """
+    closes = [p.close_price for p in prices]
+    rsi = _compute_rsi(closes, period=14)
+    ft = candidate.financial_trend
+    snap = candidate.snapshot
+
+    # 변경 전 RSI 점수 계산
+    old_rsi_score = 0.0
+    if rsi is not None:
+        if 40 <= rsi <= 60:
+            old_rsi_score = 5.0
+        elif 30 <= rsi < 40 or 60 < rsi <= 70:
+            old_rsi_score = 3.5
+        elif rsi < 30:
+            old_rsi_score = 4.0
+        else:
+            old_rsi_score = 1.0
+
+    # 변경 전 Value 점수 계산
+    old_value = 0.0
+    if ft:
+        if ft.per is not None and ft.per > 0:
+            if ft.per < 8:
+                old_value += 10.0
+            elif ft.per < 12:
+                old_value += 7.0
+            elif ft.per < 18:
+                old_value += 4.0
+            elif ft.per < 30:
+                old_value += 2.0
+            else:
+                old_value += 0.5
+        if ft.pbr is not None and ft.pbr > 0:
+            if ft.pbr < 0.7:
+                old_value += 5.0
+            elif ft.pbr < 1.0:
+                old_value += 4.0
+            elif ft.pbr < 1.5:
+                old_value += 2.5
+            elif ft.pbr < 3.0:
+                old_value += 1.0
+        if snap and snap.high_52w and snap.price:
+            drawdown = (snap.price / snap.high_52w - 1) * 100
+            if drawdown < -30:
+                old_value += 2.0
+            elif drawdown < -15:
+                old_value += 5.0
+            elif drawdown < -5:
+                old_value += 3.5
+            else:
+                old_value += 1.5
+        old_value = min(20.0, old_value)
+
+    # 변경 전 총점 추정 (momentum RSI 차이 + value 차이 + 섹터 모멘텀 없음)
+    new_rsi_score = 0.0
+    if rsi is not None:
+        if 40 <= rsi <= 70:
+            new_rsi_score = 5.0
+        elif 70 < rsi <= 80:
+            new_rsi_score = 3.0  # is_bull은 여기서는 비교 안 함
+        elif 30 <= rsi < 40:
+            new_rsi_score = 3.5
+        elif rsi < 30:
+            new_rsi_score = 4.0
+        else:
+            new_rsi_score = 1.0
+
+    rsi_delta = new_rsi_score - old_rsi_score
+    value_delta = result.value_score - old_value
+    sector_delta = result.sector_momentum_score  # 변경 전에는 없었으므로 전부 delta
+    total_delta = rsi_delta + value_delta + sector_delta
+
+    if abs(total_delta) >= 3.0:
+        old_total = result.total_score - total_delta
+        logger.info(
+            "[SHADOW] %s(%s): v2.0=%.1f → v2.1=%.1f (Δ%+.1f) "
+            "[RSI %+.1f, Value %+.1f, Sector %+.1f]",
+            result.stock_name,
+            result.stock_code,
+            max(0, old_total),
+            result.total_score,
+            total_delta,
+            rsi_delta,
+            value_delta,
+            sector_delta,
+        )
+
+
 def _neutral_score(candidate: EnrichedCandidate, reason: str = "") -> QuantScore:
     """데이터 부족 시 중립 점수."""
+    neutral_total = sum(V2_NEUTRAL.values())
     return QuantScore(
         stock_code=candidate.master.stock_code,
         stock_name=candidate.master.stock_name,
-        total_score=50.0,
+        total_score=neutral_total,
         momentum_score=V2_NEUTRAL["momentum"],
         quality_score=V2_NEUTRAL["quality"],
         value_score=V2_NEUTRAL["value"],
         technical_score=V2_NEUTRAL["technical"],
         news_score=V2_NEUTRAL["news"],
         supply_demand_score=V2_NEUTRAL["supply_demand"],
+        sector_momentum_score=V2_NEUTRAL["sector_momentum"],
         is_valid=False,
         invalid_reason=reason,
     )

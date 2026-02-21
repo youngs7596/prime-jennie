@@ -132,17 +132,42 @@ async def run_pipeline(session: Session) -> HotWatchlist:
     _update_progress("enrichment", 25)
     enriched = enrichment.enrich_candidates(candidates, kis, session)
 
+    # --- Context 로드 (Phase 3, 4에서 사용) ---
+    context = _load_trading_context(redis_client)
+
+    # --- Phase 2.5: 섹터 모멘텀 계산 ---
+    sector_returns_20d: dict[str, list[float]] = {}
+    for candidate in enriched.values():
+        group = candidate.master.sector_group
+        if not group or len(candidate.daily_prices) < 20:
+            continue
+        closes = [p.close_price for p in candidate.daily_prices]
+        ret = (closes[-1] / closes[-20] - 1) * 100
+        sector_returns_20d.setdefault(group, []).append(ret)
+
+    # 종목 5개 미만 섹터는 대표성 부족 → 제외 (중립 점수 적용)
+    sector_avg = {
+        g: sum(r) / len(r)
+        for g, r in sector_returns_20d.items()
+        if len(r) >= 5
+    }
+    for candidate in enriched.values():
+        group = candidate.master.sector_group
+        if group:
+            candidate.sector_avg_return_20d = sector_avg.get(group)
+
+    logger.info("Sector 20d returns: %s", {str(g): f"{v:.1f}%" for g, v in sector_avg.items()})
+
     # --- Phase 3: Quant Scoring ---
     _update_progress("quant_scoring", 45)
     quant_scores: list[QuantScore] = []
     for _code, candidate in enriched.items():
-        score = quant.score_candidate(candidate)
+        score = quant.score_candidate(candidate, market_regime=context.market_regime)
         quant_scores.append(score)
 
     # --- Phase 4: LLM Analysis (병렬) ---
     _update_progress("llm_analysis", 60)
     llm_provider = LLMFactory.get_provider("reasoning")
-    context = _load_trading_context(redis_client)
 
     # LLM API 동시 호출 제한 (rate limit 방지)
     sem = asyncio.Semaphore(5)

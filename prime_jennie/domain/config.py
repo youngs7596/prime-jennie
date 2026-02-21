@@ -130,6 +130,7 @@ class ScannerConfig(BaseSettings):
     min_required_bars: int = 20
     signal_cooldown_seconds: int = 600
     rsi_guard_max: float = 75.0
+    rsi_guard_bull_max: float = 85.0
     volume_ratio_warning: float = 2.0
     vwap_deviation_warning: float = 0.02
     no_trade_window_start: str = "09:00"
