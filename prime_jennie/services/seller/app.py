@@ -78,6 +78,20 @@ def _persist_sell(order: SellOrder, result: SellResult) -> None:
     try:
         engine = get_engine()
         with Session(engine) as session:
+            # 매수 전략 조회 (해당 종목의 가장 최근 BUY 로그)
+            buy_signal = _lookup_buy_strategy(session, result.stock_code)
+
+            # profit_pct: executor 계산값 우선, 없으면 order에서
+            profit_pct = result.profit_pct
+            if profit_pct is None or (profit_pct == 0.0 and order.profit_pct is not None):
+                profit_pct = order.profit_pct
+
+            # profit_amount 계산
+            profit_amount = None
+            buy_price = order.buy_price or 0
+            if profit_pct is not None and buy_price > 0:
+                profit_amount = int((result.price - buy_price) * result.quantity)
+
             trade = TradeLogDB(
                 stock_code=result.stock_code,
                 stock_name=result.stock_name,
@@ -86,11 +100,9 @@ def _persist_sell(order: SellOrder, result: SellResult) -> None:
                 price=result.price,
                 total_amount=result.quantity * result.price,
                 reason=str(order.sell_reason),
-                strategy_signal=str(order.sell_reason),
-                profit_pct=result.profit_pct,
-                profit_amount=int(result.profit_pct / 100 * order.buy_price * result.quantity)
-                if order.buy_price
-                else None,
+                strategy_signal=buy_signal,
+                profit_pct=profit_pct,
+                profit_amount=profit_amount,
                 holding_days=order.holding_days,
             )
             PortfolioRepository.save_trade_log(session, trade)
@@ -98,6 +110,20 @@ def _persist_sell(order: SellOrder, result: SellResult) -> None:
             PortfolioRepository.reduce_position(session, result.stock_code, result.quantity)
     except Exception:
         logger.exception("[%s] Failed to persist sell trade to DB", result.stock_code)
+
+
+def _lookup_buy_strategy(session: Session, stock_code: str) -> str | None:
+    """해당 종목의 가장 최근 BUY 로그에서 strategy_signal 조회."""
+    from sqlmodel import text
+
+    row = session.exec(
+        text(
+            "SELECT strategy_signal FROM trade_logs "
+            "WHERE trade_type = 'BUY' AND stock_code = :code "
+            "ORDER BY trade_timestamp DESC LIMIT 1"
+        ).bindparams(code=stock_code)
+    ).first()
+    return row[0] if row else None
 
 
 def _notify_sell(order: SellOrder, result: SellResult, notifier: TypedStreamPublisher) -> None:

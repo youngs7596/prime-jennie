@@ -232,6 +232,11 @@ class PriceMonitor:
         """매도 시그널 Redis Stream 발행."""
         sell_qty = max(1, int(pos.quantity * signal.quantity_pct / 100))
 
+        # Holding days 계산
+        holding_days = None
+        if pos.bought_at:
+            holding_days = (datetime.now(UTC) - pos.bought_at).days
+
         order = SellOrder(
             stock_code=pos.stock_code,
             stock_name=pos.stock_name,
@@ -246,7 +251,7 @@ class PriceMonitor:
             )
             if pos.average_buy_price > 0
             else None,
-            holding_days=None,
+            holding_days=holding_days,
         )
 
         self._publisher.publish(order)
