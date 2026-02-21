@@ -1,5 +1,6 @@
 """Portfolio API — 포트폴리오 상태, 보유 종목, 자산 히스토리."""
 
+import logging
 from datetime import UTC, datetime
 
 from fastapi import APIRouter, Depends
@@ -11,7 +12,10 @@ from prime_jennie.infra.database.repositories import (
     AssetSnapshotRepository,
     PortfolioRepository,
 )
+from prime_jennie.infra.kis.client import KISClient
 from prime_jennie.services.deps import get_db_session
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/portfolio", tags=["portfolio"])
 
@@ -29,7 +33,53 @@ class PerformanceSummary(BaseModel):
 
 @router.get("/summary")
 def get_summary(session: Session = Depends(get_db_session)) -> PortfolioState:
-    """포트폴리오 전체 요약."""
+    """포트폴리오 전체 요약 (KIS 실시간 잔고 우선, 실패 시 DB 스냅샷 fallback)."""
+    # KIS 실시간 잔고 조회 시도
+    try:
+        kis = KISClient()
+        balance = kis.get_balance()
+        kis.close()
+
+        kis_positions = {p["stock_code"]: p for p in balance.get("positions", [])}
+        positions_db = PortfolioRepository.get_positions(session)
+        db_map = {p.stock_code: p for p in positions_db}
+
+        # KIS 실시간 포지션 기준, DB 메타데이터 병합
+        positions = []
+        for code, kp in kis_positions.items():
+            db_pos = db_map.get(code)
+            positions.append(
+                Position(
+                    stock_code=kp["stock_code"],
+                    stock_name=kp["stock_name"],
+                    quantity=kp["quantity"],
+                    average_buy_price=kp["average_buy_price"],
+                    total_buy_amount=kp["total_buy_amount"],
+                    current_price=kp.get("current_price"),
+                    current_value=kp.get("current_value"),
+                    profit_pct=kp.get("profit_pct"),
+                    sector_group=db_pos.sector_group if db_pos else None,
+                    high_watermark=db_pos.high_watermark if db_pos else None,
+                    stop_loss_price=db_pos.stop_loss_price if db_pos else None,
+                )
+            )
+
+        cash = int(balance.get("cash_balance", 0))
+        total = int(balance.get("total_asset", 0))
+        stock_eval = int(balance.get("stock_eval_amount", 0))
+
+        return PortfolioState(
+            positions=positions,
+            cash_balance=cash,
+            total_asset=total,
+            stock_eval_amount=stock_eval,
+            position_count=len(positions),
+            timestamp=datetime.now(UTC),
+        )
+    except Exception:
+        logger.warning("KIS 실시간 잔고 조회 실패, DB 스냅샷 fallback", exc_info=True)
+
+    # Fallback: DB 스냅샷
     positions_db = PortfolioRepository.get_positions(session)
     snapshot = AssetSnapshotRepository.get_latest(session)
 
