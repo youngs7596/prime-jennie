@@ -4,6 +4,7 @@
 LLM 호출 없음 — 순수 임베딩 + 저장.
 """
 
+import hashlib
 import logging
 
 import redis
@@ -15,6 +16,10 @@ ARCHIVER_GROUP = "group_archiver"
 ARCHIVER_CONSUMER = "archiver_1"
 BLOCK_MS = 2000
 BATCH_SIZE = 20
+
+# 아카이빙 중복 방지용 Redis SET (7일 TTL)
+_ARCHIVE_DEDUP_KEY = "dedup:archive"
+_ARCHIVE_DEDUP_TTL = 7 * 86400
 
 
 class NewsArchiver:
@@ -144,44 +149,59 @@ class NewsArchiver:
 
         return count
 
+    def _is_archived(self, article_url: str) -> bool:
+        """이미 아카이빙된 URL인지 확인."""
+        try:
+            h = hashlib.md5(article_url.strip().lower().encode()).hexdigest()[:12]
+            return bool(self._redis.sismember(_ARCHIVE_DEDUP_KEY, h))
+        except Exception:
+            return False
+
+    def _mark_archived(self, article_url: str) -> None:
+        """아카이빙 완료 마킹."""
+        try:
+            h = hashlib.md5(article_url.strip().lower().encode()).hexdigest()[:12]
+            pipe = self._redis.pipeline()
+            pipe.sadd(_ARCHIVE_DEDUP_KEY, h)
+            pipe.expire(_ARCHIVE_DEDUP_KEY, _ARCHIVE_DEDUP_TTL)
+            pipe.execute()
+        except Exception:
+            pass
+
+    def _decode(self, data: dict, key: str, default: str = "") -> str:
+        """bytes/str 양쪽 지원 디코딩."""
+        val = data.get(key, data.get(key.encode(), default))
+        if isinstance(val, bytes):
+            return val.decode()
+        return str(val) if val else default
+
     def _archive_message(self, data: dict) -> None:
-        """단일 뉴스 벡터 DB 저장."""
+        """단일 뉴스 벡터 DB 저장 (URL 중복 체크 포함)."""
         from langchain_core.documents import Document
         from langchain_text_splitters import RecursiveCharacterTextSplitter
 
-        headline = (
-            data.get(b"headline", data.get("headline", b"")).decode()
-            if isinstance(data.get(b"headline", data.get("headline", "")), bytes)
-            else data.get("headline", "")
-        )
-
-        stock_code = (
-            data.get(b"stock_code", data.get("stock_code", b"")).decode()
-            if isinstance(data.get(b"stock_code", data.get("stock_code", "")), bytes)
-            else data.get("stock_code", "")
-        )
-
-        article_url = (
-            data.get(b"article_url", data.get("article_url", b"")).decode()
-            if isinstance(data.get(b"article_url", data.get("article_url", "")), bytes)
-            else data.get("article_url", "")
-        )
+        headline = self._decode(data, "headline")
+        stock_code = self._decode(data, "stock_code")
+        article_url = self._decode(data, "article_url")
 
         if not headline:
+            return
+
+        # URL 기반 중복 체크
+        if article_url and self._is_archived(article_url):
             return
 
         content = f"[{stock_code}] {headline}"
         metadata = {
             "stock_code": stock_code,
             "source_url": article_url,
-            "source": data.get("source", "NAVER")
-            if isinstance(data.get("source"), str)
-            else data.get(b"source", b"NAVER").decode()
-            if isinstance(data.get(b"source"), bytes)
-            else "NAVER",
+            "source": self._decode(data, "source", "NAVER"),
         }
 
         doc = Document(page_content=content, metadata=metadata)
         splitter = RecursiveCharacterTextSplitter(chunk_size=500, chunk_overlap=50)
         chunks = splitter.split_documents([doc])
         self._vectorstore.add_documents(chunks)
+
+        if article_url:
+            self._mark_archived(article_url)
