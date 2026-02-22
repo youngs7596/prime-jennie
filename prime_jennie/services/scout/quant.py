@@ -142,7 +142,7 @@ def _momentum_score(
         mom_1m = (closes[-1] / closes[-20] - 1) * 100
         score += _linear_map(mom_1m, -10, 15, 0, 5)
 
-    # 4. 눌림목 감지 (0-5): 6M↑ + 1M↓ = 매수 기회
+    # 4. 눌림목/추세 감지 (0-5): 6M↑ + 1M↓ = 눌림목, 6M↑ + 1M↑ = 추세 지속
     if len(closes) >= 120:
         mom_6m = (closes[-1] / closes[-120] - 1) * 100
         mom_1m = (closes[-1] / closes[-20] - 1) * 100
@@ -150,6 +150,8 @@ def _momentum_score(
             score += 5.0  # 눌림목 보너스
         elif mom_6m > 0 and mom_1m < 0:
             score += 2.5
+        elif mom_6m > 10 and mom_1m > 3:
+            score += 3.5  # 추세 지속 보너스 (꾸준한 상승)
 
     return min(20.0, score)
 
@@ -207,13 +209,15 @@ def _value_score(candidate: EnrichedCandidate) -> float:
 
     score = 0.0
 
-    # PER 할인 (0-10): 업종 평균 대비 저평가 (고PER 하한 완화)
+    # PER 할인 (0-10): 업종 평균 대비 저평가 (구간 세분화)
     if ft.per is not None and ft.per > 0:
         if ft.per < 8:
             score += 10.0
         elif ft.per < 12:
             score += 7.0
-        elif ft.per < 18:
+        elif ft.per < 15:
+            score += 5.5  # 대형주 적정 PER (삼성 15 등)
+        elif ft.per < 20:
             score += 4.0
         elif ft.per < 30:
             score += 2.5
@@ -235,17 +239,17 @@ def _value_score(candidate: EnrichedCandidate) -> float:
         else:
             score += 1.0
 
-    # 52주 고점 대비 (0-5): 고점 근접 = 강한 추세 인정
+    # 52주 고점 대비 (0-5): 고점 근접 = 강한 추세 보상
     if snap and snap.high_52w and snap.price:
         drawdown = (snap.price / snap.high_52w - 1) * 100
         if drawdown < -30:
-            score += 2.0  # 너무 떨어지면 감점 (추세 하락)
+            score += 1.5  # 추세 하락
         elif drawdown < -15:
-            score += 5.0  # 적절한 할인
+            score += 3.5  # 큰 할인
         elif drawdown < -5:
-            score += 3.5
+            score += 4.0  # 적절한 조정
         else:
-            score += 3.0  # 고점 근접 = 강한 추세
+            score += 5.0  # 고점 근접 = 상승 추세 확인
 
     return min(20.0, score)
 
@@ -280,7 +284,9 @@ def _technical_score(prices: list[DailyPrice]) -> float:
             if vol_ratio > 2.0:
                 score += 5.0
             elif vol_ratio > 1.5:
-                score += 3.5
+                score += 4.0
+            elif vol_ratio > 1.2:
+                score += 3.0  # 대형주 거래량 증가 반영 (기존 1.0-1.5 구간 세분화)
             elif vol_ratio > 1.0:
                 score += 2.0
             else:
@@ -420,7 +426,7 @@ def _log_shadow_comparison(
         else:
             old_rsi_score = 1.0
 
-    # 변경 전 Value 점수 계산
+    # 변경 전 Value 점수 계산 (v2.1 기준)
     old_value = 0.0
     if ft:
         if ft.per is not None and ft.per > 0:
@@ -431,9 +437,9 @@ def _log_shadow_comparison(
             elif ft.per < 18:
                 old_value += 4.0
             elif ft.per < 30:
-                old_value += 2.0
+                old_value += 2.5
             else:
-                old_value += 0.5
+                old_value += 1.5
         if ft.pbr is not None and ft.pbr > 0:
             if ft.pbr < 0.7:
                 old_value += 5.0
@@ -442,6 +448,8 @@ def _log_shadow_comparison(
             elif ft.pbr < 1.5:
                 old_value += 2.5
             elif ft.pbr < 3.0:
+                old_value += 1.5
+            else:
                 old_value += 1.0
         if snap and snap.high_52w and snap.price:
             drawdown = (snap.price / snap.high_52w - 1) * 100
@@ -452,7 +460,7 @@ def _log_shadow_comparison(
             elif drawdown < -5:
                 old_value += 3.5
             else:
-                old_value += 1.5
+                old_value += 3.0
         old_value = min(20.0, old_value)
 
     # 변경 전 총점 추정 (momentum RSI 차이 + value 차이 + 섹터 모멘텀 없음)
