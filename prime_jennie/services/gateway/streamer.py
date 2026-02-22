@@ -188,7 +188,7 @@ class KISWebSocketStreamer:
 
     def _send_subscriptions(self, ws, approval_key: str) -> None:
         """종목별 구독 요청."""
-        for code in self._subscription_codes:
+        for code in list(self._subscription_codes):
             if not self._is_running:
                 break
             msg = json.dumps(
