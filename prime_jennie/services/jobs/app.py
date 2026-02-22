@@ -422,14 +422,28 @@ def collect_dart_filings(session: Session = Depends(get_db_session)) -> JobResul
 
 @app.post("/jobs/collect-minute-chart")
 def collect_minute_chart(session: Session = Depends(get_db_session)) -> JobResult:
-    """5분봉 수집 (KIS Gateway)."""
+    """5분봉 수집 — 시가총액 상위 30종목 (백테스트용)."""
     try:
         kis = _get_kis()
-        stocks = session.exec(select(StockMasterDB).where(StockMasterDB.is_active)).all()
+        stocks = session.exec(
+            select(StockMasterDB)
+            .where(StockMasterDB.is_active)
+            .order_by(col(StockMasterDB.market_cap).desc())
+            .limit(30)
+        ).all()
 
         count = 0
-        for stock in stocks[:30]:  # 배치 제한 (API 호출 부담)
+        failed = 0
+        min_interval = 1.0 / 18
+        last_request = 0.0
+        for stock in stocks:
             try:
+                now = time.monotonic()
+                wait = last_request + min_interval - now
+                if wait > 0:
+                    time.sleep(wait)
+                last_request = time.monotonic()
+
                 prices = kis.get_minute_prices(stock.stock_code)
                 for p in prices:
                     existing = session.exec(
@@ -452,10 +466,11 @@ def collect_minute_chart(session: Session = Depends(get_db_session)) -> JobResul
                         )
                         count += 1
             except Exception as e:
+                failed += 1
                 logger.warning("Minute chart failed %s: %s", stock.stock_code, e)
 
         session.commit()
-        return JobResult(count=count, message=f"Collected {count} minute price records")
+        return JobResult(count=count, message=f"Collected {count} minute prices (failed={failed})")
     except Exception as e:
         logger.exception("Minute chart collection failed")
         return JobResult(success=False, message=str(e))

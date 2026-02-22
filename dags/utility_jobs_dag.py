@@ -135,16 +135,14 @@ analyst_feedback = _utility_dag(
 
 # ─── Intraday Jobs ──────────────────────────────────────────
 
-# NOTE: collect_minute_chart 비활성화 — stock_minute_prices 테이블 미사용,
-# 매 5분 호출 시 불필요한 API 부하 + 에러 로그만 발생
-# collect_minute_chart = _utility_dag(
-#     "collect_minute_chart",
-#     "*/5 9-15 * * 1-5",
-#     "5분봉 수집",
-#     "/jobs/collect-minute-chart",
-#     timeout_min=3,
-#     tags=["data", "intraday"],
-# )
+collect_minute_chart = _utility_dag(
+    "collect_minute_chart",
+    "*/5 9-15 * * 1-5",
+    "5분봉 수집 (백테스트용, 상위 30종목)",
+    "/jobs/collect-minute-chart",
+    timeout_min=3,
+    tags=["data", "intraday"],
+)
 
 # ─── Weekly Jobs ────────────────────────────────────────────
 
