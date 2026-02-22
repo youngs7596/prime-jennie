@@ -691,7 +691,7 @@ def macro_collect_global() -> JobResult:
 
         # 외국인/기관 수급 (직전 거래일)
         td_str = str(trading_date).replace("-", "")
-        for ticker, prefix in [("1001", "kospi"), ("2001", "kosdaq")]:
+        for ticker, prefix in [("KOSPI", "kospi"), ("KOSDAQ", "kosdaq")]:
             try:
                 df_inv = pykrx_stock.get_market_trading_value_by_investor(
                     td_str,
