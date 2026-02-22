@@ -13,9 +13,16 @@ from airflow_utils import get_default_args
 local_tz = pendulum.timezone("Asia/Seoul")
 
 
-def _utility_dag(dag_id: str, schedule: str, description: str, endpoint: str,
-                 timeout_min: int = 5, retries: int = 1, tags: list | None = None,
-                 data: str | None = None) -> DAG:
+def _utility_dag(
+    dag_id: str,
+    schedule: str,
+    description: str,
+    endpoint: str,
+    timeout_min: int = 5,
+    retries: int = 1,
+    tags: list | None = None,
+    data: str | None = None,
+) -> DAG:
     """유틸리티 DAG 팩토리."""
     with DAG(
         dag_id=dag_id,

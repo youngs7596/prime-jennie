@@ -37,13 +37,7 @@ def send_telegram_alert(context: dict) -> None:
     execution_date = str(context.get("execution_date", ""))
     exception = str(context.get("exception", ""))[:500]
 
-    message = (
-        f"[Airflow Alert]\n"
-        f"DAG: {dag_id}\n"
-        f"Task: {task_id}\n"
-        f"Date: {execution_date}\n"
-        f"Error: {exception}"
-    )
+    message = f"[Airflow Alert]\nDAG: {dag_id}\nTask: {task_id}\nDate: {execution_date}\nError: {exception}"
 
     try:
         url = f"https://api.telegram.org/bot{token}/sendMessage"

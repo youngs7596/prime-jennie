@@ -32,7 +32,7 @@ from sqlmodel import Session
 
 from prime_jennie.domain.config import get_config
 from prime_jennie.domain.portfolio import PortfolioState, Position
-from prime_jennie.domain.stock import DailyPrice, StockSnapshot
+from prime_jennie.domain.stock import DailyPrice, MinutePrice, StockSnapshot
 from prime_jennie.domain.trading import OrderRequest, OrderResult, OrderType
 from prime_jennie.infra.database.repositories import StockRepository
 from prime_jennie.services.base import create_app
@@ -89,6 +89,10 @@ class SnapshotRequest(BaseModel):
 class DailyPricesRequest(BaseModel):
     stock_code: str = Field(pattern=r"^\d{6}$")
     days: int = Field(default=150, ge=1, le=500)
+
+
+class MinutePricesRequest(BaseModel):
+    stock_code: str = Field(pattern=r"^\d{6}$")
 
 
 class CancelRequest(BaseModel):
@@ -200,6 +204,19 @@ async def market_daily_prices(
             )
             for row in db_rows
         ]
+
+
+@app.post("/api/market/minute-prices", response_model=list[MinutePrice])
+@_limiter.limit("19/second")
+async def market_minute_prices(request: Request, body: MinutePricesRequest) -> list[MinutePrice]:
+    """분봉 데이터 조회."""
+    _record_request("minute_prices", body.stock_code)
+    try:
+        return _circuit_breaker.call(_get_kis_api().get_minute_prices, body.stock_code)
+    except pybreaker.CircuitBreakerError as err:
+        raise HTTPException(503, "Circuit breaker open — KIS API temporarily unavailable") from err
+    except KISApiError as e:
+        raise HTTPException(502, f"KIS API error: {e}") from e
 
 
 @app.get("/api/market/is-trading-day")

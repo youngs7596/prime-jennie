@@ -274,6 +274,41 @@ class DailyAssetSnapshotDB(SQLModel, table=True):
     position_count: int = 0
 
 
+class StockDisclosureDB(SQLModel, table=True):
+    __tablename__ = "stock_disclosures"
+
+    id: int | None = Field(default=None, primary_key=True)
+    stock_code: str = Field(foreign_key="stock_masters.stock_code", max_length=10)
+    disclosure_date: date
+    title: str = Field(max_length=500)
+    report_type: str | None = Field(default=None, max_length=50)
+    receipt_no: str = Field(max_length=20)
+    corp_name: str | None = Field(default=None, max_length=100)
+
+    __table_args__ = (
+        UniqueConstraint("receipt_no", name="uq_disclosure_receipt"),
+        Index("ix_disclosure_code_date", "stock_code", "disclosure_date"),
+    )
+
+
+class StockMinutePriceDB(SQLModel, table=True):
+    __tablename__ = "stock_minute_prices"
+
+    id: int | None = Field(default=None, primary_key=True)
+    stock_code: str = Field(foreign_key="stock_masters.stock_code", max_length=10)
+    price_datetime: datetime
+    open_price: int
+    high_price: int
+    low_price: int
+    close_price: int
+    volume: int
+
+    __table_args__ = (
+        UniqueConstraint("stock_code", "price_datetime", name="uq_minute_code_time"),
+        Index("ix_minute_code_time", "stock_code", "price_datetime"),
+    )
+
+
 class WatchlistHistoryDB(SQLModel, table=True):
     __tablename__ = "watchlist_histories"
 

@@ -208,6 +208,55 @@ class KISApi:
 
         return prices
 
+    def get_minute_prices(self, stock_code: str, minutes: int = 5) -> list[dict]:
+        """분봉 조회 (FHKST03010200).
+
+        Args:
+            stock_code: 종목코드
+            minutes: 분 단위 (1, 3, 5, 10, 15, 30, 60)
+        """
+        from prime_jennie.domain.stock import MinutePrice
+
+        now = datetime.now()
+        time_str = now.strftime("%H%M%S")
+
+        data = self._request(
+            "GET",
+            "/uapi/domestic-stock/v1/quotations/inquire-time-itemchartprice",
+            tr_id="FHKST03010200",
+            params={
+                "FID_ETC_CLS_CODE": "",
+                "FID_COND_MRKT_DIV_CODE": "J",
+                "FID_INPUT_ISCD": stock_code,
+                "FID_INPUT_HOUR_1": time_str,
+                "FID_PW_DATA_INCU_YN": "N",
+            },
+        )
+
+        prices = []
+        for row in data.get("output2", []):
+            try:
+                dt_str = row.get("stck_bsop_date", now.strftime("%Y%m%d"))
+                tm_str = row.get("stck_cntg_hour", "000000")
+                price_dt = datetime.strptime(f"{dt_str}{tm_str}", "%Y%m%d%H%M%S")
+
+                prices.append(
+                    MinutePrice(
+                        stock_code=stock_code,
+                        price_datetime=price_dt,
+                        open_price=int(row.get("stck_oprc", 0)),
+                        high_price=int(row.get("stck_hgpr", 0)),
+                        low_price=int(row.get("stck_lwpr", 0)),
+                        close_price=int(row.get("stck_prpr", 0)),
+                        volume=int(row.get("cntg_vol", 0)),
+                    )
+                )
+            except (KeyError, ValueError) as e:
+                logger.warning("Skipping malformed minute price row: %s", e)
+                continue
+
+        return prices
+
     # ─── Trading ─────────────────────────────────────────────────
 
     def place_order(

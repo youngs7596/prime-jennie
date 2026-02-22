@@ -4,19 +4,25 @@
 Airflow http_conn_id="job_worker" → port 8095.
 """
 
+import json
 import logging
-from datetime import date, timedelta
+import os
+from datetime import date, datetime, timedelta
 
 from fastapi import Depends
 from pydantic import BaseModel
-from sqlmodel import Session, select, text
+from sqlmodel import Session, col, select, text
 
 from prime_jennie.domain.config import get_config
 from prime_jennie.infra.database.models import (
     DailyAssetSnapshotDB,
+    DailyQuantScoreDB,
     StockDailyPriceDB,
+    StockDisclosureDB,
     StockInvestorTradingDB,
     StockMasterDB,
+    StockMinutePriceDB,
+    TradeLogDB,
 )
 from prime_jennie.infra.kis.client import KISClient
 from prime_jennie.infra.redis.client import get_redis
@@ -157,33 +163,338 @@ def collect_investor_trading(session: Session = Depends(get_db_session)) -> JobR
 
 
 @app.post("/jobs/collect-foreign-holding")
-def collect_foreign_holding() -> JobResult:
-    """외국인 지분율 수집 (pykrx) — 스텁."""
-    return JobResult(message="Foreign holding collection: not yet implemented")
+def collect_foreign_holding(session: Session = Depends(get_db_session)) -> JobResult:
+    """외국인 지분율 수집 (pykrx)."""
+    try:
+        from pykrx import stock as pykrx_stock
+
+        today_str = date.today().strftime("%Y%m%d")
+        start_str = (date.today() - timedelta(days=7)).strftime("%Y%m%d")
+        stocks = session.exec(select(StockMasterDB).where(StockMasterDB.is_active)).all()
+
+        count = 0
+        for s in stocks[:50]:  # 배치 제한
+            try:
+                df = pykrx_stock.get_exhaustion_rates_of_foreign_investment_by_date(start_str, today_str, s.stock_code)
+                if df.empty:
+                    continue
+
+                # 최신 거래일 데이터
+                last_row = df.iloc[-1]
+                last_date = df.index[-1]
+                trade_date = last_date.date() if hasattr(last_date, "date") else last_date
+                ratio = float(last_row.get("지분율", 0))
+
+                # 기존 investor_trading 레코드에 지분율 업데이트
+                existing = session.exec(
+                    select(StockInvestorTradingDB).where(
+                        StockInvestorTradingDB.stock_code == s.stock_code,
+                        StockInvestorTradingDB.trade_date == trade_date,
+                    )
+                ).first()
+
+                if existing:
+                    existing.foreign_holding_ratio = ratio
+                else:
+                    session.add(
+                        StockInvestorTradingDB(
+                            stock_code=s.stock_code,
+                            trade_date=trade_date,
+                            foreign_holding_ratio=ratio,
+                        )
+                    )
+                count += 1
+            except Exception:
+                continue
+
+        session.commit()
+        return JobResult(count=count, message=f"Updated {count} foreign holding ratios")
+    except Exception as e:
+        logger.exception("Foreign holding collection failed")
+        return JobResult(success=False, message=str(e))
 
 
 @app.post("/jobs/collect-dart-filings")
-def collect_dart_filings() -> JobResult:
-    """DART 공시 수집 — 스텁."""
-    return JobResult(message="DART filing collection: not yet implemented")
+def collect_dart_filings(session: Session = Depends(get_db_session)) -> JobResult:
+    """DART 공시 수집 (OpenDartReader)."""
+    try:
+        import OpenDartReader
+
+        dart_api_key = os.getenv("DART_API_KEY", "")
+        if not dart_api_key:
+            return JobResult(success=False, message="DART_API_KEY not configured")
+
+        dart = OpenDartReader(dart_api_key)
+        today = date.today()
+        today_str = today.strftime("%Y-%m-%d")
+        start_str = (today - timedelta(days=7)).strftime("%Y-%m-%d")
+
+        stocks = session.exec(select(StockMasterDB).where(StockMasterDB.is_active)).all()
+        stock_codes = {s.stock_code for s in stocks}
+
+        # 최근 7일 공시 목록 조회
+        count = 0
+        try:
+            filings = dart.list(start=start_str, end=today_str, kind="A")
+            if filings is None or (hasattr(filings, "empty") and filings.empty):
+                return JobResult(message="No filings found")
+
+            for _, row in filings.iterrows():
+                corp_code = str(row.get("stock_code", "")).strip()
+                if not corp_code or corp_code not in stock_codes:
+                    continue
+
+                receipt_no = str(row.get("rcept_no", ""))
+                if not receipt_no:
+                    continue
+
+                # 중복 체크
+                existing = session.exec(
+                    select(StockDisclosureDB).where(StockDisclosureDB.receipt_no == receipt_no)
+                ).first()
+                if existing:
+                    continue
+
+                # 공시일 파싱
+                date_str = str(row.get("rcept_dt", ""))
+                try:
+                    disc_date = datetime.strptime(date_str, "%Y%m%d").date()
+                except ValueError:
+                    disc_date = today
+
+                session.add(
+                    StockDisclosureDB(
+                        stock_code=corp_code,
+                        disclosure_date=disc_date,
+                        title=str(row.get("report_nm", ""))[:500],
+                        report_type=str(row.get("pblntf_ty", ""))[:50] or None,
+                        receipt_no=receipt_no,
+                        corp_name=str(row.get("corp_name", ""))[:100] or None,
+                    )
+                )
+                count += 1
+
+        except Exception as e:
+            logger.warning("DART list query failed: %s", e)
+            return JobResult(success=False, message=f"DART query failed: {e}")
+
+        session.commit()
+        return JobResult(count=count, message=f"Collected {count} DART filings")
+    except Exception as e:
+        logger.exception("DART filing collection failed")
+        return JobResult(success=False, message=str(e))
 
 
 @app.post("/jobs/collect-minute-chart")
-def collect_minute_chart() -> JobResult:
-    """5분봉 수집 — 스텁."""
-    return JobResult(message="Minute chart collection: not yet implemented")
+def collect_minute_chart(session: Session = Depends(get_db_session)) -> JobResult:
+    """5분봉 수집 (KIS Gateway)."""
+    try:
+        kis = _get_kis()
+        stocks = session.exec(select(StockMasterDB).where(StockMasterDB.is_active)).all()
+
+        count = 0
+        for stock in stocks[:30]:  # 배치 제한 (API 호출 부담)
+            try:
+                prices = kis.get_minute_prices(stock.stock_code)
+                for p in prices:
+                    existing = session.exec(
+                        select(StockMinutePriceDB).where(
+                            StockMinutePriceDB.stock_code == p.stock_code,
+                            StockMinutePriceDB.price_datetime == p.price_datetime,
+                        )
+                    ).first()
+                    if not existing:
+                        session.add(
+                            StockMinutePriceDB(
+                                stock_code=p.stock_code,
+                                price_datetime=p.price_datetime,
+                                open_price=p.open_price,
+                                high_price=p.high_price,
+                                low_price=p.low_price,
+                                close_price=p.close_price,
+                                volume=p.volume,
+                            )
+                        )
+                        count += 1
+            except Exception:
+                logger.debug("Skip minute chart %s", stock.stock_code)
+
+        session.commit()
+        return JobResult(count=count, message=f"Collected {count} minute price records")
+    except Exception as e:
+        logger.exception("Minute chart collection failed")
+        return JobResult(success=False, message=str(e))
 
 
 @app.post("/jobs/analyze-ai-performance")
-def analyze_ai_performance() -> JobResult:
-    """AI 성과 분석 — 스텁."""
-    return JobResult(message="AI performance analysis: not yet implemented")
+def analyze_ai_performance(session: Session = Depends(get_db_session)) -> JobResult:
+    """AI 성과 분석 — 점수 구간별 승률, sell_reason별 성과, 국면별 수익률."""
+    try:
+        r = get_redis()
+
+        # 최근 30일 매도 기록
+        cutoff = date.today() - timedelta(days=30)
+        sells = session.exec(
+            select(TradeLogDB).where(
+                TradeLogDB.trade_type == "SELL",
+                TradeLogDB.trade_timestamp >= datetime.combine(cutoff, datetime.min.time()),
+            )
+        ).all()
+
+        if not sells:
+            return JobResult(message="No sell records in last 30 days")
+
+        # 1. sell_reason별 성과
+        reason_stats: dict = {}
+        for t in sells:
+            reason = t.reason or "UNKNOWN"
+            if reason not in reason_stats:
+                reason_stats[reason] = {"count": 0, "wins": 0, "total_pct": 0.0}
+            reason_stats[reason]["count"] += 1
+            pct = t.profit_pct or 0.0
+            reason_stats[reason]["total_pct"] += pct
+            if pct > 0:
+                reason_stats[reason]["wins"] += 1
+
+        for v in reason_stats.values():
+            v["win_rate"] = round(v["wins"] / v["count"] * 100, 1) if v["count"] else 0
+            v["avg_pct"] = round(v["total_pct"] / v["count"], 2) if v["count"] else 0
+
+        # 2. 국면별 수익률
+        regime_stats: dict = {}
+        for t in sells:
+            regime = t.market_regime or "UNKNOWN"
+            if regime not in regime_stats:
+                regime_stats[regime] = {"count": 0, "wins": 0, "total_pct": 0.0}
+            regime_stats[regime]["count"] += 1
+            pct = t.profit_pct or 0.0
+            regime_stats[regime]["total_pct"] += pct
+            if pct > 0:
+                regime_stats[regime]["wins"] += 1
+
+        for v in regime_stats.values():
+            v["win_rate"] = round(v["wins"] / v["count"] * 100, 1) if v["count"] else 0
+            v["avg_pct"] = round(v["total_pct"] / v["count"], 2) if v["count"] else 0
+
+        # 3. 점수 구간별 승률 (매수 시점 hybrid_score)
+        score_bins: dict = {}
+        for t in sells:
+            score = t.hybrid_score
+            if score is None:
+                bin_label = "no_score"
+            elif score >= 80:
+                bin_label = "80+"
+            elif score >= 60:
+                bin_label = "60-79"
+            elif score >= 40:
+                bin_label = "40-59"
+            else:
+                bin_label = "<40"
+
+            if bin_label not in score_bins:
+                score_bins[bin_label] = {"count": 0, "wins": 0, "total_pct": 0.0}
+            score_bins[bin_label]["count"] += 1
+            pct = t.profit_pct or 0.0
+            score_bins[bin_label]["total_pct"] += pct
+            if pct > 0:
+                score_bins[bin_label]["wins"] += 1
+
+        for v in score_bins.values():
+            v["win_rate"] = round(v["wins"] / v["count"] * 100, 1) if v["count"] else 0
+            v["avg_pct"] = round(v["total_pct"] / v["count"], 2) if v["count"] else 0
+
+        # 전체 요약
+        total_trades = len(sells)
+        total_wins = sum(1 for t in sells if (t.profit_pct or 0) > 0)
+        total_pct = sum(t.profit_pct or 0 for t in sells)
+
+        result = {
+            "period_days": 30,
+            "total_trades": total_trades,
+            "win_rate": round(total_wins / total_trades * 100, 1) if total_trades else 0,
+            "avg_profit_pct": round(total_pct / total_trades, 2) if total_trades else 0,
+            "by_reason": reason_stats,
+            "by_regime": regime_stats,
+            "by_score_bin": score_bins,
+            "updated_at": datetime.now().isoformat(),
+        }
+
+        r.set("ai:performance:latest", json.dumps(result, ensure_ascii=False), ex=86400)
+        return JobResult(
+            count=total_trades,
+            message=f"AI performance analyzed: {total_trades} trades, win_rate={result['win_rate']}%",
+        )
+    except Exception as e:
+        logger.exception("AI performance analysis failed")
+        return JobResult(success=False, message=str(e))
 
 
 @app.post("/jobs/analyst-feedback")
 def analyst_feedback() -> JobResult:
-    """분석가 피드백 갱신 — 스텁."""
-    return JobResult(message="Analyst feedback: not yet implemented")
+    """분석가 피드백 — AI 성과 기반 마크다운 리포트 생성."""
+    try:
+        r = get_redis()
+
+        # Redis에서 최신 AI 성과 분석 결과 조회
+        raw = r.get("ai:performance:latest")
+        if not raw:
+            return JobResult(
+                success=False, message="No AI performance data available. Run analyze-ai-performance first."
+            )
+
+        perf = json.loads(raw)
+
+        # 마크다운 리포트 생성
+        lines = [
+            "# AI Trading Performance Report",
+            f"**기간**: 최근 {perf.get('period_days', 30)}일",
+            f"**총 거래**: {perf.get('total_trades', 0)}건",
+            f"**승률**: {perf.get('win_rate', 0)}%",
+            f"**평균 수익률**: {perf.get('avg_profit_pct', 0)}%",
+            "",
+            "## Sell Reason별 성과",
+        ]
+
+        for reason, stats in perf.get("by_reason", {}).items():
+            lines.append(f"- **{reason}**: {stats['count']}건, 승률 {stats['win_rate']}%, 평균 {stats['avg_pct']}%")
+
+        lines.append("")
+        lines.append("## 국면별 수익률")
+        for regime, stats in perf.get("by_regime", {}).items():
+            lines.append(f"- **{regime}**: {stats['count']}건, 승률 {stats['win_rate']}%, 평균 {stats['avg_pct']}%")
+
+        lines.append("")
+        lines.append("## 점수 구간별 승률")
+        for bin_label, stats in perf.get("by_score_bin", {}).items():
+            lines.append(f"- **{bin_label}**: {stats['count']}건, 승률 {stats['win_rate']}%, 평균 {stats['avg_pct']}%")
+
+        # 간단한 통계 기반 피드백
+        lines.append("")
+        lines.append("## 주요 피드백")
+
+        win_rate = perf.get("win_rate", 0)
+        if win_rate >= 60:
+            lines.append("- 승률이 양호합니다. 현재 전략 유지를 권장합니다.")
+        elif win_rate >= 40:
+            lines.append("- 승률이 보통입니다. 저승률 전략의 비중 축소를 검토하세요.")
+        else:
+            lines.append("- 승률이 낮습니다. 진입 조건 강화 또는 스톱로스 조정이 필요합니다.")
+
+        # 최다 손실 reason 찾기
+        by_reason = perf.get("by_reason", {})
+        worst_reason = min(by_reason.items(), key=lambda x: x[1].get("avg_pct", 0), default=None)
+        if worst_reason and worst_reason[1].get("avg_pct", 0) < 0:
+            lines.append(f"- 가장 손실이 큰 매도 사유: **{worst_reason[0]}** (평균 {worst_reason[1]['avg_pct']}%)")
+
+        report = "\n".join(lines)
+
+        r.set("analyst:feedback:summary", report, ex=7 * 86400)
+        r.set("analyst:feedback:updated_at", datetime.now().isoformat(), ex=7 * 86400)
+
+        return JobResult(message=f"Analyst feedback generated ({len(lines)} lines)")
+    except Exception as e:
+        logger.exception("Analyst feedback failed")
+        return JobResult(success=False, message=str(e))
 
 
 @app.post("/report")
@@ -266,9 +577,6 @@ def macro_collect_global() -> JobResult:
                 pass
 
         # 글로벌 지표 수집 (FRED, Finnhub 등은 기존 스냅샷 보존)
-        import json
-        from datetime import datetime
-
         td_iso = trading_date.isoformat() if hasattr(trading_date, "isoformat") else str(trading_date)
         existing_key = f"macro:data:snapshot:{td_iso}"
         existing_raw = r.get(existing_key)
@@ -297,14 +605,64 @@ def macro_collect_global() -> JobResult:
 
 @app.post("/jobs/macro-collect-korea")
 def macro_collect_korea() -> JobResult:
-    """국내 매크로 수집."""
-    return JobResult(message="Korea macro collected (merged with global)")
+    """국내 매크로 수집 — macro_collect_global 재사용 (한국 데이터 포함)."""
+    logger.info("macro-collect-korea: delegating to macro-collect-global (includes Korean market data)")
+    result = macro_collect_global()
+    if result.success:
+        return JobResult(message=f"Korea macro collected via global pipeline: {result.message}")
+    return result
 
 
 @app.post("/jobs/macro-validate-store")
 def macro_validate_store() -> JobResult:
-    """매크로 데이터 검증 및 DB 저장."""
-    return JobResult(message="Macro data validated and stored")
+    """매크로 데이터 검증 — Redis 스냅샷 필수 필드 확인."""
+    try:
+        r = get_redis()
+        today = date.today()
+
+        # 최근 7일 이내 스냅샷 키 탐색
+        snapshot_data = None
+        for days_ago in range(7):
+            check_date = today - timedelta(days=days_ago)
+            key = f"macro:data:snapshot:{check_date.isoformat()}"
+            raw = r.get(key)
+            if raw:
+                snapshot_data = json.loads(raw)
+                break
+
+        if not snapshot_data:
+            return JobResult(success=False, message="No macro snapshot found in last 7 days")
+
+        # 필수 필드 검증
+        required_fields = ["kospi_index", "kosdaq_index"]
+        missing = [f for f in required_fields if f not in snapshot_data or snapshot_data[f] is None]
+
+        if missing:
+            return JobResult(
+                success=False,
+                message=f"Macro validation failed — missing fields: {', '.join(missing)}",
+            )
+
+        # 값 범위 검증
+        warnings = []
+        kospi = snapshot_data.get("kospi_index", 0)
+        if kospi < 1000 or kospi > 5000:
+            warnings.append(f"KOSPI index unusual: {kospi}")
+
+        kosdaq = snapshot_data.get("kosdaq_index", 0)
+        if kosdaq < 300 or kosdaq > 2000:
+            warnings.append(f"KOSDAQ index unusual: {kosdaq}")
+
+        snapshot_date = snapshot_data.get("snapshot_date", "?")
+        fields_present = len([k for k, v in snapshot_data.items() if v is not None and k != "data_sources"])
+        msg = f"Macro validated: date={snapshot_date}, {fields_present} fields present"
+        if warnings:
+            msg += f" (warnings: {'; '.join(warnings)})"
+
+        return JobResult(message=msg)
+    except Exception as e:
+        logger.exception("Macro validation failed")
+        return JobResult(success=False, message=str(e))
 
 
 @app.post("/jobs/macro-quick")
@@ -354,6 +712,132 @@ def update_naver_sectors(session: Session = Depends(get_db_session)) -> JobResul
 
 
 @app.post("/jobs/weekly-factor-analysis")
-def weekly_factor_analysis() -> JobResult:
-    """주간 팩터 분석 — 스텁."""
-    return JobResult(message="Weekly factor analysis: not yet implemented")
+def weekly_factor_analysis(session: Session = Depends(get_db_session)) -> JobResult:
+    """주간 팩터 분석 — IC(Information Coefficient) + 조건부 성과 분석."""
+    try:
+        import numpy as np
+        import pandas as pd
+
+        r = get_redis()
+        today = date.today()
+        start = today - timedelta(days=30)
+
+        # DailyQuantScoreDB 조회 (최근 30일, final_selected)
+        scores = session.exec(
+            select(DailyQuantScoreDB).where(
+                DailyQuantScoreDB.score_date >= start,
+                DailyQuantScoreDB.is_final_selected == True,  # noqa: E712
+            )
+        ).all()
+
+        if not scores:
+            return JobResult(message="No quant scores in last 30 days")
+
+        # T+5 수익률 매핑을 위한 일봉 데이터 조회
+        stock_codes = list({s.stock_code for s in scores})
+        prices_query = session.exec(
+            select(StockDailyPriceDB).where(
+                col(StockDailyPriceDB.stock_code).in_(stock_codes),
+                StockDailyPriceDB.price_date >= start,
+            )
+        ).all()
+
+        # stock_code → date → close_price 맵
+        price_map: dict[str, dict[date, int]] = {}
+        for p in prices_query:
+            if p.stock_code not in price_map:
+                price_map[p.stock_code] = {}
+            price_map[p.stock_code][p.price_date] = p.close_price
+
+        # IC 계산: 각 점수와 T+5 수익률의 상관계수
+        factor_names = [
+            "total_quant_score",
+            "momentum_score",
+            "quality_score",
+            "value_score",
+            "technical_score",
+            "news_score",
+            "supply_demand_score",
+        ]
+
+        rows = []
+        for s in scores:
+            prices = price_map.get(s.stock_code, {})
+            # T+5 수익률 계산
+            dates_sorted = sorted(prices.keys())
+            score_idx = None
+            for i, d in enumerate(dates_sorted):
+                if d >= s.score_date:
+                    score_idx = i
+                    break
+            if score_idx is None or score_idx + 5 >= len(dates_sorted):
+                continue
+
+            entry_price = prices[dates_sorted[score_idx]]
+            exit_price = prices[dates_sorted[min(score_idx + 5, len(dates_sorted) - 1)]]
+            if entry_price <= 0:
+                continue
+
+            fwd_return = (exit_price - entry_price) / entry_price * 100
+
+            row = {"fwd_return_5d": fwd_return}
+            for fn in factor_names:
+                row[fn] = getattr(s, fn, None)
+            rows.append(row)
+
+        if len(rows) < 10:
+            return JobResult(message=f"Not enough data for IC calculation ({len(rows)} samples)")
+
+        df = pd.DataFrame(rows)
+
+        # IC 계산 (스피어만 상관)
+        ic_results: dict = {}
+        for fn in factor_names:
+            if fn in df.columns and df[fn].notna().sum() >= 10:
+                corr = df[fn].corr(df["fwd_return_5d"], method="spearman")
+                ic_results[fn] = round(float(corr) if not np.isnan(corr) else 0, 4)
+
+        # 조건부 성과: 외국인 순매수 + 뉴스 긍정 조합
+        conditional: dict = {}
+        high_news = df[df["news_score"] >= 70] if "news_score" in df.columns else pd.DataFrame()
+        high_supply = df[df["supply_demand_score"] >= 70] if "supply_demand_score" in df.columns else pd.DataFrame()
+
+        if not high_news.empty:
+            conditional["high_news_score"] = {
+                "count": len(high_news),
+                "avg_return": round(float(high_news["fwd_return_5d"].mean()), 2),
+                "win_rate": round(float((high_news["fwd_return_5d"] > 0).mean() * 100), 1),
+            }
+        if not high_supply.empty:
+            conditional["high_supply_demand"] = {
+                "count": len(high_supply),
+                "avg_return": round(float(high_supply["fwd_return_5d"].mean()), 2),
+                "win_rate": round(float((high_supply["fwd_return_5d"] > 0).mean() * 100), 1),
+            }
+
+        # 두 조건 동시 충족
+        combined = df[(df.get("news_score", 0) >= 70) & (df.get("supply_demand_score", 0) >= 70)]
+        if not combined.empty:
+            conditional["news_and_supply_combined"] = {
+                "count": len(combined),
+                "avg_return": round(float(combined["fwd_return_5d"].mean()), 2),
+                "win_rate": round(float((combined["fwd_return_5d"] > 0).mean() * 100), 1),
+            }
+
+        result = {
+            "sample_count": len(rows),
+            "ic_spearman": ic_results,
+            "conditional_performance": conditional,
+            "updated_at": datetime.now().isoformat(),
+        }
+
+        r.set("factor:analysis:latest", json.dumps(result, ensure_ascii=False), ex=7 * 86400)
+
+        top_factor = max(ic_results.items(), key=lambda x: abs(x[1]), default=("none", 0))
+        return JobResult(
+            count=len(rows),
+            message=f"Factor analysis: {len(rows)} samples, top IC={top_factor[0]}({top_factor[1]})",
+        )
+    except Exception as e:
+        logger.exception("Weekly factor analysis failed")
+        return JobResult(success=False, message=str(e))

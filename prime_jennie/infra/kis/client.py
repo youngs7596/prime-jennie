@@ -16,7 +16,7 @@ from prime_jennie.domain import (
     StockSnapshot,
 )
 from prime_jennie.domain.config import get_config
-from prime_jennie.domain.stock import DailyPrice
+from prime_jennie.domain.stock import DailyPrice, MinutePrice
 
 logger = logging.getLogger(__name__)
 
@@ -100,6 +100,15 @@ class KISClient:
         )
         resp.raise_for_status()
         return [DailyPrice.model_validate(p) for p in resp.json()]
+
+    def get_minute_prices(self, stock_code: str) -> list[MinutePrice]:
+        """분봉 데이터 조회."""
+        resp = self._client.post(
+            "/api/market/minute-prices",
+            json={"stock_code": stock_code},
+        )
+        resp.raise_for_status()
+        return [MinutePrice.model_validate(p) for p in resp.json()]
 
     def get_price(self, stock_code: str) -> StockSnapshot:
         """현재가 스냅샷 조회."""

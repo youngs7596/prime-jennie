@@ -51,7 +51,7 @@ from .scoring import HybridScore, LLMAnalysis, QuantScore
 from .sector import SectorAnalysis, SectorBudget, SectorBudgetEntry
 
 # --- Stock ---
-from .stock import DailyPrice, StockMaster, StockSnapshot
+from .stock import DailyPrice, MinutePrice, StockMaster, StockSnapshot
 
 # --- Trading ---
 from .trading import (
@@ -93,6 +93,7 @@ __all__ = [
     "StockMaster",
     "StockSnapshot",
     "DailyPrice",
+    "MinutePrice",
     # Scoring
     "QuantScore",
     "LLMAnalysis",

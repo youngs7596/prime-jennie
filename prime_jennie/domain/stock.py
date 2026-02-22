@@ -49,3 +49,15 @@ class DailyPrice(BaseModel):
     close_price: int
     volume: int
     change_pct: float | None = None
+
+
+class MinutePrice(BaseModel):
+    """분봉 OHLCV."""
+
+    stock_code: StockCode
+    price_datetime: datetime
+    open_price: int
+    high_price: int
+    low_price: int
+    close_price: int
+    volume: int
