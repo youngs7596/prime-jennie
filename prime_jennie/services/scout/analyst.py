@@ -68,10 +68,10 @@ async def run_analyst(
     # 3. 코드 기반 risk_tag
     risk_tag = classify_risk_tag(quant, candidate)
 
-    # 4. Veto Power
+    # 4. Veto Power + Trade Tier
     veto_applied = risk_tag == RiskTag.DISTRIBUTION_RISK
-    is_tradable = not veto_applied
     trade_tier = TradeTier.BLOCKED if veto_applied else _assign_trade_tier(clamped)
+    is_tradable = trade_tier != TradeTier.BLOCKED
 
     now = datetime.now(UTC)
 
