@@ -7,6 +7,7 @@ Airflow http_conn_id="job_worker" → port 8095.
 import json
 import logging
 import os
+import time
 from datetime import date, datetime, timedelta
 
 from fastapi import Depends
@@ -85,15 +86,36 @@ def daily_asset_snapshot(session: Session = Depends(get_db_session)) -> JobResul
 
 @app.post("/jobs/collect-full-market-data")
 def collect_full_market_data(session: Session = Depends(get_db_session)) -> JobResult:
-    """KOSPI/KOSDAQ 일봉 수집 (활성 종목 전체)."""
+    """KOSPI/KOSDAQ 일봉 수집 (활성 종목 전체).
+
+    Rate limit: Gateway 19/sec 제한 → 18/sec pacing.
+    """
     try:
         kis = _get_kis()
-        stocks = session.exec(select(StockMasterDB).where(StockMasterDB.is_active)).all()
+        stocks = session.exec(
+            select(StockMasterDB)
+            .where(StockMasterDB.is_active)
+            .order_by(col(StockMasterDB.market_cap).desc())
+            .limit(300)
+        ).all()
+        logger.info("Collecting daily prices for top %d stocks by market cap", len(stocks))
 
         count = 0
-        for stock in stocks:
+        failed = 0
+        min_interval = 1.0 / 18  # 18 req/sec (gateway 19/sec 미만)
+        last_request = 0.0
+        batch_size = 100  # 100건마다 중간 커밋
+
+        for i, stock in enumerate(stocks):
             try:
-                prices = kis.get_daily_prices(stock.stock_code, days=5)
+                # Rate limiting
+                now = time.monotonic()
+                wait = last_request + min_interval - now
+                if wait > 0:
+                    time.sleep(wait)
+                last_request = time.monotonic()
+
+                prices = kis.get_daily_prices(stock.stock_code, days=30)
                 for p in prices:
                     existing = session.exec(
                         select(StockDailyPriceDB).where(
@@ -115,11 +137,25 @@ def collect_full_market_data(session: Session = Depends(get_db_session)) -> JobR
                             )
                         )
                         count += 1
-            except Exception:
-                logger.debug("Skip %s", stock.stock_code)
+            except Exception as e:
+                failed += 1
+                logger.warning("Failed %s: %s", stock.stock_code, e)
+
+            # 중간 커밋 + 진행 로그
+            if (i + 1) % batch_size == 0:
+                session.commit()
+                logger.info(
+                    "Progress: %d/%d stocks (collected=%d, failed=%d)",
+                    i + 1,
+                    len(stocks),
+                    count,
+                    failed,
+                )
 
         session.commit()
-        return JobResult(count=count, message=f"Collected {count} daily prices")
+        msg = f"Collected {count} daily prices from {len(stocks)} stocks (failed={failed})"
+        logger.info(msg)
+        return JobResult(count=count, message=msg)
     except Exception as e:
         logger.exception("Market data collection failed")
         return JobResult(success=False, message=str(e))
