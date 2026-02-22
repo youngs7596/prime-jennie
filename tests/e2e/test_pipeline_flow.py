@@ -476,7 +476,7 @@ class TestRedisKeyConsistency:
         """Council/Macro와 Scanner가 같은 context 캐시 키 사용."""
         from prime_jennie.services.scanner.app import CACHE_TRADING_CONTEXT
 
-        assert CACHE_TRADING_CONTEXT == "trading:context"
+        assert CACHE_TRADING_CONTEXT == "macro:trading_context"
 
 
 # ─── Config Consistency ───────────────────────────────────
