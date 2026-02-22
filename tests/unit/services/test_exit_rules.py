@@ -410,14 +410,16 @@ class TestTrailingTakeProfit:
 
 class TestScaleOut:
     def test_level0_triggers(self):
-        ctx = _make_ctx(profit_pct=3.5, scale_out_level=0, quantity=200)
+        """BULL L0 = +7.0% (L0 3.0% 제거 후)."""
+        ctx = _make_ctx(profit_pct=7.5, scale_out_level=0, quantity=200)
         signal = check_scale_out(ctx, MarketRegime.BULL)
         assert signal is not None
         assert signal.quantity_pct == 25.0
         assert "L0" in signal.description
 
     def test_level_not_reached(self):
-        ctx = _make_ctx(profit_pct=2.0, scale_out_level=0)
+        """BULL L0 = +7.0%, profit 5.0% → 트리거 안 됨."""
+        ctx = _make_ctx(profit_pct=5.0, scale_out_level=0)
         assert check_scale_out(ctx, MarketRegime.BULL) is None
 
     def test_bear_lower_targets(self):
@@ -426,11 +428,26 @@ class TestScaleOut:
         assert signal is not None
 
     def test_all_levels_exhausted(self):
-        ctx = _make_ctx(profit_pct=30.0, scale_out_level=4)
+        """BULL 3단계 (L0 제거 후), level=3 → 모두 소진."""
+        ctx = _make_ctx(profit_pct=30.0, scale_out_level=3)
         assert check_scale_out(ctx) is None
+
+    def test_bull_skips_low_profit(self):
+        """BULL + profit 3.5% + level 0 → None (L0 3.0% 제거됨)."""
+        ctx = _make_ctx(profit_pct=3.5, scale_out_level=0, quantity=200)
+        assert check_scale_out(ctx, MarketRegime.BULL) is None
+
+    def test_sideways_still_has_l0(self):
+        """SIDEWAYS는 여전히 +3.0%에서 L0 트리거."""
+        ctx = _make_ctx(profit_pct=3.5, scale_out_level=0, quantity=200)
+        signal = check_scale_out(ctx, MarketRegime.SIDEWAYS)
+        assert signal is not None
+        assert signal.quantity_pct == 25.0
+        assert "L0" in signal.description
 
     def test_min_transaction_guard_skips(self):
         """매도 금액 < 50만원 & 수량 < 50주 → 스킵 (총 포지션이 충분히 큰 경우)."""
+        # SIDEWAYS L0 = 3.0% → profit 3.5%로 트리거
         # 200주 * 25% = 50주, 50주 * 5000원 = 250,000 < 500,000
         # total = 200 * 5000 = 1,000,000 >= 500,000*2 → 전량 전환 안 함 → 스킵
         ctx = _make_ctx(
@@ -439,11 +456,12 @@ class TestScaleOut:
             quantity=200,
             current_price=5000,
         )
-        signal = check_scale_out(ctx, MarketRegime.BULL)
+        signal = check_scale_out(ctx, MarketRegime.SIDEWAYS)
         assert signal is None  # 최소 거래 미달
 
     def test_min_transaction_guard_converts_to_full_sell(self):
         """매도 금액 < 50만원 & 총 포지션도 작으면 → 전량 전환."""
+        # SIDEWAYS L0 = 3.0% → profit 3.5%로 트리거
         # 100주 * 25% = 25주, 25주 * 5000원 = 125,000 < 500,000
         # total = 100 * 5000 = 500,000 < 1,000,000 → 전량 전환
         ctx = _make_ctx(
@@ -452,12 +470,13 @@ class TestScaleOut:
             quantity=100,
             current_price=5000,
         )
-        signal = check_scale_out(ctx, MarketRegime.BULL)
+        signal = check_scale_out(ctx, MarketRegime.SIDEWAYS)
         assert signal is not None
         assert signal.quantity_pct == 100.0
 
     def test_min_quantity_forces_full_sell(self):
         """잔량 < min_sell_quantity(50) & 총 포지션 작으면 → 전량."""
+        # SIDEWAYS L0 = 3.0% → profit 3.5%로 트리거
         # 60주 * 25% = 15주, 15 < 50 (min_sell_quantity)
         # total = 60 * 10000 = 600,000 < 1,000,000 (min_transaction * 2) → 전량 전환
         ctx = _make_ctx(
@@ -466,7 +485,7 @@ class TestScaleOut:
             quantity=60,
             current_price=10000,
         )
-        signal = check_scale_out(ctx, MarketRegime.BULL)
+        signal = check_scale_out(ctx, MarketRegime.SIDEWAYS)
         assert signal is not None
         assert signal.quantity_pct == 100.0
 

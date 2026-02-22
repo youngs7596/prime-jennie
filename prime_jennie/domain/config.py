@@ -201,7 +201,7 @@ class SellConfig(BaseSettings):
     profit_lock_l2_max: float = 5.0
     profit_lock_l2_floor: float = 1.0
     # Scale-out levels (국면별, "profit_pct:sell_pct,..." 형식)
-    scale_out_levels_bull: str = "3.0:25,7.0:25,15.0:25,25.0:15"
+    scale_out_levels_bull: str = "7.0:25,15.0:25,25.0:15"
     scale_out_levels_bear: str = "2.0:25,5.0:25,8.0:25,12.0:15"
     scale_out_levels_sideways: str = "3.0:25,7.0:25,12.0:25,18.0:15"
     # Breakeven Stop: +X% 도달 후 floor 미만 → 전량 매도
