@@ -103,8 +103,8 @@ class PriceMonitor:
         """
         try:
             positions = self._kis.get_positions()
-        except Exception:
-            logger.error("Failed to get positions")
+        except Exception as e:
+            logger.error("Failed to get positions: %s", e)
             return list(self._positions.keys())
 
         new_codes = {p.stock_code for p in positions}
@@ -292,8 +292,8 @@ class PriceMonitor:
         """daily_prices 1회 fetch → RSI + ATR + death_cross + MACD 일괄 계산."""
         try:
             daily_prices = self._kis.get_daily_prices(stock_code, days=60)
-        except Exception:
-            logger.debug("[%s] Daily prices fetch failed", stock_code)
+        except Exception as e:
+            logger.warning("[%s] Daily prices fetch failed: %s", stock_code, e)
             self._rsi_cache[stock_code] = None
             self._atr_cache[stock_code] = 0.0
             self._indicator_cache[stock_code] = IndicatorCache()
@@ -316,8 +316,8 @@ class PriceMonitor:
                 indicators.death_cross = check_death_cross(close_prices)
                 if len(close_prices) >= 36:
                     indicators.macd_bearish = check_macd_bearish_divergence(close_prices)
-            except Exception:
-                logger.debug("[%s] Indicator computation failed", stock_code)
+            except Exception as e:
+                logger.warning("[%s] Indicator computation failed: %s", stock_code, e)
         self._indicator_cache[stock_code] = indicators
 
     def _compute_rsi_from_prices(self, close_prices: list[float]) -> float | None:

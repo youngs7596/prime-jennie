@@ -57,6 +57,16 @@ daily_asset_snapshot = _utility_dag(
     tags=["portfolio", "daily"],
 )
 
+refresh_market_caps = _utility_dag(
+    "refresh_market_caps",
+    "50 15 * * 1-5",
+    "시가총액 갱신 (KIS snapshot → stock_masters)",
+    "/jobs/refresh-market-caps",
+    timeout_min=10,
+    retries=2,
+    tags=["data", "daily"],
+)
+
 daily_market_data_collector = _utility_dag(
     "daily_market_data_collector",
     "0 16 * * 1-5",
@@ -90,18 +100,18 @@ daily_ai_performance = _utility_dag(
 collect_investor_trading = _utility_dag(
     "collect_investor_trading",
     "30 18 * * 1-5",
-    "수급 데이터 수집",
+    "수급 데이터 수집 (300종목)",
     "/jobs/collect-investor-trading",
-    timeout_min=10,
+    timeout_min=15,
     tags=["data", "daily"],
 )
 
 collect_foreign_holding = _utility_dag(
     "collect_foreign_holding_ratio",
-    "35 18 * * 1-5",
-    "외국인 지분율 수집 (pykrx)",
+    "0 19 * * 1-5",
+    "외국인 지분율 수집 (300종목)",
     "/jobs/collect-foreign-holding",
-    timeout_min=5,
+    timeout_min=15,
     tags=["data", "daily"],
 )
 
@@ -125,14 +135,16 @@ analyst_feedback = _utility_dag(
 
 # ─── Intraday Jobs ──────────────────────────────────────────
 
-collect_minute_chart = _utility_dag(
-    "collect_minute_chart",
-    "*/5 9-15 * * 1-5",
-    "5분봉 수집",
-    "/jobs/collect-minute-chart",
-    timeout_min=3,
-    tags=["data", "intraday"],
-)
+# NOTE: collect_minute_chart 비활성화 — stock_minute_prices 테이블 미사용,
+# 매 5분 호출 시 불필요한 API 부하 + 에러 로그만 발생
+# collect_minute_chart = _utility_dag(
+#     "collect_minute_chart",
+#     "*/5 9-15 * * 1-5",
+#     "5분봉 수집",
+#     "/jobs/collect-minute-chart",
+#     timeout_min=3,
+#     tags=["data", "intraday"],
+# )
 
 # ─── Weekly Jobs ────────────────────────────────────────────
 

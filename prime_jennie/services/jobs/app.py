@@ -451,8 +451,8 @@ def collect_minute_chart(session: Session = Depends(get_db_session)) -> JobResul
                             )
                         )
                         count += 1
-            except Exception:
-                logger.debug("Skip minute chart %s", stock.stock_code)
+            except Exception as e:
+                logger.warning("Minute chart failed %s: %s", stock.stock_code, e)
 
         session.commit()
         return JobResult(count=count, message=f"Collected {count} minute price records")
@@ -683,8 +683,8 @@ def macro_collect_global() -> JobResult:
                             change_pct = round((float(last["종가"]) - prev_close) / prev_close * 100, 2)
                     snapshot[f"{prefix}_index"] = float(last["종가"])
                     snapshot[f"{prefix}_change_pct"] = change_pct
-            except Exception:
-                logger.debug("pykrx %s collection failed", prefix)
+            except Exception as e:
+                logger.warning("pykrx %s collection failed: %s", prefix, e)
 
         if not trading_date:
             return JobResult(success=False, message="No trading data available from pykrx")
@@ -693,23 +693,23 @@ def macro_collect_global() -> JobResult:
         td_str = str(trading_date).replace("-", "")
         for ticker, prefix in [("1001", "kospi"), ("2001", "kosdaq")]:
             try:
-                df_inv = pykrx_stock.get_market_trading_by_investor(
+                df_inv = pykrx_stock.get_market_trading_value_by_investor(
                     td_str,
                     td_str,
                     ticker,
                 )
                 if df_inv.empty:
                     continue
-                if "외국인합계" in df_inv.index:
-                    val = float(df_inv.loc["외국인합계", "순매수"]) / 1e8
+                if "외국인" in df_inv.index:
+                    val = float(df_inv.loc["외국인", "순매수"]) / 1e8
                     snapshot[f"{prefix}_foreign_net"] = val
                 if prefix == "kospi":
                     if "기관합계" in df_inv.index:
                         snapshot["kospi_institutional_net"] = float(df_inv.loc["기관합계", "순매수"]) / 1e8
                     if "개인" in df_inv.index:
                         snapshot["kospi_retail_net"] = float(df_inv.loc["개인", "순매수"]) / 1e8
-            except Exception:
-                pass
+            except Exception as e:
+                logger.warning("pykrx %s investor data failed: %s", prefix, e)
 
         # 글로벌 지표 수집 (FRED, Finnhub 등은 기존 스냅샷 보존)
         td_iso = trading_date.isoformat() if hasattr(trading_date, "isoformat") else str(trading_date)
