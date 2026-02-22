@@ -514,6 +514,6 @@ class TestConfigConsistency:
         ]
         assert len(signals) == 7
 
-    def test_14_sector_groups(self):
-        """14개 대분류 그룹."""
-        assert len(SectorGroup) == 14
+    def test_15_sector_groups(self):
+        """15개 대분류 그룹."""
+        assert len(SectorGroup) == 15

@@ -66,7 +66,7 @@ class SectorTier(StrEnum):
 
 
 class SectorGroup(StrEnum):
-    """14개 대분류 (네이버 79개 세분류 → 14개 그룹)"""
+    """15개 대분류 (네이버 79개 세분류 → 15개 그룹)"""
 
     SEMICONDUCTOR_IT = "반도체/IT"
     BIO_HEALTH = "바이오/헬스케어"
@@ -81,6 +81,7 @@ class SectorGroup(StrEnum):
     LOGISTICS_TRANSPORT = "운송/물류"
     TELECOM = "통신"
     UTILITY = "유틸리티"
+    DEFENSE_SHIPBUILDING = "조선/방산"
     ETC = "기타"
 
 

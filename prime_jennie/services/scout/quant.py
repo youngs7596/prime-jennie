@@ -176,6 +176,8 @@ def _quality_score(candidate: EnrichedCandidate) -> float:
             score += 2.0
         else:
             score += 0.0  # 적자
+    else:
+        score += 5.0  # 데이터 없음 → 중립 (성장주 ROE 미제공 보정)
 
     # PBR 기반 자산 품질 (0-5)
     if ft.pbr is not None and ft.pbr > 0:
@@ -186,7 +188,7 @@ def _quality_score(candidate: EnrichedCandidate) -> float:
         elif ft.pbr < 4.0:
             score += 1.5
         else:
-            score += 0.5
+            score += 1.0  # 고PBR 성장주 하한선 (반도체/조선 등)
 
     # PER 안정성 (0-5): 적정 PER 보유 여부
     if ft.per is not None and ft.per > 0:
@@ -196,6 +198,8 @@ def _quality_score(candidate: EnrichedCandidate) -> float:
             score += 3.0
         elif ft.per <= 50:
             score += 1.0
+        else:
+            score += 0.5  # 고PER 성장주 하한선
 
     return min(20.0, score)
 

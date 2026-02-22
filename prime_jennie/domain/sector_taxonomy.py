@@ -93,9 +93,9 @@ NAVER_TO_GROUP: dict[str, SectorGroup] = {
     # 유틸리티
     "전기유틸리티": SectorGroup.UTILITY,
     "복합유틸리티": SectorGroup.UTILITY,
-    # 조선/방산 → 기타 (별도 대분류 없음)
-    "조선": SectorGroup.ETC,
-    "우주항공과국방": SectorGroup.ETC,
+    # 조선/방산
+    "조선": SectorGroup.DEFENSE_SHIPBUILDING,
+    "우주항공과국방": SectorGroup.DEFENSE_SHIPBUILDING,
     # 기타
     "상업서비스와공급품": SectorGroup.ETC,
     "복합기업": SectorGroup.ETC,
