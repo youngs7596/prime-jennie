@@ -14,6 +14,12 @@ jobs:
     environment: production
     needs: []
     steps:
+      - name: Clean root-owned files from workspace
+        run: |
+          # Docker bind-mount로 생성된 root 소유 파일 정리
+          docker run --rm -v "${{ github.workspace }}:/workspace" alpine \
+            sh -c "rm -rf /workspace/.telegram_sessions" || true
+
       - uses: actions/checkout@v4
 
       - name: Copy .env from project
