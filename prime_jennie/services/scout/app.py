@@ -228,12 +228,15 @@ def _update_progress(phase: str, pct: int) -> None:
 def _load_trading_context(redis_client) -> TradingContext:
     """Redis에서 트레이딩 컨텍스트 로드 (없으면 안전 기본값)."""
     try:
-        raw = redis_client.get("trading:context")
+        raw = redis_client.get("macro:trading_context")
         if raw:
-            return TradingContext.model_validate_json(raw)
+            ctx = TradingContext.model_validate_json(raw)
+            logger.info("Trading context loaded: regime=%s", ctx.market_regime)
+            return ctx
     except Exception as e:
         logger.warning("Failed to load trading context: %s", e)
 
+    logger.warning("No trading context in Redis, using default (SIDEWAYS)")
     return TradingContext.default()
 
 

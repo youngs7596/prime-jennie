@@ -36,7 +36,7 @@ logger = logging.getLogger(__name__)
 # Stream/Cache 키
 STREAM_BUY_SIGNALS = "stream:buy-signals"
 CACHE_WATCHLIST = "watchlist:active"
-CACHE_TRADING_CONTEXT = "trading:context"
+CACHE_TRADING_CONTEXT = "macro:trading_context"
 
 
 class BuyScanner:
