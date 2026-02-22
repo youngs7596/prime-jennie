@@ -161,38 +161,122 @@ def collect_full_market_data(session: Session = Depends(get_db_session)) -> JobR
         return JobResult(success=False, message=str(e))
 
 
+@app.post("/jobs/refresh-market-caps")
+def refresh_market_caps(session: Session = Depends(get_db_session)) -> JobResult:
+    """시가총액 갱신 — KIS snapshot에서 market_cap 업데이트.
+
+    시가총액 상위 300종목 대상. 18 req/sec rate limiting.
+    """
+    try:
+        kis = _get_kis()
+        stocks = session.exec(
+            select(StockMasterDB)
+            .where(StockMasterDB.is_active)
+            .order_by(col(StockMasterDB.market_cap).desc())
+            .limit(300)
+        ).all()
+        logger.info("Refreshing market caps for %d stocks", len(stocks))
+
+        count = 0
+        failed = 0
+        min_interval = 1.0 / 18
+        last_request = 0.0
+
+        for i, stock in enumerate(stocks):
+            try:
+                now = time.monotonic()
+                wait = last_request + min_interval - now
+                if wait > 0:
+                    time.sleep(wait)
+                last_request = time.monotonic()
+
+                snap = kis.get_price(stock.stock_code)
+                if snap and snap.market_cap and snap.market_cap > 0:
+                    stock.market_cap = snap.market_cap
+                    stock.updated_at = datetime.utcnow()
+                    count += 1
+            except Exception as e:
+                failed += 1
+                logger.warning("Market cap failed %s: %s", stock.stock_code, e)
+
+            if (i + 1) % 100 == 0:
+                session.commit()
+                logger.info("Market cap progress: %d/%d (updated=%d)", i + 1, len(stocks), count)
+
+        session.commit()
+        msg = f"Updated {count} market caps (failed={failed})"
+        logger.info(msg)
+        return JobResult(count=count, message=msg)
+    except Exception as e:
+        logger.exception("Market cap refresh failed")
+        return JobResult(success=False, message=str(e))
+
+
 @app.post("/jobs/collect-investor-trading")
 def collect_investor_trading(session: Session = Depends(get_db_session)) -> JobResult:
-    """수급 데이터 수집 (pykrx)."""
+    """수급 데이터 수집 (pykrx).
+
+    최근 7일 직전 거래일 기준, 시가총액 상위 300종목.
+    pykrx rate limit 방지: 종목당 0.5초 간격.
+    """
     try:
         from pykrx import stock as pykrx_stock
 
         today_str = date.today().strftime("%Y%m%d")
-        stocks = session.exec(select(StockMasterDB).where(StockMasterDB.is_active)).all()
+        start_str = (date.today() - timedelta(days=7)).strftime("%Y%m%d")
+        stocks = session.exec(
+            select(StockMasterDB)
+            .where(StockMasterDB.is_active)
+            .order_by(col(StockMasterDB.market_cap).desc())
+            .limit(300)
+        ).all()
 
         count = 0
-        for s in stocks[:50]:  # 배치 제한
+        failed = 0
+        for i, s in enumerate(stocks):
             try:
-                df = pykrx_stock.get_market_trading_by_investor(today_str, today_str, s.stock_code)
+                if i > 0:
+                    time.sleep(0.5)  # pykrx rate limit 방지
+                df = pykrx_stock.get_market_trading_value_by_investor(start_str, today_str, s.stock_code)
                 if df.empty:
                     continue
 
-                foreign_net = int(df.loc["외국인합계", "순매수"] if "외국인합계" in df.index else 0)
+                foreign_net = int(df.loc["외국인", "순매수"] if "외국인" in df.index else 0)
                 inst_net = int(df.loc["기관합계", "순매수"] if "기관합계" in df.index else 0)
 
-                record = StockInvestorTradingDB(
-                    stock_code=s.stock_code,
-                    trade_date=date.today(),
-                    foreign_net_buy=foreign_net,
-                    institution_net_buy=inst_net,
-                )
-                session.add(record)
+                # 중복 방지: 직전 거래일 기준
+                trade_date = date.today()
+                existing = session.exec(
+                    select(StockInvestorTradingDB).where(
+                        StockInvestorTradingDB.stock_code == s.stock_code,
+                        StockInvestorTradingDB.trade_date == trade_date,
+                    )
+                ).first()
+                if existing:
+                    existing.foreign_net_buy = foreign_net
+                    existing.institution_net_buy = inst_net
+                else:
+                    session.add(
+                        StockInvestorTradingDB(
+                            stock_code=s.stock_code,
+                            trade_date=trade_date,
+                            foreign_net_buy=foreign_net,
+                            institution_net_buy=inst_net,
+                        )
+                    )
                 count += 1
-            except Exception:
-                continue
+            except Exception as e:
+                failed += 1
+                logger.warning("Investor trading failed %s: %s", s.stock_code, e)
+
+            if (i + 1) % 100 == 0:
+                session.commit()
+                logger.info("Investor trading progress: %d/%d (collected=%d)", i + 1, len(stocks), count)
 
         session.commit()
-        return JobResult(count=count, message=f"Collected {count} investor trading records")
+        msg = f"Collected {count} investor trading records (failed={failed})"
+        logger.info(msg)
+        return JobResult(count=count, message=msg)
     except Exception as e:
         logger.exception("Investor trading collection failed")
         return JobResult(success=False, message=str(e))
@@ -200,17 +284,25 @@ def collect_investor_trading(session: Session = Depends(get_db_session)) -> JobR
 
 @app.post("/jobs/collect-foreign-holding")
 def collect_foreign_holding(session: Session = Depends(get_db_session)) -> JobResult:
-    """외국인 지분율 수집 (pykrx)."""
+    """외국인 지분율 수집 (pykrx). 시가총액 상위 300종목."""
     try:
         from pykrx import stock as pykrx_stock
 
         today_str = date.today().strftime("%Y%m%d")
         start_str = (date.today() - timedelta(days=7)).strftime("%Y%m%d")
-        stocks = session.exec(select(StockMasterDB).where(StockMasterDB.is_active)).all()
+        stocks = session.exec(
+            select(StockMasterDB)
+            .where(StockMasterDB.is_active)
+            .order_by(col(StockMasterDB.market_cap).desc())
+            .limit(300)
+        ).all()
 
         count = 0
-        for s in stocks[:50]:  # 배치 제한
+        failed = 0
+        for i, s in enumerate(stocks):
             try:
+                if i > 0:
+                    time.sleep(0.5)  # pykrx rate limit 방지
                 df = pykrx_stock.get_exhaustion_rates_of_foreign_investment_by_date(start_str, today_str, s.stock_code)
                 if df.empty:
                     continue
@@ -240,11 +332,18 @@ def collect_foreign_holding(session: Session = Depends(get_db_session)) -> JobRe
                         )
                     )
                 count += 1
-            except Exception:
-                continue
+            except Exception as e:
+                failed += 1
+                logger.warning("Foreign holding failed %s: %s", s.stock_code, e)
+
+            if (i + 1) % 100 == 0:
+                session.commit()
+                logger.info("Foreign holding progress: %d/%d (updated=%d)", i + 1, len(stocks), count)
 
         session.commit()
-        return JobResult(count=count, message=f"Updated {count} foreign holding ratios")
+        msg = f"Updated {count} foreign holding ratios (failed={failed})"
+        logger.info(msg)
+        return JobResult(count=count, message=msg)
     except Exception as e:
         logger.exception("Foreign holding collection failed")
         return JobResult(success=False, message=str(e))
