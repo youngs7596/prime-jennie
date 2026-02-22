@@ -827,8 +827,9 @@ def cleanup_old_data(session: Session = Depends(get_db_session)) -> JobResult:
 
 @app.post("/jobs/update-naver-sectors")
 def update_naver_sectors(session: Session = Depends(get_db_session)) -> JobResult:
-    """네이버 업종 분류 갱신."""
+    """네이버 업종 분류 갱신 (sector_naver + sector_group)."""
     try:
+        from prime_jennie.domain.sector_taxonomy import get_sector_group
         from prime_jennie.infra.crawlers.naver import build_naver_sector_mapping
 
         mapping = build_naver_sector_mapping()
@@ -837,6 +838,7 @@ def update_naver_sectors(session: Session = Depends(get_db_session)) -> JobResul
             stock = session.exec(select(StockMasterDB).where(StockMasterDB.stock_code == code)).first()
             if stock:
                 stock.sector_naver = sector
+                stock.sector_group = get_sector_group(sector).value
                 count += 1
 
         session.commit()
