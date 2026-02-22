@@ -151,11 +151,12 @@ services:
     command: >
       LGAI-EXAONE/EXAONE-4.0-32B-AWQ
       --port 8001
-      --gpu-memory-utilization 0.90
+      --gpu-memory-utilization 0.85
       --max-model-len 4096
       --quantization awq_marlin
       --dtype half
       --trust-remote-code
+      --enforce-eager
     volumes:
       - /docker_data/huggingface_cache:/root/.cache/huggingface
     restart: unless-stopped
