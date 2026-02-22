@@ -1,5 +1,7 @@
 """네이버 금융 크롤러 — 종목 뉴스 + 섹터 분류.
 
+my-prime-jennie shared/crawlers/naver.py 기반 재구현.
+
 Usage:
     articles = crawl_stock_news("005930", "삼성전자", max_pages=2)
     mapping = build_naver_sector_mapping()
@@ -7,6 +9,7 @@ Usage:
 
 import hashlib
 import logging
+import re
 import time
 from datetime import UTC, datetime
 
@@ -25,14 +28,41 @@ NAVER_HEADERS = {
     ),
 }
 
+# 노이즈 뉴스 필터링 키워드 (시황/특징주 등 투자 판단에 무의미한 뉴스)
+NOISE_KEYWORDS = [
+    "특징주",
+    "오전 시황",
+    "장마감",
+    "마감 시황",
+    "급등락",
+    "오늘의 증시",
+    "환율",
+    "개장",
+    "출발",
+    "상위 종목",
+    "단독",
+    "인포",
+    "증권리포트",
+    "장중시황",
+    "[이슈종합]",
+    "인기 기업",
+    "한줄리포트",
+    "이 시각 증권",
+]
+
 # In-memory dedup (per-process)
 _seen_hashes: set[str] = set()
 
 
 def _compute_hash(text: str) -> str:
-    """텍스트 해시 (중복 체크용)."""
-    normalized = text.strip().lower()
+    """뉴스 제목으로 중복 체크용 해시 생성."""
+    normalized = re.sub(r"[^\w]", "", text.lower())
     return hashlib.md5(normalized.encode()).hexdigest()[:12]
+
+
+def _is_noise_title(title: str) -> bool:
+    """노이즈 뉴스인지 확인."""
+    return any(kw in title for kw in NOISE_KEYWORDS)
 
 
 def crawl_stock_news(
@@ -43,6 +73,9 @@ def crawl_stock_news(
 ) -> list[NewsArticle]:
     """네이버 금융 종목 뉴스 크롤링.
 
+    my-prime-jennie shared/crawlers/naver.py crawl_stock_news() 기반.
+    핵심: Referer 헤더 필수, tbody 미사용(네이버 금융에 없음), 노이즈 필터링.
+
     Args:
         stock_code: 6자리 종목코드
         stock_name: 종목명
@@ -50,30 +83,41 @@ def crawl_stock_news(
         request_delay: 요청 간 딜레이 (초)
     """
     articles: list[NewsArticle] = []
-    base_url = "https://finance.naver.com/item/news_news.naver"
+    headers = {
+        **NAVER_HEADERS,
+        "Referer": f"https://finance.naver.com/item/news.naver?code={stock_code}",
+    }
 
     for page in range(1, max_pages + 1):
         try:
-            resp = httpx.get(
-                base_url,
-                params={"code": stock_code, "page": page},
-                headers=NAVER_HEADERS,
-                timeout=10,
-            )
+            url = f"https://finance.naver.com/item/news_news.naver?code={stock_code}&page={page}"
+            resp = httpx.get(url, headers=headers, timeout=10)
             resp.encoding = "euc-kr"
             soup = BeautifulSoup(resp.text, "html.parser")
 
-            rows = soup.select("table.type5 tbody tr")
-            if not rows:
+            news_table = soup.select_one("table.type5")
+            if not news_table:
                 break
 
+            # tbody 사용 금지 — 네이버 금융 HTML에 tbody 없음
+            rows = news_table.select("tr")
+            page_count = 0
+
             for row in rows:
-                link = row.select_one("td.title a")
+                title_td = row.select_one("td.title")
+                if not title_td:
+                    continue
+
+                link = title_td.select_one("a")
                 if not link:
                     continue
 
                 headline = link.get_text(strip=True)
                 if not headline:
+                    continue
+
+                # 노이즈 필터링
+                if _is_noise_title(headline):
                     continue
 
                 # 중복 체크
@@ -110,8 +154,12 @@ def crawl_stock_news(
                         source="NAVER",
                     )
                 )
+                page_count += 1
 
-            time.sleep(request_delay)
+            logger.debug("[%s] page %d: %d articles", stock_code, page, page_count)
+
+            if page < max_pages:
+                time.sleep(request_delay)
 
         except Exception as e:
             logger.warning("[%s] News crawl page %d failed: %s", stock_code, page, e)
