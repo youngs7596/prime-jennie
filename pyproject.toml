@@ -62,6 +62,7 @@ dev = [
     "hypothesis>=6.98",
     "mypy>=1.10",
     "ruff>=0.4",
+    "fakeredis>=2.21",
 ]
 airflow = [
     "apache-airflow>=2.8",
