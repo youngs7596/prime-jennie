@@ -88,6 +88,7 @@ def select_watchlist(
             WatchlistEntry(
                 stock_code=score.stock_code,
                 stock_name=score.stock_name,
+                quant_score=score.quant_score,
                 llm_score=score.llm_score,
                 hybrid_score=score.hybrid_score,
                 rank=rank,

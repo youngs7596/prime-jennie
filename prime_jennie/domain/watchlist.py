@@ -13,6 +13,7 @@ class WatchlistEntry(BaseModel):
 
     stock_code: StockCode
     stock_name: str
+    quant_score: Score = 0.0
     llm_score: Score
     hybrid_score: Score
     rank: int = Field(ge=1, le=50)
