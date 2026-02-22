@@ -5,6 +5,8 @@
 """
 
 import logging
+import threading
+import time
 from concurrent.futures import ThreadPoolExecutor
 
 from pydantic import BaseModel
@@ -158,10 +160,25 @@ def _fetch_snapshots_parallel(
     kis: KISClient,
     max_workers: int,
 ) -> dict[str, StockSnapshot]:
-    """KIS 스냅샷 병렬 수집."""
+    """KIS 스냅샷 병렬 수집 (rate limit 준수).
+
+    Gateway rate limit: 19 req/sec.
+    공유 lock으로 전체 스레드의 요청 속도를 18 req/sec 이하로 제한.
+    """
     snapshots: dict[str, StockSnapshot] = {}
+    lock = threading.Lock()
+    last_request_time = [0.0]  # mutable for closure
+    min_interval = 1.0 / 18  # 18 req/sec (gateway 19/sec 미만)
 
     def fetch_one(code: str) -> tuple[str, StockSnapshot | None]:
+        # 공유 rate limiter — 전체 워커의 요청 속도 제한
+        with lock:
+            now = time.monotonic()
+            wait = last_request_time[0] + min_interval - now
+            if wait > 0:
+                time.sleep(wait)
+            last_request_time[0] = time.monotonic()
+
         try:
             return code, kis.get_price(code)
         except Exception as e:
