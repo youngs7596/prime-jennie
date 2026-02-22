@@ -90,6 +90,7 @@ def _news_loop() -> None:
     while _loop_running:
         cycle += 1
         _pipeline_status["loop_cycle"] = cycle
+        logger.info("[cycle %d] Starting", cycle)
         try:
             session = _create_session()
             try:
@@ -117,6 +118,7 @@ def _news_loop() -> None:
 
                 _pipeline_status["last_analyze_count"] = analyzed
                 _pipeline_status["last_analyze"] = datetime.now().isoformat()
+                logger.info("[cycle %d] Analyzed %d articles", cycle, analyzed)
 
                 # Phase 3: Archive (every N cycles)
                 if cycle % ARCHIVE_EVERY_N == 0:
@@ -138,16 +140,22 @@ def _news_loop() -> None:
             finally:
                 session.close()
 
-        except Exception as e:
-            logger.error("[cycle %d] News loop error: %s", cycle, e)
+        except BaseException as e:
+            logger.error("[cycle %d] News loop error: %s", cycle, e, exc_info=True)
+            if not isinstance(e, Exception):
+                logger.critical("[cycle %d] Non-recoverable error, stopping daemon", cycle)
+                break
 
         # Sleep with early exit check
         interval = _get_interval()
+        market = "market" if _is_market_hours() else "off-hours"
+        logger.info("[cycle %d] Done. Sleeping %ds (%s)", cycle, interval, market)
         for _ in range(interval):
             if not _loop_running:
                 break
             time.sleep(1)
 
+    _pipeline_status["daemon_running"] = False
     logger.info("News pipeline daemon stopped")
 
 
