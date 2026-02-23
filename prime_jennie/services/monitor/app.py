@@ -463,12 +463,20 @@ def _consume_ticks(r: redis.Redis, monitor: PriceMonitor) -> None:
     """
     global _tick_running
 
-    # Consumer group 생성
-    try:
-        r.xgroup_create(PRICE_STREAM, PRICE_GROUP, id="0", mkstream=True)
-    except redis.exceptions.ResponseError as e:
-        if "BUSYGROUP" not in str(e):
+    # Consumer group 생성 (Redis 준비 대기 최대 30초)
+    for _attempt in range(30):
+        try:
+            r.xgroup_create(PRICE_STREAM, PRICE_GROUP, id="0", mkstream=True)
+            break
+        except redis.exceptions.ResponseError as e:
+            if "BUSYGROUP" in str(e):
+                break
             raise
+        except (ConnectionError, redis.exceptions.BusyLoadingError):
+            logger.warning("Redis not ready (attempt %d/30), retrying...", _attempt + 1)
+            time.sleep(1)
+    else:
+        logger.error("Redis not ready after 30s, consumer will retry in main loop")
 
     logger.info("Tick consumer started: stream=%s group=%s", PRICE_STREAM, PRICE_GROUP)
     last_refresh = time.time()
@@ -615,3 +623,22 @@ async def refresh_positions():
         "position_count": len(codes),
         "new_subscriptions": list(new_codes),
     }
+
+
+@app.post("/start")
+async def start_monitor():
+    """장 시작 시 포지션 전체 새로고침 + Gateway 구독 (Airflow DAG 호출용)."""
+    if _monitor is None:
+        return {"success": False, "message": "Monitor not initialized"}
+
+    codes = _monitor.refresh_positions()
+    if codes:
+        _subscribe_to_gateway(codes)
+
+    return {"success": True, "position_count": len(codes)}
+
+
+@app.post("/stop")
+async def stop_monitor():
+    """장 마감 시그널 수신 (Airflow DAG 호출용)."""
+    return {"success": True, "message": "Market close acknowledged"}

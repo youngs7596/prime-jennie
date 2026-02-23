@@ -297,12 +297,20 @@ def _consume_ticks(r: redis.Redis, scanner: BuyScanner) -> None:
     """
     global _tick_running
 
-    # Consumer group 생성
-    try:
-        r.xgroup_create(PRICE_STREAM, PRICE_GROUP, id="0", mkstream=True)
-    except redis.exceptions.ResponseError as e:
-        if "BUSYGROUP" not in str(e):
+    # Consumer group 생성 (Redis 준비 대기 최대 30초)
+    for _attempt in range(30):
+        try:
+            r.xgroup_create(PRICE_STREAM, PRICE_GROUP, id="0", mkstream=True)
+            break
+        except redis.exceptions.ResponseError as e:
+            if "BUSYGROUP" in str(e):
+                break
             raise
+        except (ConnectionError, redis.exceptions.BusyLoadingError):
+            logger.warning("Redis not ready (attempt %d/30), retrying...", _attempt + 1)
+            time.sleep(1)
+    else:
+        logger.error("Redis not ready after 30s, consumer will retry in main loop")
 
     logger.info("Tick consumer started: stream=%s group=%s", PRICE_STREAM, PRICE_GROUP)
     last_reload = time.time()
@@ -315,6 +323,9 @@ def _consume_ticks(r: redis.Redis, scanner: BuyScanner) -> None:
             if now - last_reload > WATCHLIST_RELOAD_INTERVAL:
                 scanner.load_watchlist()
                 scanner.load_context()
+                if scanner.watchlist:
+                    codes = [s.stock_code for s in scanner.watchlist.stocks]
+                    _subscribe_to_gateway(codes)
                 last_reload = now
 
             messages = r.xreadgroup(
