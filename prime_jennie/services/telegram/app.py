@@ -149,14 +149,34 @@ def _poll_loop(bot: TelegramBot, handler: CommandHandler) -> None:
     logger.info("Telegram polling stopped")
 
 
+def _wait_for_redis(max_wait: int = 30) -> None:
+    """Redis 준비 대기 — BusyLoadingError 시 재시도."""
+    import redis as _redis
+
+    client = get_redis()
+    deadline = time.time() + max_wait
+    while True:
+        try:
+            client.ping()
+            return
+        except _redis.BusyLoadingError:
+            if time.time() > deadline:
+                raise
+            logger.warning("Redis loading, retrying in 2s…")
+            time.sleep(2)
+
+
 @asynccontextmanager
 async def _lifespan(app):
-    """서비스 시작/종료 — 체결 알림 consumer 자동 시작."""
-    global _notification_consumer, _notification_thread
+    """서비스 시작/종료 — 폴링 + 체결 알림 consumer 자동 시작."""
+    global _notification_consumer, _notification_thread, _polling_thread
+
+    _wait_for_redis()
 
     redis_client = get_redis()
     config = get_config()
 
+    # 체결 알림 consumer
     _notification_consumer = TypedStreamConsumer(
         client=redis_client,
         stream=STREAM_TRADE_NOTIFICATIONS,
@@ -173,13 +193,25 @@ async def _lifespan(app):
     _notification_thread.start()
     logger.info("Trade notification consumer started")
 
+    # 커맨드 폴링 자동 시작
+    bot = _get_bot()
+    handler = _get_handler()
+    _polling_active.set()
+    _polling_thread = threading.Thread(target=_poll_loop, args=(bot, handler), name="telegram-polling", daemon=True)
+    _polling_thread.start()
+
     yield
+
+    # 폴링 종료
+    _polling_active.clear()
+    if _polling_thread and _polling_thread.is_alive():
+        _polling_thread.join(timeout=10)
 
     if _notification_consumer:
         _notification_consumer.stop()
     if _notification_thread and _notification_thread.is_alive():
         _notification_thread.join(timeout=10)
-    logger.info("Trade notification consumer stopped")
+    logger.info("Telegram service stopped")
 
 
 app = create_app("command-handler", version="1.0.0", lifespan=_lifespan, dependencies=["redis", "db"])
