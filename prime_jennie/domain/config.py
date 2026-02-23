@@ -281,6 +281,7 @@ class SecretsConfig(BaseSettings):
     openrouter_api_key: str = ""
     gemini_api_key: str = ""
     openai_api_key: str = ""
+    bok_ecos_api_key: str = ""
 
 
 class AppConfig(BaseSettings):

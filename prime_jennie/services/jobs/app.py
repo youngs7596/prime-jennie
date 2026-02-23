@@ -663,6 +663,69 @@ def daily_report() -> JobResult:
 # ─── Macro Jobs ────────────────────────────────────────────────
 
 
+def _fetch_vix() -> tuple[float | None, str]:
+    """Yahoo Finance에서 VIX 종가 조회. (value, regime) 반환."""
+    import httpx
+
+    try:
+        resp = httpx.get(
+            "https://query1.finance.yahoo.com/v8/finance/chart/%5EVIX",
+            params={"range": "5d", "interval": "1d"},
+            headers={"User-Agent": "Mozilla/5.0"},
+            timeout=10.0,
+        )
+        resp.raise_for_status()
+        data = resp.json()
+        closes = data["chart"]["result"][0]["indicators"]["quote"][0]["close"]
+        # 마지막 유효 종가
+        vix = None
+        for v in reversed(closes):
+            if v is not None:
+                vix = round(float(v), 2)
+                break
+        if vix is None:
+            return None, "unknown"
+        # Regime 분류
+        if vix < 15:
+            regime = "low_vol"
+        elif vix < 25:
+            regime = "normal"
+        elif vix < 35:
+            regime = "elevated"
+        else:
+            regime = "crisis"
+        return vix, regime
+    except Exception as e:
+        logger.warning("VIX fetch failed: %s", e)
+        return None, "unknown"
+
+
+def _fetch_usd_krw(api_key: str) -> float | None:
+    """BOK ECOS API에서 원/달러 환율 조회."""
+    import httpx
+
+    try:
+        end = date.today()
+        start = end - timedelta(days=10)
+        start_str = start.strftime("%Y%m%d")
+        end_str = end.strftime("%Y%m%d")
+        url = (
+            f"https://ecos.bok.or.kr/api/StatisticSearch/{api_key}/json/kr/1/10/731Y001/D/{start_str}/{end_str}/0000001"
+        )
+        resp = httpx.get(url, timeout=10.0)
+        resp.raise_for_status()
+        data = resp.json()
+        rows = data.get("StatisticSearch", {}).get("row", [])
+        if not rows:
+            return None
+        # 최신 row의 DATA_VALUE
+        latest = rows[-1]
+        return float(latest["DATA_VALUE"].replace(",", ""))
+    except Exception as e:
+        logger.warning("USD/KRW fetch failed: %s", e)
+        return None
+
+
 @app.post("/jobs/macro-collect-global")
 def macro_collect_global() -> JobResult:
     """글로벌 매크로 수집 — 직전 거래일 KOSPI/KOSDAQ + 글로벌 지표.
@@ -726,7 +789,21 @@ def macro_collect_global() -> JobResult:
             except Exception as e:
                 logger.warning("pykrx %s investor data failed: %s", prefix, e)
 
-        # 글로벌 지표 수집 (FRED, Finnhub 등은 기존 스냅샷 보존)
+        # VIX
+        vix, vix_regime = _fetch_vix()
+        if vix is not None:
+            snapshot["vix"] = vix
+            snapshot["vix_regime"] = vix_regime
+
+        # USD/KRW
+        usd_krw = None
+        config = get_config()
+        if config.secrets.bok_ecos_api_key:
+            usd_krw = _fetch_usd_krw(config.secrets.bok_ecos_api_key)
+            if usd_krw is not None:
+                snapshot["usd_krw"] = usd_krw
+
+        # 글로벌 지표 수집 (기존 스냅샷 보존)
         td_iso = trading_date.isoformat() if hasattr(trading_date, "isoformat") else str(trading_date)
         existing_key = f"macro:data:snapshot:{td_iso}"
         existing_raw = r.get(existing_key)
@@ -746,7 +823,11 @@ def macro_collect_global() -> JobResult:
         kospi = snapshot.get("kospi_index", "?")
         kosdaq = snapshot.get("kosdaq_index", "?")
         return JobResult(
-            message=f"Global macro collected: trading_date={td_iso}, KOSPI={kospi}, KOSDAQ={kosdaq}",
+            message=(
+                f"Global macro collected: trading_date={td_iso},"
+                f" KOSPI={kospi}, KOSDAQ={kosdaq},"
+                f" VIX={vix}, USD/KRW={usd_krw}"
+            ),
         )
     except Exception as e:
         logger.exception("Global macro collection failed")
