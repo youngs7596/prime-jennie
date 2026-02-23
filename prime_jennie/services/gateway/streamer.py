@@ -29,9 +29,6 @@ PRICE_STREAM_MAXLEN = 10_000
 # KIS TR ID for real-time stock execution price
 TR_ID_STOCK_EXEC = "H0STCNT0"
 
-# Keepalive
-PING_INTERVAL = 30
-
 
 class KISWebSocketStreamer:
     """KIS WebSocket → Redis Stream 스트리머.
@@ -53,8 +50,8 @@ class KISWebSocketStreamer:
         self._subscription_codes: set[str] = set()
         self._ws = None
         self._ws_thread: threading.Thread | None = None
-        self._ping_thread: threading.Thread | None = None
         self._is_running = False
+        self._base_url: str = ""
         self._approval_key: str | None = None
         self._approval_key_expires: float = 0.0
         self._lock = threading.Lock()
@@ -115,6 +112,8 @@ class KISWebSocketStreamer:
             logger.warning("No codes to subscribe")
             return
 
+        self._base_url = base_url
+
         try:
             approval_key = self.get_approval_key(base_url)
         except Exception as e:
@@ -146,7 +145,7 @@ class KISWebSocketStreamer:
             self._ws_thread.start()
 
     def _ws_loop(self, approval_key: str) -> None:
-        """WebSocket 메인 루프."""
+        """WebSocket 메인 루프 (재연결 시 approval_key 갱신)."""
         try:
             import websocket
         except ImportError:
@@ -154,37 +153,45 @@ class KISWebSocketStreamer:
             self._is_running = False
             return
 
-        def on_open(ws):
-            logger.info("KIS WebSocket connected")
-            # 구독 요청 전송 (별도 스레드)
-            threading.Thread(target=self._send_subscriptions, args=(ws, approval_key), daemon=True).start()
-            # Keepalive 핑
-            self._ping_thread = threading.Thread(target=self._ping_loop, args=(ws,), daemon=True)
-            self._ping_thread.start()
+        while self._is_running:
+            current_key = approval_key
 
-        def on_message(ws, message):
-            self._handle_message(message)
+            def on_open(ws, _key=current_key):
+                logger.info("KIS WebSocket connected")
+                threading.Thread(target=self._send_subscriptions, args=(ws, _key), daemon=True).start()
 
-        def on_error(ws, error):
-            logger.warning("KIS WebSocket error: %s", error)
+            def on_message(ws, message):
+                self._handle_message(ws, message)
 
-        def on_close(ws, close_status_code, close_msg):
-            logger.info("KIS WebSocket closed: %s %s", close_status_code, close_msg)
-            # 자동 재연결
-            if self._is_running:
-                logger.info("Reconnecting in 60s...")
-                time.sleep(60)
-                if self._is_running:
-                    self._ws_loop(approval_key)
+            def on_error(ws, error):
+                logger.warning("KIS WebSocket error: %s", error)
 
-        self._ws = websocket.WebSocketApp(
-            self._ws_url,
-            on_open=on_open,
-            on_message=on_message,
-            on_error=on_error,
-            on_close=on_close,
-        )
-        self._ws.run_forever()
+            def on_close(ws, close_status_code, close_msg):
+                logger.info("KIS WebSocket closed: %s %s", close_status_code, close_msg)
+
+            self._ws = websocket.WebSocketApp(
+                self._ws_url,
+                on_open=on_open,
+                on_message=on_message,
+                on_error=on_error,
+                on_close=on_close,
+            )
+            self._ws.run_forever()
+
+            if not self._is_running:
+                break
+
+            logger.info("Reconnecting in 60s...")
+            time.sleep(60)
+
+            # 재연결 시 approval_key 갱신
+            if self._base_url:
+                try:
+                    self._approval_key_expires = 0.0  # 캐시 무효화
+                    approval_key = self.get_approval_key(self._base_url)
+                    logger.info("Approval key refreshed for reconnect")
+                except Exception as e:
+                    logger.warning("Failed to refresh approval key, reusing old: %s", e)
 
     def _send_subscriptions(self, ws, approval_key: str) -> None:
         """종목별 구독 요청."""
@@ -215,22 +222,30 @@ class KISWebSocketStreamer:
 
         logger.info("Subscribed to %d codes", len(self._subscription_codes))
 
-    def _ping_loop(self, ws) -> None:
-        """Keepalive 핑."""
-        count = 0
-        while self._is_running:
-            time.sleep(PING_INTERVAL)
-            try:
-                ws.send(json.dumps({"say": "hello"}))
-                count += 1
-                if count % 10 == 0:
-                    logger.debug("Keepalive ping #%d", count)
-            except Exception:
-                break
+    def _handle_message(self, ws, message: str) -> None:
+        """WebSocket 메시지 파싱 → Redis XADD.
 
-    def _handle_message(self, message: str) -> None:
-        """WebSocket 메시지 파싱 → Redis XADD."""
-        if not message or message[0] not in ("0", "1"):
+        JSON 메시지(PINGPONG, 구독 응답)와 tick 데이터('0'|'1' 시작)를 구분 처리.
+        """
+        if not message:
+            return
+
+        # JSON 메시지: PINGPONG echo 또는 구독 응답
+        if message.startswith("{"):
+            try:
+                data = json.loads(message)
+                tr_id = data.get("header", {}).get("tr_id", "")
+                if tr_id == "PINGPONG":
+                    with contextlib.suppress(Exception):
+                        ws.send(message)
+                    logger.debug("PINGPONG echoed")
+                else:
+                    logger.debug("KIS JSON msg: %s", message[:200])
+            except json.JSONDecodeError:
+                logger.debug("Non-JSON message starting with '{': %s", message[:100])
+            return
+
+        if message[0] not in ("0", "1"):
             return
 
         try:
