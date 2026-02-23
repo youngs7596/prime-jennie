@@ -2,19 +2,46 @@
 
 ## 긴급 (다음 세션 우선)
 
-### 1. ROE 일일 갱신 Job 추가
-- **현상**: stock_fundamentals에 ROE를 쓰는 정기 Job이 없음
-- **위험**: 레거시 scout.py Phase 1.7이 매일 ROE=None으로 덮어쓸 수 있음
-- **해결안**:
-  - (A) prime-jennie job-worker에 주간 ROE 수집 엔드포인트 추가 (네이버 금융 크롤링)
-  - (B) 또는 daily update 시 ROE가 NULL이면 기존값 유지하도록 수정
-  - (C) 레거시 scout 컨테이너 확인 → Phase 1.7 ROE=None 덮어쓰기 차단
+### 0. 재부팅 후 전체 서비스 상태 점검 (별도 창에서 진행 중)
+- [ ] 전체 서비스 정상 기동: `docker compose --profile infra --profile real ps`
+- [ ] Monitor/Scanner tick consumer Redis 연결 확인 (BusyLoadingError 없이 시작)
+- [ ] **Gateway WebSocket 연결 유지 확인** — PINGPONG 수정 후 ~10초 끊김 해소 여부
+  - `docker logs prime-jennie-kis-gateway-1 | grep -i "pingpong\|closed\|connected"`
+- [ ] buy-scanner / price-monitor tick 수신 확인 (장중 tick count 증가 로그)
+- [ ] Airflow DAG `/start`(09:00), `/stop`(15:30) 정상 호출 확인
+- [ ] Loki 로그 공백 없이 정상 수집 (Grafana에서 09:00~15:30 연속 확인)
+- [ ] 장중 매수/매도 정상 발생 여부 (매수/매도 건수 확인)
+- **참고**: `session-2026-02-23-race-condition-fix.md`, `session-2026-02-23-websocket-pingpong-fix.md`
+
+### 1. ROE 정기 갱신 Job 추가
+- **현상**: stock_fundamentals에 ROE를 쓰는 정기 Job이 없음 (레거시 중단됨)
+- **해결안**: prime-jennie job-worker에 월간 ROE 수집 엔드포인트 추가 (네이버 금융 크롤링)
 - **참고**: 2026-02-22 수동 backfill로 184종목 ROE 100% 채움 (네이버 금융 기준)
+- 분기 재무제표 기반이라 월 1회 갱신이면 충분
 
 ### 2. FINANCIAL_METRICS_QUARTERLY 정기 갱신
 - 레거시 `collect_quarterly_financials.py`를 prime-jennie Job으로 이식
 - 분기 실적 발표 후 자동 갱신 (매 분기 1회, 4/5/7/8/10/11월)
 - 현재 최신 데이터: 2025-09-30 (Q3)
+
+### 6. 명시적 장 오픈 시간 체크 추가
+- **현상**: buy-scanner, price-monitor, executor 어디에도 "장이 열려있는지" 체크가 없음
+- **현재 안전장치**: KIS WebSocket이 장외에 틱을 안 보내서 사실상 동작 안 함 (암묵적 의존)
+- **위험**: 어떤 이유로 장외에 틱이 발생하면 매수/매도 주문이 실행될 수 있음
+- **해결안**: scanner risk_gates에 장 오픈 시간(09:00~15:30) 체크 gate 추가, executor에도 주문 전 시간 검증
+- **참고**: Gateway `/api/market/is-market-open` 엔드포인트는 이미 존재 (다른 서비스에서 호출 안 함)
+- **참고**: `session-2026-02-23-websocket-pingpong-fix.md`
+
+### 7. /watch, /unwatch 커맨드 실효성 확보
+- **현상**: `watchlist:manual` Redis hash에 기록하지만 Scanner가 읽지 않음 → 효과 없음
+- **해결안**: Scanner watchlist 로드 시 `watchlist:manual` 병합, 또는 커맨드 제거
+- **참고**: `session-2026-02-23-telegram-fix.md`
+
+### 8. watchlist_histories DB 기록 프로세스 추가
+- **현상**: Scout가 Redis `watchlist:active`에만 기록, DB `watchlist_histories`에는 레거시 데이터(2/19)만 존재
+- rank/hybrid_score/trade_tier 전부 NULL
+- **해결안**: Scout 스코어링 완료 후 DB에도 스냅샷 저장 (백테스트/분석용)
+- **참고**: `session-2026-02-23-telegram-fix.md`
 
 ## 중요 (성능 개선)
 
@@ -35,11 +62,6 @@
 
 ## 개선 (여유 시 진행)
 
-### 5. 레거시 컨테이너 정리
-- my-prime-jennie가 아직 같은 DB에 쓰고 있는지 확인
-- Phase 1.7 ROE=None 덮어쓰기 문제 원인
-- 레거시 컨테이너 중지 또는 DB 쓰기 권한 제거 검토
-
-### 6. Quant Scorer Shadow Comparison 정리
+### 5. Quant Scorer Shadow Comparison 정리
 - shadow log가 v2.0 vs v2.1 비교만 함 (quality delta 미추적)
 - ROE 보정/PBR·PER 하한선 변경 등 v2.2 변경사항 shadow에 반영 또는 제거
