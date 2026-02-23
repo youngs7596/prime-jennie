@@ -403,19 +403,18 @@ class CommandHandler:
 
     def _handle_watchlist(self, args: str, **kwargs) -> str:
         try:
-            from prime_jennie.infra.database.repositories import WatchlistRepository
+            from prime_jennie.domain.watchlist import HotWatchlist
+            from prime_jennie.infra.redis.cache import TypedCache
 
-            with self._session_factory() as session:
-                items = WatchlistRepository.get_latest(session)
-
-            if not items:
+            cache = TypedCache(self._redis, "watchlist:active", HotWatchlist)
+            wl = cache.get()
+            if wl is None or not wl.stocks:
                 return "워치리스트가 비어있습니다."
 
-            lines = [f"*워치리스트* ({len(items)}종목)\n"]
-            for w in items[:20]:
-                score = w.hybrid_score or 0
-                emoji = "🔥" if score >= 80 else ("📈" if score >= 60 else "➖")
-                lines.append(f"  {emoji} #{w.rank} {w.stock_name} ({score:.0f}점, {w.trade_tier})")
+            lines = [f"*워치리스트* ({len(wl.stocks)}종목, {wl.market_regime.value})\n"]
+            for w in wl.stocks[:20]:
+                emoji = "🔥" if w.hybrid_score >= 80 else ("📈" if w.hybrid_score >= 60 else "➖")
+                lines.append(f"  {emoji} #{w.rank} {w.stock_name} ({w.hybrid_score:.0f}점, {w.trade_tier.value})")
             return "\n".join(lines)
         except Exception as e:
             return f"워치리스트 조회 실패: {e}"
