@@ -133,6 +133,20 @@ export interface LLMStats {
   total: { calls: number; tokens_in: number; tokens_out: number };
 }
 
+export interface AirflowDag {
+  dag_id: string;
+  description: string | null;
+  schedule_interval: string | null;
+  next_dagrun: string | null;
+  last_run_state: string;
+  last_run_date: string | null;
+}
+
+export interface LogEntry {
+  timestamp: string;
+  message: string;
+}
+
 /* ── React Query Hooks ─────────────────────────────────── */
 
 export function usePortfolioSummary() {
@@ -223,5 +237,41 @@ export function useSystemHealth() {
     queryKey: ["system", "health"],
     queryFn: () => api.get("/system/health").then((r) => r.data),
     refetchInterval: 30_000,
+  });
+}
+
+export function useAirflowDags() {
+  return useQuery<AirflowDag[]>({
+    queryKey: ["airflow", "dags"],
+    queryFn: () => api.get("/airflow/dags").then((r) => r.data),
+    refetchInterval: 60_000,
+  });
+}
+
+export async function triggerDag(dagId: string) {
+  return api.post(`/airflow/dags/${dagId}/trigger`).then((r) => r.data);
+}
+
+export function useLogServices() {
+  return useQuery<string[]>({
+    queryKey: ["logs", "services"],
+    queryFn: () => api.get("/logs/services").then((r) => r.data.services),
+  });
+}
+
+export function useLogs(service: string | null, minutes: number) {
+  const start = service ? Math.floor((Date.now() - minutes * 60_000) * 1e6) : 0;
+  const end = service ? Math.floor(Date.now() * 1e6) : 0;
+
+  return useQuery<LogEntry[]>({
+    queryKey: ["logs", "stream", service, minutes],
+    queryFn: () =>
+      api
+        .get("/logs/stream", {
+          params: { service, limit: 500, start, end },
+        })
+        .then((r) => r.data.logs),
+    enabled: !!service,
+    refetchInterval: 15_000,
   });
 }

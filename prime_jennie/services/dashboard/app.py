@@ -15,7 +15,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from prime_jennie.services.base import create_app
 
-from .routers import llm_stats, macro, portfolio, system, trades, watchlist
+from .routers import airflow, llm_stats, logs, macro, portfolio, system, trades, watchlist
 
 
 @asynccontextmanager
@@ -46,3 +46,5 @@ app.include_router(watchlist.router, prefix="/api")
 app.include_router(trades.router, prefix="/api")
 app.include_router(llm_stats.router, prefix="/api")
 app.include_router(system.router, prefix="/api")
+app.include_router(airflow.router, prefix="/api")
+app.include_router(logs.router, prefix="/api")
