@@ -84,12 +84,23 @@ class TypedStreamConsumer(Generic[T]):
         self._ensure_group()
 
     def _ensure_group(self) -> None:
-        """Consumer group 생성 (이미 존재하면 무시)."""
-        try:
-            self._client.xgroup_create(self._stream, self._group, id="0", mkstream=True)
-        except redis.exceptions.ResponseError as e:
-            if "BUSYGROUP" not in str(e):
+        """Consumer group 생성 (이미 존재하면 무시, Redis 준비 대기 최대 30초)."""
+        for attempt in range(30):
+            try:
+                self._client.xgroup_create(self._stream, self._group, id="0", mkstream=True)
+                return
+            except redis.exceptions.ResponseError as e:
+                if "BUSYGROUP" in str(e):
+                    return
                 raise
+            except (ConnectionError, redis.exceptions.BusyLoadingError):
+                logger.warning(
+                    "Redis not ready for group '%s' (attempt %d/30), retrying...",
+                    self._group,
+                    attempt + 1,
+                )
+                time.sleep(1)
+        logger.error("Redis not ready after 30s, group '%s' creation skipped", self._group)
 
     def run(self) -> None:
         """메시지 소비 루프 (blocking). KeyboardInterrupt로 종료."""

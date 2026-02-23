@@ -401,9 +401,16 @@ async def lifespan(app) -> AsyncIterator[None]:
     r = get_redis()
     _scanner = BuyScanner(redis_client=r)
 
-    # Watchlist + Context 로드
-    loaded = _scanner.load_watchlist()
-    _scanner.load_context()
+    # Watchlist + Context 로드 (Redis 준비 대기 최대 30초)
+    loaded = False
+    for _attempt in range(30):
+        try:
+            loaded = _scanner.load_watchlist()
+            _scanner.load_context()
+            break
+        except (ConnectionError, redis.exceptions.BusyLoadingError):
+            logger.warning("Redis not ready (attempt %d/30), retrying...", _attempt + 1)
+            time.sleep(1)
 
     # Gateway에 구독 요청
     if loaded and _scanner.watchlist:
