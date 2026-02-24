@@ -21,6 +21,7 @@ REASONING_MODELS = frozenset(
         "gpt-5-mini",
         "gpt-5",
         "gpt-5.2",
+        "deepseek-reasoner",
     }
 )
 

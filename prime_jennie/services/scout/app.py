@@ -1,12 +1,13 @@
 """Scout Service — AI 종목 발굴 파이프라인 오케스트레이터.
 
-7단계 파이프라인:
+8단계 파이프라인:
   Phase 1: Universe Loading (DB)
   Phase 2: Data Enrichment (KIS + DB, 병렬)
   Phase 3: Quant Scoring (v2, 잠재력 기반)
   Phase 4: LLM Analysis (Unified Analyst, 1-pass)
   Phase 5: Sector Budget + Watchlist Selection (Greedy)
-  → Redis watchlist:active 저장
+  Phase 7: Redis watchlist:active 저장
+  Phase 8: DB watchlist_histories 저장
 
 Endpoints:
   POST /trigger → 파이프라인 실행
@@ -18,7 +19,7 @@ import asyncio
 import logging
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 
 from fastapi import Depends
 from pydantic import BaseModel
@@ -29,6 +30,8 @@ from prime_jennie.domain.macro import TradingContext
 from prime_jennie.domain.scoring import HybridScore, QuantScore
 from prime_jennie.domain.sector import SectorAnalysis, SectorBudget
 from prime_jennie.domain.watchlist import HotWatchlist
+from prime_jennie.infra.database.models import WatchlistHistoryDB
+from prime_jennie.infra.database.repositories import WatchlistRepository
 from prime_jennie.infra.llm.factory import LLMFactory
 from prime_jennie.infra.redis.client import get_redis
 from prime_jennie.services.base import create_app
@@ -204,6 +207,9 @@ async def run_pipeline(session: Session) -> HotWatchlist:
         ex=REDIS_WATCHLIST_TTL,
     )
 
+    # --- Phase 8: Save to DB ---
+    _save_watchlist_to_db(session, watchlist)
+
     _update_progress("idle", 100)
     _last_completed_at = datetime.now(UTC)
 
@@ -285,3 +291,28 @@ def _compute_budget(
     sector_budget.save_budget_to_redis(budget, redis_client)
 
     return budget
+
+
+def _save_watchlist_to_db(session: Session, watchlist: HotWatchlist) -> None:
+    """워치리스트 → watchlist_histories 테이블 저장 (같은 날 재실행 시 교체)."""
+    today = date.today()
+    entries = [
+        WatchlistHistoryDB(
+            snapshot_date=today,
+            stock_code=e.stock_code,
+            stock_name=e.stock_name,
+            llm_score=e.llm_score,
+            hybrid_score=e.hybrid_score,
+            is_tradable=e.is_tradable,
+            trade_tier=e.trade_tier.value if e.trade_tier else None,
+            risk_tag=e.risk_tag.value if e.risk_tag else None,
+            rank=e.rank,
+        )
+        for e in watchlist.stocks
+    ]
+    try:
+        WatchlistRepository.replace_history(session, today, entries)
+        logger.info("Watchlist saved to DB: %d entries for %s", len(entries), today)
+    except Exception:
+        logger.exception("Failed to save watchlist to DB")
+        session.rollback()

@@ -1,8 +1,8 @@
 """CloudFailover Provider — DeepSeek multi-chain failover.
 
 Provider 체인 (순차 시도):
-  1. DeepSeek Official API (deepseek-chat)
-  2. OpenRouter (deepseek/deepseek-v3.2)
+  1. DeepSeek Official API (deepseek-reasoner)
+  2. OpenRouter (deepseek/deepseek-reasoner)
   3. 로컬 vLLM (Ollama Provider)
 """
 
@@ -43,7 +43,7 @@ class CloudFailoverProvider(BaseLLMProvider):
             provider = OpenAILLMProvider(
                 api_key=secrets.deepseek_api_key,
                 base_url="https://api.deepseek.com",
-                default_model="deepseek-chat",
+                default_model="deepseek-reasoner",
             )
             self._providers.append(("deepseek-api", provider))
 
@@ -52,7 +52,7 @@ class CloudFailoverProvider(BaseLLMProvider):
             provider = OpenAILLMProvider(
                 api_key=secrets.openrouter_api_key,
                 base_url="https://openrouter.ai/api/v1",
-                default_model="deepseek/deepseek-v3.2",
+                default_model="deepseek/deepseek-reasoner",
             )
             self._providers.append(("openrouter", provider))
 

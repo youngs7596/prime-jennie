@@ -7,7 +7,7 @@
 import logging
 from datetime import date, datetime, timedelta
 
-from sqlalchemy import desc
+from sqlalchemy import delete, desc
 from sqlmodel import Session, select
 
 from .models import (
@@ -210,6 +210,13 @@ class WatchlistRepository:
 
     @staticmethod
     def save_history(session: Session, entries: list[WatchlistHistoryDB]) -> None:
+        session.add_all(entries)
+        session.commit()
+
+    @staticmethod
+    def replace_history(session: Session, snapshot_date: date, entries: list[WatchlistHistoryDB]) -> None:
+        """같은 날짜 기존 행 삭제 후 INSERT (재실행 시 PK 충돌 방지)."""
+        session.exec(delete(WatchlistHistoryDB).where(WatchlistHistoryDB.snapshot_date == snapshot_date))  # type: ignore[call-overload]
         session.add_all(entries)
         session.commit()
 
