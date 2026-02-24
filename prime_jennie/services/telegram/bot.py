@@ -63,10 +63,12 @@ class TelegramBot:
                 json={
                     "chat_id": str(chat_id),
                     "text": text[:4096],
-                    "parse_mode": "Markdown",
+                    "parse_mode": "HTML",
                 },
                 timeout=15,
             )
+            if resp.status_code != 200:
+                logger.error("Telegram API %d: %s", resp.status_code, resp.text[:300])
             return resp.status_code == 200
         except Exception as e:
             logger.error("Telegram send failed: %s", e)

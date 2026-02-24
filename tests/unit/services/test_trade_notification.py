@@ -96,7 +96,7 @@ class TestFormatTradeMessage:
             timestamp=datetime.now(UTC),
         )
         msg = _format_trade_message(n)
-        assert "*[매수 체결]*" in msg
+        assert "<b>[매수 체결]</b>" in msg
         assert "삼성전자 (005930)" in msg
         assert "100주" in msg
         assert "70,000원" in msg
@@ -121,7 +121,7 @@ class TestFormatTradeMessage:
             timestamp=datetime.now(UTC),
         )
         msg = _format_trade_message(n)
-        assert "*[매도 체결]*" in msg
+        assert "<b>[매도 체결]</b>" in msg
         assert "삼성전자 (005930)" in msg
         assert "100주" in msg
         assert "80,000원" in msg
@@ -160,7 +160,7 @@ class TestFormatTradeMessage:
             timestamp=datetime.now(UTC),
         )
         msg = _format_trade_message(n)
-        assert "*[매수 체결]*" in msg
+        assert "<b>[매수 체결]</b>" in msg
         assert "전략" not in msg  # no signal_type → no strategy line
 
 

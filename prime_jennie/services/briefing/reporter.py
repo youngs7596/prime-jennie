@@ -181,7 +181,10 @@ class DailyReporter:
         if data.get("watchlist"):
             lines.append(f"[워치리스트] Top {len(data['watchlist'])}")
             for w in data["watchlist"][:5]:
-                lines.append(f"  #{w['rank']} {w['stock_name']} ({w['hybrid_score']:.0f}점, {w['trade_tier']})")
+                rank = w["rank"] if w["rank"] is not None else "-"
+                score = f"{w['hybrid_score']:.0f}" if w["hybrid_score"] is not None else "-"
+                tier = w["trade_tier"] or "-"
+                lines.append(f"  #{rank} {w['stock_name']} ({score}점, {tier})")
             lines.append("")
 
         return "\n".join(lines)

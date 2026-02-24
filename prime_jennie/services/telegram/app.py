@@ -76,10 +76,10 @@ def _is_muted() -> bool:
 
 
 def _format_trade_message(n: TradeNotification) -> str:
-    """체결 알림 메시지 포매팅 (Markdown)."""
+    """체결 알림 메시지 포매팅 (HTML)."""
     if n.trade_type == "BUY":
         lines = [
-            "*[매수 체결]*",
+            "<b>[매수 체결]</b>",
             f"{n.stock_name} ({n.stock_code})",
             f"수량: {n.quantity}주 | 가격: {n.price:,}원",
             f"금액: {n.total_amount:,}원",
@@ -95,7 +95,7 @@ def _format_trade_message(n: TradeNotification) -> str:
             lines.append(f"점수: {n.hybrid_score:.1f}")
     else:
         lines = [
-            "*[매도 체결]*",
+            "<b>[매도 체결]</b>",
             f"{n.stock_name} ({n.stock_code})",
             f"수량: {n.quantity}주 | 가격: {n.price:,}원",
             f"금액: {n.total_amount:,}원",
