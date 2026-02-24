@@ -3,6 +3,7 @@
 import json
 import logging
 import os
+import re
 from typing import Any
 
 from prime_jennie.infra.llm.base import BaseLLMProvider, LLMResponse
@@ -129,23 +130,41 @@ class OpenAILLMProvider(BaseLLMProvider):
             {"role": "user", "content": prompt + schema_instruction},
         ]
 
+        is_reasoning = self._is_reasoning_model(model)
+
         kwargs: dict[str, Any] = {
             "model": model,
             "messages": messages,
             "max_tokens": max_tokens,
-            "response_format": {"type": "json_object"},
         }
-        if not self._is_reasoning_model(model):
+        # Reasoning 모델 (deepseek-reasoner 등)은 response_format: json_object 미지원
+        if not is_reasoning:
+            kwargs["response_format"] = {"type": "json_object"}
             kwargs["temperature"] = temperature
 
         response = await self._client.chat.completions.create(**kwargs)
 
         content = response.choices[0].message.content or ""
-        return json.loads(content)
+        if not content.strip():
+            raise ValueError("LLM returned empty content")
+        return _extract_json(content)
 
     async def generate_embeddings(self, texts: list[str]) -> list[list[float]]:
         response = await self._client.embeddings.create(model="text-embedding-3-small", input=texts)
         return [item.embedding for item in response.data]
+
+
+def _extract_json(text: str) -> dict[str, Any]:
+    """LLM 응답에서 JSON 객체 추출 (```json ... ``` 블록 또는 raw JSON)."""
+    # 1. ```json ... ``` 코드 블록
+    m = re.search(r"```(?:json)?\s*\n?(.*?)\n?\s*```", text, re.DOTALL)
+    if m:
+        return json.loads(m.group(1).strip())
+    # 2. raw JSON (첫 번째 { ... } 블록)
+    m = re.search(r"\{.*\}", text, re.DOTALL)
+    if m:
+        return json.loads(m.group(0))
+    return json.loads(text)
 
 
 # 팩토리 자동 등록

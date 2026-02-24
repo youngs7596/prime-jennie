@@ -2,7 +2,7 @@
 
 Provider 체인 (순차 시도):
   1. DeepSeek Official API (deepseek-reasoner)
-  2. OpenRouter (deepseek/deepseek-reasoner)
+  2. OpenRouter (deepseek/deepseek-r1)
   3. 로컬 vLLM (Ollama Provider)
 """
 
@@ -52,7 +52,7 @@ class CloudFailoverProvider(BaseLLMProvider):
             provider = OpenAILLMProvider(
                 api_key=secrets.openrouter_api_key,
                 base_url="https://openrouter.ai/api/v1",
-                default_model="deepseek/deepseek-reasoner",
+                default_model="deepseek/deepseek-r1",
             )
             self._providers.append(("openrouter", provider))
 
