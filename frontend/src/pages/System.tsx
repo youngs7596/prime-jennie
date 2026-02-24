@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { useQueryClient } from "@tanstack/react-query";
 import {
   useSystemHealth,
   useLLMStats,
@@ -165,17 +166,22 @@ const STATE_COLORS: Record<string, string> = {
 function WorkflowsTab() {
   const { data: dags, isLoading } = useAirflowDags();
   const [triggering, setTriggering] = useState<string | null>(null);
+  const qc = useQueryClient();
 
   const handleTrigger = async (dag: AirflowDag) => {
     setTriggering(dag.dag_id);
     try {
       await triggerDag(dag.dag_id);
+      // 트리거 후 즉시 refetch → 5초 폴링 전환
+      await qc.invalidateQueries({ queryKey: ["airflow", "dags"] });
     } catch {
       // error silently — UI will show updated state on next refetch
     } finally {
       setTriggering(null);
     }
   };
+
+  const hasActive = dags?.some((d) => d.last_run_state === "running" || d.last_run_state === "queued");
 
   if (isLoading) return <LoadingSpinner />;
 
@@ -188,9 +194,16 @@ function WorkflowsTab() {
   }
 
   return (
-    <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+    <div className="space-y-4">
+      {hasActive && (
+        <div className="flex items-center gap-2 text-sm text-accent-blue">
+          <span className="inline-block h-2 w-2 animate-pulse rounded-full bg-accent-blue" />
+          실행 중 — 5초마다 갱신
+        </div>
+      )}
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
       {dags.map((dag) => (
-        <div key={dag.dag_id} className="card">
+        <div key={dag.dag_id} className={`card ${dag.last_run_state === "running" ? "border-accent-blue/30" : dag.last_run_state === "failed" ? "border-accent-red/20" : ""}`}>
           <div className="flex items-start justify-between">
             <div className="min-w-0 flex-1">
               <h3 className="truncate text-sm font-medium">{dag.dag_id}</h3>
@@ -245,6 +258,7 @@ function WorkflowsTab() {
           </div>
         </div>
       ))}
+      </div>
     </div>
   );
 }

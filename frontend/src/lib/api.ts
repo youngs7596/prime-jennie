@@ -244,7 +244,11 @@ export function useAirflowDags() {
   return useQuery<AirflowDag[]>({
     queryKey: ["airflow", "dags"],
     queryFn: () => api.get("/airflow/dags").then((r) => r.data),
-    refetchInterval: 60_000,
+    refetchInterval: (query) => {
+      const dags = query.state.data;
+      const hasActive = dags?.some((d) => d.last_run_state === "running" || d.last_run_state === "queued");
+      return hasActive ? 5_000 : 60_000;
+    },
   });
 }
 
