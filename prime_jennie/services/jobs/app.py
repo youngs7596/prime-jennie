@@ -18,6 +18,7 @@ from prime_jennie.domain.config import get_config
 from prime_jennie.infra.database.models import (
     DailyAssetSnapshotDB,
     DailyQuantScoreDB,
+    PositionDB,
     StockDailyPriceDB,
     StockDisclosureDB,
     StockInvestorTradingDB,
@@ -900,6 +901,194 @@ def macro_validate_store() -> JobResult:
 def macro_quick() -> JobResult:
     """장중 매크로 빠른 업데이트."""
     return macro_collect_global()
+
+
+# ─── Sync ─────────────────────────────────────────────────────
+
+
+def compare_positions(
+    kis_positions: list[dict],
+    db_positions: list[PositionDB],
+) -> dict:
+    """KIS 보유 종목과 DB 포지션을 5-way 비교.
+
+    Returns:
+        {
+            "only_in_kis": [{...}, ...],
+            "only_in_db": [PositionDB, ...],
+            "quantity_mismatch": [{"stock_code", "kis_qty", "db_qty", ...}, ...],
+            "price_mismatch": [{"stock_code", "kis_avg", "db_avg", ...}, ...],
+            "matched": [str, ...],
+        }
+    """
+    kis_map: dict[str, dict] = {p["stock_code"]: p for p in kis_positions}
+    db_map: dict[str, PositionDB] = {p.stock_code: p for p in db_positions}
+
+    only_in_kis: list[dict] = []
+    only_in_db: list[PositionDB] = []
+    quantity_mismatch: list[dict] = []
+    price_mismatch: list[dict] = []
+    matched: list[str] = []
+
+    # KIS에만 있는 종목
+    for code, kis_pos in kis_map.items():
+        if code not in db_map:
+            only_in_kis.append(kis_pos)
+
+    # DB에만 있는 종목
+    for code, db_pos in db_map.items():
+        if code not in kis_map:
+            only_in_db.append(db_pos)
+
+    # 양쪽 모두 있는 종목: 수량/가격 비교
+    for code in kis_map:
+        if code not in db_map:
+            continue
+        kis_pos = kis_map[code]
+        db_pos = db_map[code]
+        kis_qty = int(kis_pos.get("quantity", 0))
+        db_qty = db_pos.quantity
+        kis_avg = int(kis_pos.get("average_buy_price", 0))
+        db_avg = db_pos.average_buy_price
+
+        if kis_qty != db_qty:
+            quantity_mismatch.append(
+                {
+                    "stock_code": code,
+                    "stock_name": kis_pos.get("stock_name", ""),
+                    "kis_qty": kis_qty,
+                    "db_qty": db_qty,
+                }
+            )
+        elif abs(kis_avg - db_avg) >= 1:
+            price_mismatch.append(
+                {
+                    "stock_code": code,
+                    "stock_name": kis_pos.get("stock_name", ""),
+                    "kis_avg": kis_avg,
+                    "db_avg": db_avg,
+                }
+            )
+        else:
+            matched.append(code)
+
+    return {
+        "only_in_kis": only_in_kis,
+        "only_in_db": only_in_db,
+        "quantity_mismatch": quantity_mismatch,
+        "price_mismatch": price_mismatch,
+        "matched": matched,
+    }
+
+
+def apply_sync(session: Session, diff: dict) -> list[str]:
+    """비교 결과를 DB에 반영. 적용된 변경 설명 리스트 반환."""
+    actions: list[str] = []
+
+    for kis_pos in diff["only_in_kis"]:
+        code = kis_pos["stock_code"]
+        name = kis_pos.get("stock_name", "")
+        qty = int(kis_pos.get("quantity", 0))
+        avg = int(kis_pos.get("average_buy_price", 0))
+        total = int(kis_pos.get("total_buy_amount", 0)) or qty * avg
+        cur_price = int(kis_pos.get("current_price", 0)) or avg
+        session.add(
+            PositionDB(
+                stock_code=code,
+                stock_name=name,
+                quantity=qty,
+                average_buy_price=avg,
+                total_buy_amount=total,
+                high_watermark=cur_price,
+            )
+        )
+        actions.append(f"INSERT {code} {name} qty={qty} avg={avg:,}")
+
+    for db_pos in diff["only_in_db"]:
+        pos = session.get(PositionDB, db_pos.stock_code)
+        if pos:
+            session.delete(pos)
+            actions.append(f"DELETE {db_pos.stock_code} {db_pos.stock_name}")
+
+    for m in diff["quantity_mismatch"]:
+        pos = session.get(PositionDB, m["stock_code"])
+        if pos:
+            pos.quantity = m["kis_qty"]
+            pos.total_buy_amount = m["kis_qty"] * pos.average_buy_price
+            pos.updated_at = datetime.utcnow()
+            actions.append(f"UPDATE qty {m['stock_code']} {m['stock_name']} {m['db_qty']}→{m['kis_qty']}")
+
+    for m in diff["price_mismatch"]:
+        pos = session.get(PositionDB, m["stock_code"])
+        if pos:
+            pos.average_buy_price = m["kis_avg"]
+            pos.total_buy_amount = pos.quantity * m["kis_avg"]
+            pos.updated_at = datetime.utcnow()
+            actions.append(f"UPDATE avg {m['stock_code']} {m['stock_name']} {m['db_avg']:,}→{m['kis_avg']:,}")
+
+    return actions
+
+
+@app.post("/jobs/sync-positions")
+def sync_positions(
+    dry_run: bool = True,
+    session: Session = Depends(get_db_session),
+) -> JobResult:
+    """KIS 계좌 ↔ DB 포지션 동기화.
+
+    dry_run=True(기본): 비교 리포트만 반환.
+    dry_run=False: 실제 DB 반영.
+    """
+    try:
+        kis = _get_kis()
+        balance = kis.get_balance()
+        kis_positions = balance.get("positions", [])
+        db_positions = list(session.exec(select(PositionDB)).all())
+
+        diff = compare_positions(kis_positions, db_positions)
+
+        # 리포트 생성
+        lines: list[str] = []
+        lines.append(f"KIS: {len(kis_positions)}종목, DB: {len(db_positions)}종목")
+        lines.append(f"  matched: {len(diff['matched'])}")
+
+        if diff["only_in_kis"]:
+            lines.append(f"  only_in_kis ({len(diff['only_in_kis'])}):")
+            for p in diff["only_in_kis"]:
+                lines.append(f"    + {p['stock_code']} {p.get('stock_name', '')} qty={p.get('quantity', 0)}")
+
+        if diff["only_in_db"]:
+            lines.append(f"  only_in_db ({len(diff['only_in_db'])}):")
+            for p in diff["only_in_db"]:
+                lines.append(f"    - {p.stock_code} {p.stock_name} qty={p.quantity}")
+
+        if diff["quantity_mismatch"]:
+            lines.append(f"  quantity_mismatch ({len(diff['quantity_mismatch'])}):")
+            for m in diff["quantity_mismatch"]:
+                lines.append(f"    ~ {m['stock_code']} {m['stock_name']} qty: {m['db_qty']}→{m['kis_qty']}")
+
+        if diff["price_mismatch"]:
+            lines.append(f"  price_mismatch ({len(diff['price_mismatch'])}):")
+            for m in diff["price_mismatch"]:
+                lines.append(f"    ~ {m['stock_code']} {m['stock_name']} avg: {m['db_avg']:,}→{m['kis_avg']:,}")
+
+        has_diff = diff["only_in_kis"] or diff["only_in_db"] or diff["quantity_mismatch"] or diff["price_mismatch"]
+
+        if not has_diff:
+            return JobResult(message="All positions matched.\n" + "\n".join(lines))
+
+        if dry_run:
+            lines.insert(0, "[DRY RUN] 변경사항 미적용")
+            return JobResult(message="\n".join(lines))
+
+        actions = apply_sync(session, diff)
+        session.commit()
+        lines.insert(0, f"[APPLIED] {len(actions)}건 적용 완료")
+        lines.extend(["", "Actions:"] + [f"  {a}" for a in actions])
+        return JobResult(count=len(actions), message="\n".join(lines))
+    except Exception as e:
+        logger.exception("Position sync failed")
+        return JobResult(success=False, message=str(e))
 
 
 # ─── Weekly Jobs ───────────────────────────────────────────────
