@@ -311,11 +311,17 @@ def check_scale_out(
 
 
 def check_rsi_overbought(ctx: PositionContext) -> ExitSignal | None:
-    """[7] RSI 과열 부분 매도 (50%)."""
+    """[7] RSI 과열 부분 매도 (50%).
+
+    Trailing TP가 이미 활성(high_profit >= activation)이면 스킵 — trailing이 관리.
+    """
     config = get_config().sell
     if ctx.rsi_sold:
         return None
     if ctx.rsi is None:
+        return None
+    # Trailing TP가 이미 활성이면 RSI 매도 스킵 (trailing이 관리)
+    if config.trailing_enabled and ctx.high_profit_pct >= config.trailing_activation_pct:
         return None
     if ctx.rsi >= config.rsi_overbought_threshold and ctx.profit_pct >= config.rsi_min_profit_pct:
         return ExitSignal(
@@ -345,13 +351,20 @@ def check_profit_target(ctx: PositionContext) -> ExitSignal | None:
     return None
 
 
-def check_death_cross(ctx: PositionContext) -> ExitSignal | None:
+def check_death_cross(
+    ctx: PositionContext,
+    regime: MarketRegime = MarketRegime.SIDEWAYS,
+) -> ExitSignal | None:
     """[9] Death Cross: 5MA/20MA 하향 돌파 확인 시 전량 매도.
 
+    death_cross_bear_only=True → BULL/STRONG_BULL에서 비활성화 (ATR/Breakeven이 커버).
     death_cross 판정은 monitor/app.py에서 indicators를 통해 수행.
     여기서는 ctx.death_cross 플래그만 확인.
     """
-    if ctx.death_cross and ctx.profit_pct < 0:
+    config = get_config().sell
+    if config.death_cross_bear_only and regime in (MarketRegime.BULL, MarketRegime.STRONG_BULL):
+        return None
+    if ctx.death_cross and ctx.profit_pct < -1.0:
         return ExitSignal(
             should_sell=True,
             reason=SellReason.DEATH_CROSS,
@@ -399,7 +412,7 @@ def evaluate_exit(
         lambda: check_scale_out(ctx, regime),
         lambda: check_rsi_overbought(ctx),
         lambda: check_profit_target(ctx),
-        lambda: check_death_cross(ctx),
+        lambda: check_death_cross(ctx, regime),
         lambda: check_time_exit(ctx, regime),
     ]
 

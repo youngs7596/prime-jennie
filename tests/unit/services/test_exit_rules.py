@@ -515,13 +515,48 @@ class TestRSIOverbought:
         assert check_rsi_overbought(ctx) is None
 
 
+class TestRSITrailingSkip:
+    """RSI: Trailing TP 활성 시 비활성화."""
+
+    def test_rsi_skipped_when_trailing_active(self):
+        """high_profit_pct=6% >= trailing_activation(5%) → RSI 스킵."""
+        ctx = _make_ctx(rsi=80.0, profit_pct=4.0, high_profit_pct=6.0)
+        assert check_rsi_overbought(ctx) is None
+
+    def test_rsi_triggers_when_trailing_inactive(self):
+        """high_profit_pct=3% < trailing_activation(5%) → RSI 정상 발동."""
+        ctx = _make_ctx(rsi=80.0, profit_pct=4.0, high_profit_pct=3.0)
+        signal = check_rsi_overbought(ctx)
+        assert signal is not None
+        assert signal.reason == SellReason.RSI_OVERBOUGHT
+        assert signal.quantity_pct == 50.0
+
+
 class TestDeathCross:
-    def test_triggers_on_loss(self):
+    def test_triggers_on_significant_loss(self):
+        """-1% 이상 손실에서만 발동."""
         ctx = _make_ctx(death_cross=True, profit_pct=-2.0)
         signal = check_death_cross(ctx)
         assert signal is not None
         assert signal.reason == SellReason.DEATH_CROSS
         assert signal.quantity_pct == 100.0
+
+    def test_no_trigger_small_loss(self):
+        """-1% 미만 미미한 손실에서는 발동 안 함 (핑퐁 방지)."""
+        ctx = _make_ctx(death_cross=True, profit_pct=-0.5)
+        assert check_death_cross(ctx) is None
+
+    def test_no_trigger_at_boundary(self):
+        """-1.0% 정확히는 발동 안 함 (< -1.0 조건)."""
+        ctx = _make_ctx(death_cross=True, profit_pct=-1.0)
+        assert check_death_cross(ctx) is None
+
+    def test_triggers_just_below_threshold(self):
+        """-1.01%는 발동."""
+        ctx = _make_ctx(death_cross=True, profit_pct=-1.01)
+        signal = check_death_cross(ctx)
+        assert signal is not None
+        assert signal.reason == SellReason.DEATH_CROSS
 
     def test_no_trigger_in_profit(self):
         ctx = _make_ctx(death_cross=True, profit_pct=1.0)
@@ -530,6 +565,21 @@ class TestDeathCross:
     def test_no_trigger_without_flag(self):
         ctx = _make_ctx(death_cross=False, profit_pct=-2.0)
         assert check_death_cross(ctx) is None
+
+    def test_skipped_in_bull(self):
+        """BULL + death_cross_bear_only=True → 스킵."""
+        ctx = _make_ctx(death_cross=True, profit_pct=-2.0)
+        assert check_death_cross(ctx, MarketRegime.BULL) is None
+        assert check_death_cross(ctx, MarketRegime.STRONG_BULL) is None
+
+    def test_triggers_in_bear(self):
+        """BEAR + death_cross_bear_only=True → 정상 발동."""
+        ctx = _make_ctx(death_cross=True, profit_pct=-2.0)
+        signal = check_death_cross(ctx, MarketRegime.BEAR)
+        assert signal is not None
+        assert signal.reason == SellReason.DEATH_CROSS
+        signal_sw = check_death_cross(ctx, MarketRegime.SIDEWAYS)
+        assert signal_sw is not None
 
 
 class TestTimeExit:

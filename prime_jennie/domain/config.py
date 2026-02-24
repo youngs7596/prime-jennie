@@ -95,6 +95,10 @@ class RiskConfig(BaseSettings):
     max_buy_count_per_day: int = 6
     max_position_value_pct: float = 10.0
     stoploss_cooldown_days: int = 3
+    max_sector_value_pct: float = 30.0  # 섹터 금액 비중 상한
+    max_stock_value_pct: float = 15.0  # 종목 금액 비중 상한 (position_sizing 12% 위 안전망)
+    correlation_check_enabled: bool = True
+    correlation_block_threshold: float = 0.85
     # 국면별 현금 하한선
     cash_floor_strong_bull_pct: float = 5.0
     cash_floor_bull_pct: float = 10.0
@@ -213,6 +217,8 @@ class SellConfig(BaseSettings):
     time_tighten_start_days: int = 10  # SIDEWAYS/BEAR: 10일부터 시작
     time_tighten_start_days_bull: int = 15  # BULL: 15일 (모멘텀 2차 상승 여유)
     time_tighten_max_reduction_pct: float = 2.0  # 최대 2%p 축소 (-5% → -3%)
+    # Death Cross
+    death_cross_bear_only: bool = True  # BULL/STRONG_BULL에서 death cross 비활성화
     # 최소 거래 가드
     min_transaction_amount: float = 500_000
     min_sell_quantity: int = 50
