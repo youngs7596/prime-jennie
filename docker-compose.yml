@@ -14,6 +14,7 @@ x-service-defaults: &service-defaults
     - stack=prime-jennie
 
 x-env-common: &env-common
+  TZ: Asia/Seoul
   DB_HOST: 127.0.0.1
   DB_PORT: "3307"
   DB_USER: "${DB_USER:-jennie}"
