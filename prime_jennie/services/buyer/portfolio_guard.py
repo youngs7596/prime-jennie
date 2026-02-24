@@ -129,6 +129,69 @@ class PortfolioGuard:
             {"cash_after_pct": cash_after_pct, "floor_pct": floor_pct},
         )
 
+    def check_sector_value_concentration(
+        self,
+        sector_group: SectorGroup,
+        buy_amount: int,
+        total_assets: int,
+        positions: list[Position],
+        regime: MarketRegime,
+    ) -> GuardResult:
+        """섹터 금액 비중 체크."""
+        if total_assets <= 0:
+            return GuardResult(True, "sector_value", "No assets")
+
+        max_pct = self._config.risk.max_sector_value_pct
+        # STRONG_BULL에서는 50%로 완화
+        if regime == MarketRegime.STRONG_BULL:
+            max_pct = 50.0
+
+        sector_value = sum((p.current_value or p.total_buy_amount) for p in positions if p.sector_group == sector_group)
+        total_pct = (sector_value + buy_amount) / total_assets * 100
+
+        if total_pct > max_pct:
+            return GuardResult(
+                False,
+                "sector_value",
+                f"Sector {sector_group.value} value {total_pct:.1f}% > {max_pct:.0f}%",
+                {"sector_pct": total_pct, "max_pct": max_pct},
+            )
+        return GuardResult(
+            True,
+            "sector_value",
+            f"Sector {sector_group.value} value {total_pct:.1f}% <= {max_pct:.0f}%",
+        )
+
+    def check_stock_value_concentration(
+        self,
+        buy_amount: int,
+        total_assets: int,
+        regime: MarketRegime,
+    ) -> GuardResult:
+        """종목 금액 비중 체크."""
+        if total_assets <= 0:
+            return GuardResult(True, "stock_value", "No assets")
+
+        max_pct = self._config.risk.max_stock_value_pct
+        # STRONG_BULL에서는 25%로 완화 (position_sizing A+ 18% 위 안전망)
+        if regime == MarketRegime.STRONG_BULL:
+            max_pct = 25.0
+
+        stock_pct = buy_amount / total_assets * 100
+
+        if stock_pct > max_pct:
+            return GuardResult(
+                False,
+                "stock_value",
+                f"Stock value {stock_pct:.1f}% > {max_pct:.0f}%",
+                {"stock_pct": stock_pct, "max_pct": max_pct},
+            )
+        return GuardResult(
+            True,
+            "stock_value",
+            f"Stock value {stock_pct:.1f}% <= {max_pct:.0f}%",
+        )
+
     def check_all(
         self,
         sector_group: SectorGroup,
@@ -148,7 +211,17 @@ class PortfolioGuard:
         if not sector_result.passed:
             return sector_result
 
-        # 2. Cash floor
+        # 2. Sector value concentration
+        sv_result = self.check_sector_value_concentration(sector_group, buy_amount, total_assets, positions, regime)
+        if not sv_result.passed:
+            return sv_result
+
+        # 3. Stock value concentration
+        stv_result = self.check_stock_value_concentration(buy_amount, total_assets, regime)
+        if not stv_result.passed:
+            return stv_result
+
+        # 4. Cash floor
         cash_result = self.check_cash_floor(buy_amount, available_cash, total_assets, regime)
         if not cash_result.passed:
             return cash_result

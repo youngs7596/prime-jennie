@@ -147,6 +147,7 @@ class BuyScanner:
             context=self._context,
             config=self._config.scanner,
             last_signal_times=self._last_signal_times,
+            redis_client=self._redis,
         )
         if not gate_result:
             return None

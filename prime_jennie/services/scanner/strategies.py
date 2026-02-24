@@ -387,8 +387,8 @@ def detect_strategies(
     if conv.detected:
         return conv
 
-    # 2. Bull-market strategies
-    if regime in (MarketRegime.BULL, MarketRegime.STRONG_BULL):
+    # 2. Bull/Sideways strategies
+    if regime in (MarketRegime.BULL, MarketRegime.STRONG_BULL, MarketRegime.SIDEWAYS):
         gc = detect_golden_cross(
             bars,
             volume_ratio=volume_ratio,
@@ -396,6 +396,8 @@ def detect_strategies(
         if gc.detected:
             return gc
 
+    # Momentum Continuation: BULL 전용
+    if regime in (MarketRegime.BULL, MarketRegime.STRONG_BULL):
         mc = detect_momentum_continuation(bars, regime, llm_score=entry.llm_score)
         if mc.detected:
             return mc

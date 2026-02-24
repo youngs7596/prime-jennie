@@ -134,6 +134,15 @@ class BuyExecutor:
         if code in held_codes:
             return ExecutionResult("skipped", code, name, reason="Already holding")
 
+        # 4-1. Cooldown check (매도 후 재매수 방지)
+        cooldown_key = f"stoploss_cooldown:{code}"
+        if self._redis.get(cooldown_key):
+            return ExecutionResult("skipped", code, name, reason="Cooldown active")
+
+        # 4-2. Sell cooldown (모든 매도 후 24h)
+        if self._redis.get(f"sell_cooldown:{code}"):
+            return ExecutionResult("skipped", code, name, reason="Sell cooldown (24h)")
+
         # 5. Daily buy count
         if not self._check_daily_limit():
             return ExecutionResult("skipped", code, name, reason="Daily buy limit reached")
@@ -169,6 +178,12 @@ class BuyExecutor:
 
         # ATR calculation
         atr = self._calculate_atr(code, current_price)
+
+        # Correlation check
+        if self._config.risk.correlation_check_enabled and positions:
+            passed, max_corr, msg = self._check_correlation(code, positions)
+            if not passed:
+                return ExecutionResult("skipped", code, name, reason=msg)
 
         # Stale score
         stale_days = 0  # Scanner generates real-time signals
@@ -238,6 +253,7 @@ class BuyExecutor:
             )
 
         self._increment_buy_count()
+        self._cleanup_position_state(code)
 
         logger.info(
             "[%s] BUY %d shares at %d (signal=%s, tier=%s, hybrid=%.1f)",
@@ -249,13 +265,24 @@ class BuyExecutor:
             signal.hybrid_score,
         )
 
+        # 주문 성공 후 실제 체결가 조회 (시장가 체결가와 스냅샷 가격 차이 보정)
+        actual_price = current_price
+        try:
+            fill_positions = self._kis.get_positions()
+            for p in fill_positions:
+                if p.stock_code == code:
+                    actual_price = p.average_buy_price
+                    break
+        except Exception:
+            logger.debug("[%s] Failed to fetch actual fill price, using snapshot", code)
+
         return ExecutionResult(
             "success",
             code,
             name,
             order_no=order_result.order_no or "",
             quantity=sizing.quantity,
-            price=current_price,
+            price=actual_price,
         )
 
     def _place_order(self, signal: BuySignal, quantity: int, current_price: int) -> OrderResult:
@@ -389,6 +416,41 @@ class BuyExecutor:
             pipe = self._redis.pipeline()
             pipe.incr(key)
             pipe.expire(key, 86400)
+            pipe.execute()
+        except Exception:
+            pass
+
+    def _check_correlation(self, stock_code: str, positions: list[Position]) -> tuple[bool, float, str]:
+        """보유 종목과 상관관계 체크."""
+        from .correlation import check_portfolio_correlation
+
+        try:
+            daily = self._kis.get_daily_prices(stock_code, days=60)
+            candidate_prices = [p.close_price for p in daily]
+        except Exception:
+            logger.debug("[%s] Daily prices fetch failed for correlation", stock_code)
+            return (True, 0.0, "Price data unavailable")
+
+        def price_lookup(code: str) -> list[float]:
+            daily_p = self._kis.get_daily_prices(code, days=60)
+            return [p.close_price for p in daily_p]
+
+        return check_portfolio_correlation(
+            candidate_code=stock_code,
+            candidate_prices=candidate_prices,
+            positions=positions,
+            price_lookup_fn=price_lookup,
+            block_threshold=self._config.risk.correlation_block_threshold,
+        )
+
+    def _cleanup_position_state(self, stock_code: str) -> None:
+        """매수 시 이전 포지션의 잔여 Redis 상태 초기화."""
+        try:
+            pipe = self._redis.pipeline()
+            pipe.delete(f"watermark:{stock_code}")
+            pipe.delete(f"scale_out:{stock_code}")
+            pipe.delete(f"rsi_sold:{stock_code}")
+            pipe.delete(f"profit_floor:{stock_code}")
             pipe.execute()
         except Exception:
             pass

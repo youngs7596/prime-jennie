@@ -1,11 +1,17 @@
 """Risk Gates — 매수 시그널 발행 전 순차 안전 체크.
 
-10개 게이트를 순차적으로 통과해야 시그널 발행 허용.
+11개 게이트를 순차적으로 통과해야 시그널 발행 허용.
 하나라도 실패하면 즉시 거부 (fail-fast).
 """
 
+from __future__ import annotations
+
 import logging
 from datetime import datetime, time
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    import redis
 
 from prime_jennie.domain.config import ScannerConfig
 from prime_jennie.domain.enums import MarketRegime, TradeTier, VixRegime
@@ -159,6 +165,48 @@ def check_cooldown(
     return GateResult(True, "cooldown")
 
 
+def check_stoploss_cooldown(
+    stock_code: str,
+    redis_client: redis.Redis | None = None,
+) -> GateResult:
+    """Gate 8-1: 손절 후 재매수 쿨다운 (Redis 기반, 서비스 재시작에도 유지)."""
+    if redis_client is None:
+        return GateResult(True, "stoploss_cooldown")
+    try:
+        ttl = redis_client.ttl(f"stoploss_cooldown:{stock_code}")
+        if ttl and ttl > 0:
+            days_left = round(ttl / 86400, 1)
+            return GateResult(
+                False,
+                "stoploss_cooldown",
+                f"Stop-loss cooldown: {days_left}d remaining",
+            )
+    except Exception:
+        pass
+    return GateResult(True, "stoploss_cooldown")
+
+
+def check_sell_cooldown(
+    stock_code: str,
+    redis_client: redis.Redis | None = None,
+) -> GateResult:
+    """Gate 8-2: 매도 후 24h 재매수 쿨다운."""
+    if redis_client is None:
+        return GateResult(True, "sell_cooldown")
+    try:
+        ttl = redis_client.ttl(f"sell_cooldown:{stock_code}")
+        if ttl and ttl > 0:
+            hours_left = round(ttl / 3600, 1)
+            return GateResult(
+                False,
+                "sell_cooldown",
+                f"Sell cooldown: {hours_left}h remaining",
+            )
+    except Exception:
+        pass
+    return GateResult(True, "sell_cooldown")
+
+
 def check_trade_tier(trade_tier: TradeTier) -> GateResult:
     """Gate 9: BLOCKED 티어 종목 차단."""
     if trade_tier == TradeTier.BLOCKED:
@@ -200,6 +248,7 @@ def run_all_gates(
     context: TradingContext,
     config: ScannerConfig,
     last_signal_times: dict[str, float],
+    redis_client: redis.Redis | None = None,
 ) -> GateResult:
     """모든 게이트 순차 실행. 첫 번째 실패 시 즉시 반환."""
     gates = [
@@ -226,6 +275,8 @@ def run_all_gates(
             last_signal_times,
             config.signal_cooldown_seconds,
         ),
+        lambda: check_stoploss_cooldown(stock_code, redis_client),
+        lambda: check_sell_cooldown(stock_code, redis_client),
         lambda: check_trade_tier(trade_tier),
         lambda: check_micro_timing(bars),
     ]

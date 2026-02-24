@@ -122,6 +122,75 @@ class TestCashFloor:
         assert result.passed
 
 
+class TestSectorValueConcentration:
+    def test_within_limit(self):
+        """섹터 금액 비중 한도 내."""
+        guard = PortfolioGuard()
+        positions = [_make_position("000001", SectorGroup.SEMICONDUCTOR_IT)]
+        # 7M existing + 5M buy = 12M / 50M = 24% < 30%
+        result = guard.check_sector_value_concentration(
+            SectorGroup.SEMICONDUCTOR_IT, 5_000_000, 50_000_000, positions, MarketRegime.BULL
+        )
+        assert result.passed
+
+    def test_exceeds_limit(self):
+        """섹터 금액 비중 초과 → 차단."""
+        guard = PortfolioGuard()
+        # 3 positions * 7M = 21M + 5M buy = 26M / 50M = 52% > 30%
+        positions = [_make_position(f"00000{i}", SectorGroup.SEMICONDUCTOR_IT) for i in range(3)]
+        result = guard.check_sector_value_concentration(
+            SectorGroup.SEMICONDUCTOR_IT, 5_000_000, 50_000_000, positions, MarketRegime.BULL
+        )
+        assert not result.passed
+        assert "sector_value" in result.check_name
+
+    def test_strong_bull_relaxed(self):
+        """STRONG_BULL: 50% 완화."""
+        guard = PortfolioGuard()
+        # 3 * 7M = 21M + 2M = 23M / 50M = 46% < 50%
+        positions = [_make_position(f"00000{i}", SectorGroup.SEMICONDUCTOR_IT) for i in range(3)]
+        result = guard.check_sector_value_concentration(
+            SectorGroup.SEMICONDUCTOR_IT, 2_000_000, 50_000_000, positions, MarketRegime.STRONG_BULL
+        )
+        assert result.passed
+
+    def test_zero_assets(self):
+        """자산 0 → 통과."""
+        guard = PortfolioGuard()
+        result = guard.check_sector_value_concentration(SectorGroup.SEMICONDUCTOR_IT, 0, 0, [], MarketRegime.BULL)
+        assert result.passed
+
+
+class TestStockValueConcentration:
+    def test_within_limit(self):
+        """종목 금액 비중 한도 내."""
+        guard = PortfolioGuard()
+        # 6M / 50M = 12% < 15%
+        result = guard.check_stock_value_concentration(6_000_000, 50_000_000, MarketRegime.BULL)
+        assert result.passed
+
+    def test_exceeds_limit(self):
+        """종목 금액 비중 초과 → 차단."""
+        guard = PortfolioGuard()
+        # 8M / 50M = 16% > 15%
+        result = guard.check_stock_value_concentration(8_000_000, 50_000_000, MarketRegime.BULL)
+        assert not result.passed
+        assert "stock_value" in result.check_name
+
+    def test_strong_bull_relaxed(self):
+        """STRONG_BULL: 25% 완화."""
+        guard = PortfolioGuard()
+        # 10M / 50M = 20% < 25%
+        result = guard.check_stock_value_concentration(10_000_000, 50_000_000, MarketRegime.STRONG_BULL)
+        assert result.passed
+
+    def test_zero_assets(self):
+        """자산 0 → 통과."""
+        guard = PortfolioGuard()
+        result = guard.check_stock_value_concentration(0, 0, MarketRegime.BULL)
+        assert result.passed
+
+
 class TestCheckAll:
     def test_all_pass(self):
         """모든 체크 통과."""

@@ -25,6 +25,7 @@ LOCK_PREFIX = "lock:sell:"
 EMERGENCY_STOP_KEY = "trading:stopped"
 COOLDOWN_PREFIX = "stoploss_cooldown:"
 DRYRUN_KEY = "trading_flags:dryrun"
+COOLDOWN_REASONS = {SellReason.STOP_LOSS, SellReason.DEATH_CROSS, SellReason.BREAKEVEN_STOP}
 
 
 class SellResult:
@@ -162,8 +163,9 @@ class SellExecutor:
                 sell_qty,
                 current_price,
             )
-            if order.sell_reason == SellReason.STOP_LOSS:
+            if order.sell_reason in COOLDOWN_REASONS:
                 self._set_cooldown(code)
+            self._set_sell_cooldown(code)
             if sell_qty >= position.quantity:
                 self._cleanup_position_state(code)
             return SellResult(
@@ -205,9 +207,12 @@ class SellExecutor:
             profit_pct,
         )
 
-        # Stop-loss cooldown
-        if order.sell_reason == SellReason.STOP_LOSS:
+        # Stop-loss / death-cross / breakeven cooldown
+        if order.sell_reason in COOLDOWN_REASONS:
             self._set_cooldown(code)
+
+        # 24h sell cooldown (모든 매도 사유)
+        self._set_sell_cooldown(code)
 
         # Redis state cleanup for full exit
         if sell_qty >= position.quantity:
@@ -260,6 +265,11 @@ class SellExecutor:
             logger.info("[%s] Cooldown set: %d days", stock_code, days)
         except Exception:
             pass
+
+    def _set_sell_cooldown(self, stock_code: str) -> None:
+        """모든 매도 후 24시간 재매수 쿨다운 설정."""
+        with contextlib.suppress(Exception):
+            self._redis.setex(f"sell_cooldown:{stock_code}", 86400, "1")
 
     def _cleanup_position_state(self, stock_code: str) -> None:
         """전량 매도 시 Redis 상태 정리."""

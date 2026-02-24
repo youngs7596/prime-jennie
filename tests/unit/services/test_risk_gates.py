@@ -3,6 +3,9 @@
 import time
 from datetime import UTC, datetime
 
+import fakeredis
+import pytest
+
 from prime_jennie.domain.config import ScannerConfig
 from prime_jennie.domain.enums import MarketRegime, TradeTier, VixRegime
 from prime_jennie.domain.macro import TradingContext
@@ -17,8 +20,17 @@ from prime_jennie.services.scanner.risk_gates import (
     check_min_bars,
     check_no_trade_window,
     check_rsi_guard,
+    check_sell_cooldown,
+    check_stoploss_cooldown,
     check_trade_tier,
 )
+
+
+@pytest.fixture()
+def fake_redis():
+    r = fakeredis.FakeRedis(version=(7,), decode_responses=True)
+    yield r
+    r.flushall()
 
 
 def _make_bar(close: float = 100, open: float = 99, high: float = 101, low: float = 98, volume: int = 1000) -> Bar:
@@ -161,6 +173,64 @@ class TestCooldown:
             "005930": time.time() - 700  # 700초 전 (> 600)
         }
         result = check_cooldown("005930", last, 600)
+        assert result.passed
+
+
+class TestStoplossCooldown:
+    def test_no_redis_passes(self):
+        """Redis 없으면 통과."""
+        result = check_stoploss_cooldown("005930", redis_client=None)
+        assert result.passed
+
+    def test_no_cooldown_passes(self, fake_redis):
+        """쿨다운 키 없으면 통과."""
+        result = check_stoploss_cooldown("005930", redis_client=fake_redis)
+        assert result.passed
+
+    def test_active_cooldown_fails(self, fake_redis):
+        """쿨다운 키 있으면 차단."""
+        fake_redis.setex("stoploss_cooldown:005930", 3 * 86400, "1")
+        result = check_stoploss_cooldown("005930", redis_client=fake_redis)
+        assert not result.passed
+        assert result.gate_name == "stoploss_cooldown"
+        assert "remaining" in result.reason
+
+    def test_expired_cooldown_passes(self, fake_redis):
+        """만료된 쿨다운은 통과."""
+        fake_redis.setex("stoploss_cooldown:005930", 1, "1")
+        import time as t
+
+        t.sleep(1.1)
+        result = check_stoploss_cooldown("005930", redis_client=fake_redis)
+        assert result.passed
+
+
+class TestSellCooldown:
+    def test_no_redis_passes(self):
+        """Redis 없으면 통과."""
+        result = check_sell_cooldown("005930", redis_client=None)
+        assert result.passed
+
+    def test_no_cooldown_passes(self, fake_redis):
+        """쿨다운 키 없으면 통과."""
+        result = check_sell_cooldown("005930", redis_client=fake_redis)
+        assert result.passed
+
+    def test_active_cooldown_fails(self, fake_redis):
+        """쿨다운 키 있으면 차단."""
+        fake_redis.setex("sell_cooldown:005930", 86400, "1")
+        result = check_sell_cooldown("005930", redis_client=fake_redis)
+        assert not result.passed
+        assert result.gate_name == "sell_cooldown"
+        assert "remaining" in result.reason
+
+    def test_expired_cooldown_passes(self, fake_redis):
+        """만료된 쿨다운은 통과."""
+        fake_redis.setex("sell_cooldown:005930", 1, "1")
+        import time as t
+
+        t.sleep(1.1)
+        result = check_sell_cooldown("005930", redis_client=fake_redis)
         assert result.passed
 
 
