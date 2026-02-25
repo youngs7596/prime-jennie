@@ -339,6 +339,67 @@ def detect_conviction_entry(
     )
 
 
+def detect_orb_breakout(
+    bars: list[Bar],
+    opening_range: dict | None,
+    volume_ratio: float,
+    config: ScannerConfig,
+    now: datetime | None = None,
+) -> StrategyResult:
+    """ORB_BREAKOUT: Opening Range 상단 돌파.
+
+    Opening Range (09:00-09:15)의 고가를 돌파하면서
+    거래량이 동반되는 장 초반 모멘텀 포착.
+    """
+    if not config.orb_enabled:
+        return StrategyResult(False)
+
+    if opening_range is None:
+        return StrategyResult(False)
+
+    if opening_range.get("bar_count", 0) < 3:
+        return StrategyResult(False)
+
+    # Time window check
+    from .risk_gates import _kst_now, _parse_time
+
+    now_kst = now or _kst_now()
+    window_end = _parse_time(config.orb_window_end)
+    if now_kst.time() > window_end:
+        return StrategyResult(False)
+
+    or_high = opening_range["high"]
+    or_low = opening_range["low"]
+
+    # Range 폭 체크
+    if or_low <= 0:
+        return StrategyResult(False)
+    range_pct = (or_high / or_low - 1) * 100
+    if range_pct < config.orb_min_range_pct:
+        return StrategyResult(False)
+    if range_pct > config.orb_max_range_pct:
+        return StrategyResult(False)
+
+    # Breakout: 현재가 > OR 고가
+    if len(bars) == 0:
+        return StrategyResult(False)
+    current_price = bars[-1].close
+    if current_price <= or_high:
+        return StrategyResult(False)
+
+    # Volume 확인
+    if volume_ratio < config.orb_min_volume_ratio:
+        return StrategyResult(False)
+
+    breakout_pct = (current_price / or_high - 1) * 100
+    return StrategyResult(
+        True,
+        SignalType.ORB_BREAKOUT,
+        f"ORB breakout: +{breakout_pct:.1f}% above range high {or_high:.0f}, "
+        f"range={range_pct:.1f}%, vol={volume_ratio:.1f}x",
+    )
+
+
 def detect_volume_breakout(
     bars: list[Bar],
     volume_ratio: float,

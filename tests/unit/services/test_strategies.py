@@ -2,6 +2,7 @@
 
 from datetime import UTC
 
+from prime_jennie.domain.config import ScannerConfig
 from prime_jennie.domain.enums import MarketRegime, SignalType, TradeTier
 from prime_jennie.domain.watchlist import WatchlistEntry
 from prime_jennie.services.scanner.bar_engine import Bar
@@ -13,6 +14,7 @@ from prime_jennie.services.scanner.strategies import (
     detect_golden_cross,
     detect_momentum,
     detect_momentum_continuation,
+    detect_orb_breakout,
     detect_rsi_rebound,
     detect_volume_breakout,
 )
@@ -325,3 +327,110 @@ class TestComputeRSIFromBars:
         bars = _make_bars_trend(5)
         rsi = compute_rsi_from_bars(bars)
         assert rsi is None
+
+
+def _orb_config(**overrides) -> ScannerConfig:
+    """ORB 활성화된 ScannerConfig 생성."""
+    defaults = {
+        "orb_enabled": True,
+        "orb_range_minutes": 15,
+        "orb_min_volume_ratio": 2.0,
+        "orb_min_range_pct": 0.5,
+        "orb_max_range_pct": 5.0,
+        "orb_window_end": "10:30",
+    }
+    defaults.update(overrides)
+    return ScannerConfig(**defaults)
+
+
+def _orb_now(hour: int = 9, minute: int = 30):
+    """ORB 테스트용 KST datetime."""
+    from datetime import datetime
+    from zoneinfo import ZoneInfo
+
+    return datetime(2026, 2, 25, hour, minute, tzinfo=ZoneInfo("Asia/Seoul"))
+
+
+class TestORBBreakout:
+    def test_valid_breakout(self):
+        """정상 ORB breakout: OR 상단 돌파 + 거래량."""
+        bars = [_make_bar(close=1050, high=1055, low=1045)]
+        opening_range = {"high": 1020, "low": 1000, "bar_count": 5, "date": "2026-02-25"}
+        config = _orb_config()
+
+        result = detect_orb_breakout(bars, opening_range, 2.5, config, now=_orb_now(9, 30))
+        assert result.detected
+        assert result.signal_type == SignalType.ORB_BREAKOUT
+
+    def test_no_opening_range(self):
+        """Opening range 미형성."""
+        bars = [_make_bar(close=1050)]
+        config = _orb_config()
+
+        result = detect_orb_breakout(bars, None, 2.5, config, now=_orb_now(9, 30))
+        assert not result.detected
+
+    def test_insufficient_bar_count(self):
+        """Opening range 바 부족 (< 3)."""
+        bars = [_make_bar(close=1050)]
+        opening_range = {"high": 1020, "low": 1000, "bar_count": 2, "date": "2026-02-25"}
+        config = _orb_config()
+
+        result = detect_orb_breakout(bars, opening_range, 2.5, config, now=_orb_now(9, 30))
+        assert not result.detected
+
+    def test_insufficient_volume(self):
+        """거래량 부족."""
+        bars = [_make_bar(close=1050)]
+        opening_range = {"high": 1020, "low": 1000, "bar_count": 5, "date": "2026-02-25"}
+        config = _orb_config()
+
+        result = detect_orb_breakout(bars, opening_range, 1.0, config, now=_orb_now(9, 30))
+        assert not result.detected
+
+    def test_range_too_narrow(self):
+        """Range 폭 < min_range_pct."""
+        bars = [_make_bar(close=1050)]
+        # 0.1% 폭 → too narrow
+        opening_range = {"high": 1001, "low": 1000, "bar_count": 5, "date": "2026-02-25"}
+        config = _orb_config(orb_min_range_pct=0.5)
+
+        result = detect_orb_breakout(bars, opening_range, 2.5, config, now=_orb_now(9, 30))
+        assert not result.detected
+
+    def test_range_too_wide(self):
+        """Range 폭 > max_range_pct (과열)."""
+        bars = [_make_bar(close=1100)]
+        # 10% 폭 → too wide
+        opening_range = {"high": 1100, "low": 1000, "bar_count": 5, "date": "2026-02-25"}
+        config = _orb_config(orb_max_range_pct=5.0)
+
+        result = detect_orb_breakout(bars, opening_range, 2.5, config, now=_orb_now(9, 30))
+        assert not result.detected
+
+    def test_window_expired(self):
+        """ORB window 종료 후 (10:30 이후)."""
+        bars = [_make_bar(close=1050)]
+        opening_range = {"high": 1020, "low": 1000, "bar_count": 5, "date": "2026-02-25"}
+        config = _orb_config()
+
+        result = detect_orb_breakout(bars, opening_range, 2.5, config, now=_orb_now(10, 31))
+        assert not result.detected
+
+    def test_price_below_range(self):
+        """현재가가 OR 고가 미만."""
+        bars = [_make_bar(close=1010)]
+        opening_range = {"high": 1020, "low": 1000, "bar_count": 5, "date": "2026-02-25"}
+        config = _orb_config()
+
+        result = detect_orb_breakout(bars, opening_range, 2.5, config, now=_orb_now(9, 30))
+        assert not result.detected
+
+    def test_disabled(self):
+        """orb_enabled=False일 때 항상 미감지."""
+        bars = [_make_bar(close=1050)]
+        opening_range = {"high": 1020, "low": 1000, "bar_count": 5, "date": "2026-02-25"}
+        config = _orb_config(orb_enabled=False)
+
+        result = detect_orb_breakout(bars, opening_range, 2.5, config, now=_orb_now(9, 30))
+        assert not result.detected

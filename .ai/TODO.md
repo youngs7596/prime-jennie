@@ -42,6 +42,15 @@
 - fakeredis + SQLite in-memory 기반
 - 매수 8건 + 매도 8건 + 라운드트립 3건 = 총 19개 테스트
 
+### 9. 기존 전략 파라미터 퀀트 적합성 튜닝
+- **근거**: ORB 구현 시 기존 7개 전략 감사 결과 (2026-02-25)
+- **DIP_BUY (높음)**: BULL -0.5~-3%, BEAR -2~-5% 범위가 매우 타이트 → 작동 빈도 낮을 수 있음. 범위 확장 검토
+- **MOMENTUM (높음)**: 7% cap이 특정 시장에 과적합 가능 → 국면별 차등 cap 검토 (이미 config화)
+- **GOLDEN_CROSS (중간)**: MA5/20은 1분봉 context에서 합리적이나 일봉 기준 표준(50/200)과 상이
+- **MOMENTUM_CONT (중간)**: LLM 의존은 비전통적 — LLM 장애 시 fallback 전략 필요 여부 검토
+- **RSI_REBOUND, VOLUME_BREAKOUT (낮음)**: 전통 기법에 충실, 변경 불필요
+- **방법**: 1-2주 운영 데이터(시그널 발생/미발생 로그) 기반으로 한 항목씩 튜닝. 동시 변경 금지
+
 ## 개선 (여유 시 진행)
 
 ### 5. Quant Scorer Shadow Comparison 정리

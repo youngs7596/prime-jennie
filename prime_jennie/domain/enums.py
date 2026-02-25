@@ -40,6 +40,7 @@ class SignalType(StrEnum):
     DIP_BUY = "DIP_BUY"
     VOLUME_BREAKOUT = "VOLUME_BREAKOUT"
     WATCHLIST_CONVICTION = "WATCHLIST_CONVICTION"
+    ORB_BREAKOUT = "ORB_BREAKOUT"
 
 
 class SellReason(StrEnum):

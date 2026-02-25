@@ -27,9 +27,9 @@ from prime_jennie.infra.redis.client import get_redis
 from prime_jennie.infra.redis.streams import TypedStreamPublisher
 from prime_jennie.services.base import create_app
 
-from .bar_engine import BarEngine
+from .bar_engine import Bar, BarEngine
 from .risk_gates import run_all_gates
-from .strategies import compute_rsi_from_bars, detect_strategies
+from .strategies import compute_rsi_from_bars, detect_orb_breakout, detect_strategies
 
 logger = logging.getLogger(__name__)
 
@@ -64,6 +64,8 @@ class BuyScanner:
         self._context: TradingContext = TradingContext.default()
         self._last_signal_times: dict[str, float] = {}
         self._pending_momentum: dict[str, dict] = {}
+        # ORB: 종목별 opening range {high, low, bar_count, date}
+        self._opening_ranges: dict[str, dict] = {}
 
     def load_watchlist(self) -> bool:
         """Redis에서 watchlist 로드 + manual watchlist 병합."""
@@ -147,6 +149,38 @@ class BuyScanner:
     def context(self) -> TradingContext:
         return self._context
 
+    def _update_opening_range(self, stock_code: str, bar: Bar) -> None:
+        """Opening Range 갱신 (09:00-09:15 KST)."""
+        from zoneinfo import ZoneInfo
+
+        bar_dt = datetime.fromtimestamp(bar.timestamp, tz=ZoneInfo("Asia/Seoul"))
+        bar_time = bar_dt.time()
+
+        from .risk_gates import _parse_time
+
+        range_end = _parse_time(f"09:{self._config.scanner.orb_range_minutes:02d}")
+        from datetime import time as dt_time
+
+        range_start = dt_time(9, 0)
+
+        if not (range_start <= bar_time < range_end):
+            return
+
+        today = bar_dt.strftime("%Y-%m-%d")
+        existing = self._opening_ranges.get(stock_code)
+
+        if existing is None or existing.get("date") != today:
+            self._opening_ranges[stock_code] = {
+                "high": bar.high,
+                "low": bar.low,
+                "bar_count": 1,
+                "date": today,
+            }
+        else:
+            existing["high"] = max(existing["high"], bar.high)
+            existing["low"] = min(existing["low"], bar.low)
+            existing["bar_count"] += 1
+
     def process_tick(self, stock_code: str, price: float, volume: int = 0) -> BuySignal | None:
         """틱 데이터 처리 → 시그널 발행.
 
@@ -171,6 +205,9 @@ class BuyScanner:
         if completed is None:
             return None
 
+        # Opening Range 갱신
+        self._update_opening_range(stock_code, completed)
+
         bars = self._bar_engine.get_recent_bars(stock_code, 30)
         vwap = self._bar_engine.get_vwap(stock_code)
         vol_info = self._bar_engine.get_volume_info(stock_code)
@@ -187,6 +224,29 @@ class BuyScanner:
             if not cd:
                 return None
             return self._publish_signal(stock_code, entry, conv.signal_type, price, rsi, vol_info["ratio"], vwap)
+
+        # ORB: partial gate bypass (RSI guard, combined_risk 스킵)
+        if self._config.scanner.orb_enabled:
+            from .risk_gates import check_sell_cooldown, check_stoploss_cooldown, check_trade_tier
+
+            orb = detect_orb_breakout(
+                bars,
+                self._opening_ranges.get(stock_code),
+                vol_info["ratio"],
+                self._config.scanner,
+            )
+            if orb.detected:
+                # 쿨다운 + 손절쿨다운 + 매도쿨다운 + trade_tier만 체크
+                cd = check_cooldown(stock_code, self._last_signal_times, self._config.scanner.signal_cooldown_seconds)
+                if not cd:
+                    return None
+                if not check_stoploss_cooldown(stock_code, self._redis):
+                    return None
+                if not check_sell_cooldown(stock_code, self._redis):
+                    return None
+                if not check_trade_tier(entry.trade_tier):
+                    return None
+                return self._publish_signal(stock_code, entry, orb.signal_type, price, rsi, vol_info["ratio"], vwap)
 
         # 나머지 전략은 risk gate 통과 필요
         gate_result = run_all_gates(

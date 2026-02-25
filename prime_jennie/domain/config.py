@@ -154,6 +154,13 @@ class ScannerConfig(BaseSettings):
     momentum_limit_timeout_sec: int = 10
     momentum_confirmation_bars: int = 1
     momentum_max_gain_pct: float = 7.0
+    # ORB (Opening Range Breakout)
+    orb_enabled: bool = False
+    orb_range_minutes: int = 15
+    orb_min_volume_ratio: float = 2.0
+    orb_min_range_pct: float = 0.5
+    orb_max_range_pct: float = 5.0
+    orb_window_end: str = "10:30"
 
     model_config = {"env_prefix": "SCANNER_"}
 
