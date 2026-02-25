@@ -998,10 +998,13 @@ def _ensure_stock_master(session: Session, stock_code: str, stock_name: str) -> 
     logger.info("stock_masters 자동 생성: %s %s", stock_code, stock_name)
 
 
-def apply_sync(session: Session, diff: dict) -> list[str]:
-    """비교 결과를 DB에 반영. 적용된 변경 설명 리스트 반환."""
+def apply_sync(session: Session, diff: dict, kis_positions: list[dict]) -> list[str]:
+    """비교 결과를 DB에 반영. KIS 데이터 기준으로 덮어쓰기."""
     actions: list[str] = []
+    config = get_config()
+    kis_map = {p["stock_code"]: p for p in kis_positions}
 
+    # 1. KIS에만 있는 종목 → INSERT
     for kis_pos in diff["only_in_kis"]:
         code = kis_pos["stock_code"]
         name = kis_pos.get("stock_name", "")
@@ -1009,6 +1012,8 @@ def apply_sync(session: Session, diff: dict) -> list[str]:
         avg = int(kis_pos.get("average_buy_price", 0))
         total = int(kis_pos.get("total_buy_amount", 0)) or qty * avg
         cur_price = int(kis_pos.get("current_price", 0)) or avg
+        sector = _resolve_sector(session, code)
+        stop_loss = int(avg * (1 - config.sell.stop_loss_pct / 100))
         _ensure_stock_master(session, code, name)
         session.add(
             PositionDB(
@@ -1018,33 +1023,71 @@ def apply_sync(session: Session, diff: dict) -> list[str]:
                 average_buy_price=avg,
                 total_buy_amount=total,
                 high_watermark=cur_price,
+                stop_loss_price=stop_loss,
+                sector_group=sector,
             )
         )
         actions.append(f"INSERT {code} {name} qty={qty} avg={avg:,}")
 
+    # 2. DB에만 있는 종목 → DELETE
     for db_pos in diff["only_in_db"]:
         pos = session.get(PositionDB, db_pos.stock_code)
         if pos:
             session.delete(pos)
             actions.append(f"DELETE {db_pos.stock_code} {db_pos.stock_name}")
 
-    for m in diff["quantity_mismatch"]:
-        pos = session.get(PositionDB, m["stock_code"])
-        if pos:
-            pos.quantity = m["kis_qty"]
-            pos.total_buy_amount = m["kis_qty"] * pos.average_buy_price
-            pos.updated_at = datetime.utcnow()
-            actions.append(f"UPDATE qty {m['stock_code']} {m['stock_name']} {m['db_qty']}→{m['kis_qty']}")
+    # 3. 공통 종목 → KIS 기준 덮어쓰기
+    common_codes = (
+        [c for c in diff.get("matched", [])]
+        + [m["stock_code"] for m in diff.get("quantity_mismatch", [])]
+        + [m["stock_code"] for m in diff.get("price_mismatch", [])]
+    )
+    for code in common_codes:
+        kis_pos = kis_map.get(code)
+        if not kis_pos:
+            continue
+        pos = session.get(PositionDB, code)
+        if not pos:
+            continue
 
-    for m in diff["price_mismatch"]:
-        pos = session.get(PositionDB, m["stock_code"])
-        if pos:
-            pos.average_buy_price = m["kis_avg"]
-            pos.total_buy_amount = pos.quantity * m["kis_avg"]
+        kis_qty = int(kis_pos.get("quantity", 0))
+        kis_avg = int(kis_pos.get("average_buy_price", 0))
+        kis_total = int(kis_pos.get("total_buy_amount", 0)) or kis_qty * kis_avg
+        kis_cur = int(kis_pos.get("current_price", 0))
+
+        changed: list[str] = []
+        if pos.quantity != kis_qty:
+            changed.append(f"qty:{pos.quantity}→{kis_qty}")
+            pos.quantity = kis_qty
+        if pos.average_buy_price != kis_avg:
+            changed.append(f"avg:{pos.average_buy_price:,}→{kis_avg:,}")
+            pos.average_buy_price = kis_avg
+            pos.stop_loss_price = int(kis_avg * (1 - config.sell.stop_loss_pct / 100))
+        pos.total_buy_amount = kis_total
+        if kis_cur and (pos.high_watermark is None or kis_cur > pos.high_watermark):
+            changed.append(f"hwm:{pos.high_watermark}→{kis_cur}")
+            pos.high_watermark = kis_cur
+        if pos.sector_group is None:
+            sector = _resolve_sector(session, code)
+            if sector:
+                pos.sector_group = sector
+                changed.append(f"sector:→{sector}")
+
+        if changed:
             pos.updated_at = datetime.utcnow()
-            actions.append(f"UPDATE avg {m['stock_code']} {m['stock_name']} {m['db_avg']:,}→{m['kis_avg']:,}")
+            actions.append(f"UPDATE {code} {kis_pos.get('stock_name', '')} {', '.join(changed)}")
 
     return actions
+
+
+def _resolve_sector(session: Session, stock_code: str) -> str | None:
+    """stock_masters에서 섹터 조회 → SectorGroup 변환."""
+    from prime_jennie.domain.sector_taxonomy import get_sector_group
+
+    master = session.get(StockMasterDB, stock_code)
+    if master and master.naver_sector:
+        return str(get_sector_group(master.naver_sector, stock_code=stock_code))
+    return None
 
 
 @app.post("/jobs/sync-positions")
@@ -1099,7 +1142,7 @@ def sync_positions(
             lines.insert(0, "[DRY RUN] 변경사항 미적용")
             return JobResult(message="\n".join(lines))
 
-        actions = apply_sync(session, diff)
+        actions = apply_sync(session, diff, kis_positions)
         session.commit()
         lines.insert(0, f"[APPLIED] {len(actions)}건 적용 완료")
         lines.extend(["", "Actions:"] + [f"  {a}" for a in actions])

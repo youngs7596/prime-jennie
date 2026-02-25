@@ -36,6 +36,7 @@ def _db_pos(
     total_buy_amount: int = 7_200_000,
     sector_group: str | None = "IT",
     high_watermark: int | None = 75000,
+    stop_loss_price: int | None = 68400,
 ) -> PositionDB:
     return PositionDB(
         stock_code=stock_code,
@@ -45,6 +46,7 @@ def _db_pos(
         total_buy_amount=total_buy_amount,
         sector_group=sector_group,
         high_watermark=high_watermark,
+        stop_loss_price=stop_loss_price,
     )
 
 
@@ -171,14 +173,15 @@ class TestApplySync:
 
     def test_insert_only_in_kis(self):
         session = self._mock_session()
+        kis = [_kis_pos(stock_code="000660", stock_name="SK하이닉스", current_price=180000)]
         diff = {
-            "only_in_kis": [_kis_pos(stock_code="000660", stock_name="SK하이닉스", current_price=180000)],
+            "only_in_kis": kis,
             "only_in_db": [],
             "quantity_mismatch": [],
             "price_mismatch": [],
             "matched": [],
         }
-        actions = apply_sync(session, diff)
+        actions = apply_sync(session, diff, kis)
 
         assert len(actions) == 1
         assert "INSERT" in actions[0]
@@ -192,18 +195,20 @@ class TestApplySync:
         assert isinstance(added_pos, PositionDB)
         assert added_pos.stock_code == "000660"
         assert added_pos.high_watermark == 180000
+        assert added_pos.stop_loss_price is not None
 
     def test_insert_fallback_high_watermark(self):
         """current_price가 0이면 average_buy_price를 high_watermark로 사용."""
         session = self._mock_session()
+        kis = [_kis_pos(stock_code="000660", current_price=0, average_buy_price=170000)]
         diff = {
-            "only_in_kis": [_kis_pos(stock_code="000660", current_price=0, average_buy_price=170000)],
+            "only_in_kis": kis,
             "only_in_db": [],
             "quantity_mismatch": [],
             "price_mismatch": [],
             "matched": [],
         }
-        apply_sync(session, diff)
+        apply_sync(session, diff, kis)
         added = session.add.call_args[0][0]
         assert added.high_watermark == 170000
 
@@ -217,15 +222,17 @@ class TestApplySync:
             "price_mismatch": [],
             "matched": [],
         }
-        actions = apply_sync(session, diff)
+        actions = apply_sync(session, diff, [])
 
         assert len(actions) == 1
         assert "DELETE" in actions[0]
         session.delete.assert_called_once_with(pos)
 
-    def test_update_quantity(self):
+    def test_overwrite_quantity_from_kis(self):
+        """수량 불일치 시 KIS 기준으로 덮어쓰기."""
         pos = _db_pos(stock_code="005930", quantity=100, average_buy_price=72000)
         session = self._mock_session(existing={"005930": pos})
+        kis = [_kis_pos(stock_code="005930", quantity=150, average_buy_price=72000, total_buy_amount=10_800_000)]
         diff = {
             "only_in_kis": [],
             "only_in_db": [],
@@ -233,16 +240,18 @@ class TestApplySync:
             "price_mismatch": [],
             "matched": [],
         }
-        actions = apply_sync(session, diff)
+        actions = apply_sync(session, diff, kis)
 
         assert len(actions) == 1
-        assert "UPDATE qty" in actions[0]
+        assert "qty:100→150" in actions[0]
         assert pos.quantity == 150
-        assert pos.total_buy_amount == 150 * 72000
+        assert pos.total_buy_amount == 10_800_000
 
-    def test_update_price(self):
-        pos = _db_pos(stock_code="005930", quantity=100, average_buy_price=72000)
+    def test_overwrite_price_from_kis(self):
+        """평균단가 불일치 시 KIS 기준으로 덮어쓰기 + stop_loss 재계산."""
+        pos = _db_pos(stock_code="005930", quantity=100, average_buy_price=72000, stop_loss_price=68400)
         session = self._mock_session(existing={"005930": pos})
+        kis = [_kis_pos(stock_code="005930", quantity=100, average_buy_price=72500, total_buy_amount=7_250_000)]
         diff = {
             "only_in_kis": [],
             "only_in_db": [],
@@ -250,15 +259,35 @@ class TestApplySync:
             "price_mismatch": [{"stock_code": "005930", "stock_name": "삼성전자", "kis_avg": 72500, "db_avg": 72000}],
             "matched": [],
         }
-        actions = apply_sync(session, diff)
+        actions = apply_sync(session, diff, kis)
 
         assert len(actions) == 1
-        assert "UPDATE avg" in actions[0]
+        assert "avg:72,000→72,500" in actions[0]
         assert pos.average_buy_price == 72500
-        assert pos.total_buy_amount == 100 * 72500
+        assert pos.total_buy_amount == 7_250_000
+        # stop_loss 재계산됨
+        assert pos.stop_loss_price != 68400
 
-    def test_preserves_sector_group_and_high_watermark(self):
-        """UPDATE 시 기존 sector_group, high_watermark 보존."""
+    def test_overwrite_both_qty_and_price(self):
+        """수량+가격 모두 다를 때 둘 다 KIS 기준으로 덮어쓰기."""
+        pos = _db_pos(stock_code="005930", quantity=100, average_buy_price=72000)
+        session = self._mock_session(existing={"005930": pos})
+        kis = [_kis_pos(stock_code="005930", quantity=150, average_buy_price=73000, total_buy_amount=10_950_000)]
+        diff = {
+            "only_in_kis": [],
+            "only_in_db": [],
+            "quantity_mismatch": [{"stock_code": "005930", "stock_name": "삼성전자", "kis_qty": 150, "db_qty": 100}],
+            "price_mismatch": [],
+            "matched": [],
+        }
+        actions = apply_sync(session, diff, kis)
+
+        assert len(actions) == 1
+        assert pos.quantity == 150
+        assert pos.average_buy_price == 73000
+
+    def test_preserves_sector_group(self):
+        """UPDATE 시 기존 sector_group 보존."""
         pos = _db_pos(
             stock_code="005930",
             quantity=100,
@@ -267,6 +296,7 @@ class TestApplySync:
             high_watermark=75000,
         )
         session = self._mock_session(existing={"005930": pos})
+        kis = [_kis_pos(stock_code="005930", quantity=150, current_price=73000)]
         diff = {
             "only_in_kis": [],
             "only_in_db": [],
@@ -274,13 +304,16 @@ class TestApplySync:
             "price_mismatch": [],
             "matched": [],
         }
-        apply_sync(session, diff)
+        apply_sync(session, diff, kis)
 
         assert pos.sector_group == "IT"
-        assert pos.high_watermark == 75000
+        assert pos.high_watermark == 75000  # 73000 < 75000 이므로 유지
 
-    def test_empty_diff_no_actions(self):
-        session = self._mock_session()
+    def test_updates_high_watermark_when_higher(self):
+        """KIS current_price가 기존 watermark보다 높으면 갱신."""
+        pos = _db_pos(stock_code="005930", high_watermark=73000)
+        session = self._mock_session(existing={"005930": pos})
+        kis = [_kis_pos(stock_code="005930", current_price=76000)]
         diff = {
             "only_in_kis": [],
             "only_in_db": [],
@@ -288,7 +321,25 @@ class TestApplySync:
             "price_mismatch": [],
             "matched": ["005930"],
         }
-        actions = apply_sync(session, diff)
+        actions = apply_sync(session, diff, kis)
+
+        assert pos.high_watermark == 76000
+        assert len(actions) == 1
+        assert "hwm:" in actions[0]
+
+    def test_matched_no_changes(self):
+        """완전 일치 시 변경 없음."""
+        pos = _db_pos(stock_code="005930", high_watermark=75000)
+        session = self._mock_session(existing={"005930": pos})
+        kis = [_kis_pos(stock_code="005930", current_price=73000)]  # 73000 < 75000
+        diff = {
+            "only_in_kis": [],
+            "only_in_db": [],
+            "quantity_mismatch": [],
+            "price_mismatch": [],
+            "matched": ["005930"],
+        }
+        actions = apply_sync(session, diff, kis)
 
         assert actions == []
         session.add.assert_not_called()

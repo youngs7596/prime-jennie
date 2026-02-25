@@ -378,12 +378,50 @@ class KISApi:
         output2 = data.get("output2", [{}])
         summary = output2[0] if output2 else {}
 
+        # 매수가능금액 조회 (TTTC8908R) — 실제 주문 가능한 정확한 금액
+        try:
+            cash_balance = self.get_buying_power()
+        except Exception:
+            logger.warning("Buying power API failed, falling back to prvs_rcdl_excc_amt")
+            cash_balance = int(summary.get("prvs_rcdl_excc_amt", 0))
+
         return {
             "positions": positions,
-            "cash_balance": int(summary.get("nxdy_excc_amt", 0)),
+            "cash_balance": cash_balance,
             "total_asset": int(summary.get("tot_evlu_amt", 0)),
             "stock_eval_amount": int(summary.get("scts_evlu_amt", 0)),
         }
+
+    def get_buying_power(self) -> int:
+        """매수가능금액 조회 (TTTC8908R). 미수 없는 순수 주문가능금액 반환."""
+        tr_id = "TTTC8908R"
+        if self._config.is_paper:
+            tr_id = "VTTC8908R"
+
+        data = self._request(
+            "GET",
+            "/uapi/domestic-stock/v1/trading/inquire-psbl-order",
+            tr_id=tr_id,
+            params={
+                "CANO": self._config.account_no,
+                "ACNT_PRDT_CD": self._config.account_product_code,
+                "PDNO": "005930",
+                "ORD_UNPR": "0",
+                "ORD_DVSN": "01",
+                "CMA_EVLU_AMT_ICLD_YN": "Y",
+                "OVRS_ICLD_YN": "N",
+            },
+        )
+        output = data.get("output", {})
+        # nrcvb_buy_amt: 미수없는매수금액 (미수 없이 매수 가능한 금액)
+        nrcvb = output.get("nrcvb_buy_amt", "")
+        if nrcvb and nrcvb.strip():
+            return int(nrcvb)
+        # 폴백: ord_psbl_cash (주문가능현금)
+        ord_cash = output.get("ord_psbl_cash", "")
+        if ord_cash and ord_cash.strip():
+            return int(ord_cash)
+        return 0
 
     def is_trading_day(self, target_date: date | None = None) -> bool:
         """거래일 여부 확인 (CTCA0903R)."""

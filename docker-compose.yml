@@ -227,6 +227,8 @@ services:
       KIS_APP_SECRET: "${KIS_APP_SECRET}"
       KIS_ACCOUNT_NO: "${KIS_ACCOUNT_NO}"
       APP_TRADING_MODE: REAL
+    volumes:
+      - /docker_data/kis_token:/app/config
     command: ["uvicorn", "prime_jennie.services.gateway.app:app", "--host", "0.0.0.0", "--port", "8080"]
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8080/health"]

@@ -142,7 +142,7 @@ class ScannerConfig(BaseSettings):
     danger_zone_start: str = "14:00"
     danger_zone_end: str = "15:00"
     # Conviction Entry
-    conviction_entry_enabled: bool = True
+    conviction_entry_enabled: bool = False
     conviction_min_hybrid_score: float = 70.0
     conviction_min_llm_score: float = 72.0
     conviction_max_gain_pct: float = 3.0

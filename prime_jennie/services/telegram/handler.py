@@ -14,6 +14,8 @@ import redis
 from sqlmodel import Session, select
 
 from prime_jennie.domain.config import get_config
+from prime_jennie.domain.enums import SellReason
+from prime_jennie.domain.trading import SellOrder
 from prime_jennie.infra.database.models import StockMasterDB
 from prime_jennie.infra.kis.client import KISClient
 
@@ -302,19 +304,42 @@ class CommandHandler:
         code, name = stock
         qty_str = parts[1] if len(parts) > 1 else "전량"
         is_full = qty_str in ("전량", "all")
-        quantity = 0 if is_full else (int(qty_str) if qty_str.isdigit() else 0)
 
-        signal = {
-            "source": "telegram-manual",
-            "stock_code": code,
-            "stock_name": name,
-            "quantity": str(quantity),
-            "sell_all": str(is_full),
-            "sell_reason": "MANUAL",
-            "dry_run": str(bool(self._redis.get(KEY_DRYRUN))),
-        }
+        # 보유 수량 조회 (전량 매도 시 필요)
         try:
-            self._redis.xadd("stream:sell-orders", signal)
+            positions = self._kis.get_positions()
+            held = next((p for p in positions if p.stock_code == code), None)
+        except Exception:
+            held = None
+
+        if is_full:
+            if held is None:
+                return f"보유하고 있지 않습니다: {name}({code})"
+            quantity = held.quantity
+        else:
+            quantity = int(qty_str) if qty_str.isdigit() else 0
+
+        if quantity <= 0:
+            return "매도 수량이 올바르지 않습니다."
+
+        # 현재가 조회
+        try:
+            snapshot = self._kis.get_price(code)
+            current_price = snapshot.price
+        except Exception:
+            current_price = held.average_buy_price if held else 0
+
+        order = SellOrder(
+            stock_code=code,
+            stock_name=name,
+            sell_reason=SellReason.MANUAL,
+            current_price=current_price,
+            quantity=quantity,
+            timestamp=datetime.now(UTC),
+            buy_price=held.average_buy_price if held else None,
+        )
+        try:
+            self._redis.xadd("stream:sell-orders", {"payload": order.model_dump_json()})
             self._increment_manual_trade(str(chat_id))
             label = "전량" if is_full else f"{quantity}주"
             return f"매도 요청 접수: {name}({code}) {label}"
@@ -325,17 +350,35 @@ class CommandHandler:
         if args.strip() != "확인":
             return "전체 청산: `/sellall 확인` 으로 실행"
 
-        signal = {
-            "source": "telegram-manual",
-            "action": "liquidate_all",
-            "sell_reason": "MANUAL",
-            "dry_run": str(bool(self._redis.get(KEY_DRYRUN))),
-        }
         try:
-            self._redis.xadd("stream:sell-orders", signal)
-            return "전체 포트폴리오 청산 요청을 접수했습니다."
-        except Exception as e:
-            return f"청산 요청 실패: {e}"
+            positions = self._kis.get_positions()
+        except Exception:
+            return "포지션 조회 실패: 청산을 수행할 수 없습니다."
+
+        if not positions:
+            return "보유 종목이 없습니다."
+
+        count = 0
+        for p in positions:
+            try:
+                snapshot = self._kis.get_price(p.stock_code)
+                current_price = snapshot.price
+            except Exception:
+                current_price = p.average_buy_price
+
+            order = SellOrder(
+                stock_code=p.stock_code,
+                stock_name=p.stock_name,
+                sell_reason=SellReason.MANUAL,
+                current_price=current_price,
+                quantity=p.quantity,
+                timestamp=datetime.now(UTC),
+                buy_price=p.average_buy_price,
+            )
+            self._redis.xadd("stream:sell-orders", {"payload": order.model_dump_json()})
+            count += 1
+
+        return f"전체 포트폴리오 청산 요청: {count}종목"
 
     # ─── Handlers: Portfolio & Status ──────────────
 
