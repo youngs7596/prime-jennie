@@ -7,7 +7,7 @@ ATR(Average True Range)을 이용한 리스크 패리티 포지션 사이징.
 import logging
 
 from prime_jennie.domain.config import get_config
-from prime_jennie.domain.enums import SectorGroup, TradeTier
+from prime_jennie.domain.enums import RiskTag, SectorGroup, TradeTier
 from prime_jennie.domain.trading import PositionSizingRequest, PositionSizingResult
 
 logger = logging.getLogger(__name__)
@@ -52,6 +52,16 @@ def get_tier_multiplier(trade_tier: TradeTier) -> float:
         TradeTier.TIER2: 0.5,
         TradeTier.BLOCKED: 0.0,
     }.get(trade_tier, 0.5)
+
+
+def get_risk_tag_multiplier(risk_tag: RiskTag) -> float:
+    """Risk Tag별 포지션 배율. CAUTION 시 30% 축소."""
+    return {
+        RiskTag.BULLISH: 1.0,
+        RiskTag.NEUTRAL: 1.0,
+        RiskTag.CAUTION: 0.7,
+        RiskTag.DISTRIBUTION_RISK: 0.0,
+    }.get(risk_tag, 1.0)
 
 
 def get_stale_multiplier(stale_days: int) -> float:
@@ -157,6 +167,9 @@ def calculate_position_size(request: PositionSizingRequest) -> PositionSizingRes
     # Tier multiplier
     tier_mult = get_tier_multiplier(request.trade_tier)
 
+    # Risk tag multiplier (CAUTION → 0.7x)
+    risk_mult = get_risk_tag_multiplier(request.risk_tag)
+
     # Stale multiplier
     stale_mult = get_stale_multiplier(request.stale_days)
 
@@ -164,7 +177,7 @@ def calculate_position_size(request: PositionSizingRequest) -> PositionSizingRes
     pos_mult = request.position_multiplier
 
     # Final quantity
-    raw_final = int(quantity * tier_mult * stale_mult * pos_mult)
+    raw_final = int(quantity * tier_mult * risk_mult * stale_mult * pos_mult)
     final_quantity = 0 if raw_final <= 0 else max(MIN_QUANTITY, raw_final)
     final_quantity = min(final_quantity, MAX_QUANTITY)
 
@@ -175,6 +188,7 @@ def calculate_position_size(request: PositionSizingRequest) -> PositionSizingRes
     multipliers = {
         "sector": sector_mult,
         "tier": tier_mult,
+        "risk_tag": risk_mult,
         "stale": stale_mult,
         "position": pos_mult,
     }
@@ -182,6 +196,8 @@ def calculate_position_size(request: PositionSizingRequest) -> PositionSizingRes
     parts = []
     if tier_mult < 1.0:
         parts.append(f"tier={request.trade_tier}({tier_mult}x)")
+    if risk_mult < 1.0:
+        parts.append(f"risk={request.risk_tag}({risk_mult}x)")
     if stale_mult < 1.0:
         parts.append(f"stale={request.stale_days}d({stale_mult}x)")
     if sector_mult < 1.0:

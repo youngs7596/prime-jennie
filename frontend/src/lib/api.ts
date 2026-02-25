@@ -14,6 +14,9 @@ export interface Position {
   quantity: number;
   average_buy_price: number;
   total_buy_amount: number;
+  current_price: number | null;
+  current_value: number | null;
+  profit_pct: number | null;
   sector_group: string | null;
   high_watermark: number | null;
   stop_loss_price: number | null;
@@ -153,6 +156,19 @@ export function usePortfolioSummary() {
   return useQuery<PortfolioState>({
     queryKey: ["portfolio", "summary"],
     queryFn: () => api.get("/portfolio/summary").then((r) => r.data),
+  });
+}
+
+export interface LivePositionsResponse {
+  positions: Position[];
+  updated_at: string | null;
+}
+
+export function useLivePositions() {
+  return useQuery<LivePositionsResponse>({
+    queryKey: ["portfolio", "live"],
+    queryFn: () => api.get("/portfolio/live").then((r) => r.data),
+    refetchInterval: 10_000,
   });
 }
 

@@ -149,7 +149,7 @@ async def _call_llm(
         schema=ANALYST_RESPONSE_SCHEMA,
         system="당신은 한국 주식 애널리스트입니다. 주어진 데이터를 분석하고 종합 점수를 매겨주세요.",
         temperature=0.3,
-        max_tokens=512,
+        max_tokens=4096,
         service="scout",
     )
     return result

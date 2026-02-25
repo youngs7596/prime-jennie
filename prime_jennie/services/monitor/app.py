@@ -22,12 +22,15 @@ from datetime import UTC, datetime
 
 import httpx
 import redis
+from sqlmodel import Session
 
 from prime_jennie.domain.config import get_config
 from prime_jennie.domain.enums import MarketRegime, SellReason
 from prime_jennie.domain.macro import TradingContext
 from prime_jennie.domain.portfolio import Position
 from prime_jennie.domain.trading import SellOrder
+from prime_jennie.infra.database.engine import get_engine
+from prime_jennie.infra.database.repositories import PortfolioRepository
 from prime_jennie.infra.kis.client import KISClient
 from prime_jennie.infra.redis.cache import TypedCache
 from prime_jennie.infra.redis.client import get_redis
@@ -45,6 +48,7 @@ RSI_SOLD_PREFIX = "rsi_sold:"
 COOLDOWN_PREFIX = "stoploss_cooldown:"
 PROFIT_FLOOR_PREFIX = "profit_floor:"
 MONITOR_STATUS_KEY = "monitoring:price_monitor"
+LIVE_POSITIONS_KEY = "monitoring:live_positions"
 
 # Streams
 SELL_SIGNAL_STREAM = "stream:sell-orders"
@@ -55,6 +59,7 @@ PRICE_CONSUMER = "monitor-1"
 # Timing
 POSITION_REFRESH_INTERVAL = 300  # 5분마다 포지션 + RSI 갱신
 STATUS_LOG_INTERVAL_SEC = 300
+LIVE_SNAPSHOT_INTERVAL_SEC = 30  # 30초마다 포지션 스냅샷 Redis 캐싱
 
 
 @dataclass
@@ -86,6 +91,7 @@ class PriceMonitor:
         self._publisher = TypedStreamPublisher(redis_client, SELL_SIGNAL_STREAM, SellOrder)
         self._context_cache = context_cache
         self._last_status_log = 0.0
+        self._last_snapshot_publish = 0.0
 
         # 인메모리 캐시
         self._positions: dict[str, Position] = {}
@@ -124,6 +130,9 @@ class PriceMonitor:
         for code in new_codes:
             self._compute_all_indicators(code)
 
+        # Redis watermark → DB 일괄 동기화 (5분 주기)
+        self._sync_watermarks_to_db()
+
         logger.info("Positions refreshed: %d held", len(self._positions))
         return list(new_codes)
 
@@ -147,6 +156,8 @@ class PriceMonitor:
                 self._emit_sell_order(pos, signal)
         except Exception:
             logger.exception("Evaluation failed for %s", stock_code)
+
+        self._publish_live_snapshot()
 
     def get_status(self) -> dict:
         """현재 상태 반환."""
@@ -362,6 +373,28 @@ class PriceMonitor:
                 str(price),
             )
 
+    def _sync_watermarks_to_db(self) -> None:
+        """Redis watermark → DB positions.high_watermark 일괄 동기화."""
+        watermarks: dict[str, int] = {}
+        for code in self._positions:
+            try:
+                raw = self._redis.get(f"{WATERMARK_PREFIX}{code}")
+                if raw:
+                    watermarks[code] = int(float(raw))
+            except Exception:
+                continue
+
+        if not watermarks:
+            return
+
+        try:
+            with Session(get_engine()) as session:
+                updated = PortfolioRepository.bulk_update_watermarks(session, watermarks)
+                if updated:
+                    logger.info("Watermark DB sync: %d/%d updated", updated, len(watermarks))
+        except Exception:
+            logger.debug("Watermark DB sync failed", exc_info=True)
+
     # --- Scale-Out Level ---
 
     def _get_scale_out_level(self, stock_code: str) -> int:
@@ -442,6 +475,48 @@ class PriceMonitor:
                         "updated_at": datetime.now(UTC).isoformat(),
                     }
                 ),
+            )
+        except Exception:
+            pass
+
+    def _publish_live_snapshot(self) -> None:
+        """인메모리 포지션 → Redis 캐싱 (대시보드 실시간 표시용, 30초 스로틀)."""
+        now = time.time()
+        if now - self._last_snapshot_publish < LIVE_SNAPSHOT_INTERVAL_SEC:
+            return
+        self._last_snapshot_publish = now
+
+        if not self._positions:
+            return
+
+        try:
+            import json
+
+            snapshot = []
+            for pos in self._positions.values():
+                cur = pos.current_price or 0
+                buy = pos.average_buy_price or 0
+                profit_pct = round((cur - buy) / buy * 100, 2) if buy > 0 and cur > 0 else 0.0
+                snapshot.append(
+                    {
+                        "stock_code": pos.stock_code,
+                        "stock_name": pos.stock_name,
+                        "quantity": pos.quantity,
+                        "average_buy_price": buy,
+                        "current_price": cur,
+                        "current_value": cur * pos.quantity if cur > 0 else None,
+                        "profit_pct": profit_pct,
+                        "total_buy_amount": pos.total_buy_amount or buy * pos.quantity,
+                        "sector_group": str(pos.sector_group) if pos.sector_group else None,
+                        "high_watermark": pos.high_watermark,
+                        "stop_loss_price": pos.stop_loss_price,
+                    }
+                )
+
+            self._redis.setex(
+                LIVE_POSITIONS_KEY,
+                120,
+                json.dumps({"positions": snapshot, "updated_at": datetime.now(UTC).isoformat()}),
             )
         except Exception:
             pass

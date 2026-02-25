@@ -206,6 +206,7 @@ class BuyExecutor:
             portfolio_value=portfolio_value,
             llm_score=signal.llm_score,
             trade_tier=signal.trade_tier,
+            risk_tag=signal.risk_tag,
             sector_group=signal.sector_group,
             held_sector_groups=held_sectors,
             portfolio_risk_pct=0.0,

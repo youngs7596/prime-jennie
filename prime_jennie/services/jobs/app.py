@@ -25,6 +25,7 @@ from prime_jennie.infra.database.models import (
     StockMasterDB,
     StockMinutePriceDB,
     TradeLogDB,
+    WatchlistHistoryDB,
 )
 from prime_jennie.infra.kis.client import KISClient
 from prime_jennie.infra.redis.client import get_redis
@@ -423,15 +424,37 @@ def collect_dart_filings(session: Session = Depends(get_db_session)) -> JobResul
 
 @app.post("/jobs/collect-minute-chart")
 def collect_minute_chart(session: Session = Depends(get_db_session)) -> JobResult:
-    """5분봉 수집 — 시가총액 상위 30종목 (백테스트용)."""
+    """5분봉 수집 — 시가총액 상위 30종목 + 워치리스트 종목 (백테스트용)."""
     try:
         kis = _get_kis()
-        stocks = session.exec(
+
+        # 1) 시가총액 상위 30종목
+        top30 = session.exec(
             select(StockMasterDB)
             .where(StockMasterDB.is_active)
             .order_by(col(StockMasterDB.market_cap).desc())
             .limit(30)
         ).all()
+        target_codes = {s.stock_code: s for s in top30}
+
+        # 2) 최신 워치리스트 종목 추가
+        latest_date_row = session.exec(
+            select(WatchlistHistoryDB.snapshot_date)
+            .order_by(WatchlistHistoryDB.snapshot_date.desc())  # type: ignore[union-attr]
+            .limit(1)
+        ).first()
+        if latest_date_row:
+            wl_codes = session.exec(
+                select(WatchlistHistoryDB.stock_code).where(WatchlistHistoryDB.snapshot_date == latest_date_row)
+            ).all()
+            for code in wl_codes:
+                if code not in target_codes:
+                    master = session.get(StockMasterDB, code)
+                    if master:
+                        target_codes[code] = master
+
+        stocks = list(target_codes.values())
+        logger.info("Minute chart targets: %d (top30=%d + watchlist)", len(stocks), len(top30))
 
         count = 0
         failed = 0

@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { usePositions, useAssetHistory, usePerformance } from "@/lib/api";
+import { useLivePositions, useAssetHistory, usePerformance } from "@/lib/api";
 import Card from "@/components/Card";
 import LoadingSpinner from "@/components/LoadingSpinner";
 import {
@@ -24,18 +24,43 @@ function formatKRW(amount: number): string {
   return amount.toLocaleString();
 }
 
+function profitColor(pct: number | null): string {
+  if (pct == null) return "text-text-muted";
+  if (pct > 0) return "text-accent-green";
+  if (pct < 0) return "text-accent-red";
+  return "text-text-secondary";
+}
+
 type Tab = "positions" | "history";
 
 export default function Portfolio() {
   const [tab, setTab] = useState<Tab>("positions");
   const [days, setDays] = useState(30);
-  const positions = usePositions();
+  const live = useLivePositions();
+  const positions = live.data?.positions;
+  const updatedAt = live.data?.updated_at;
   const history = useAssetHistory(days);
   const perf = usePerformance(days);
 
+  // 총 평가손익 계산
+  const totalProfit = positions?.reduce((sum, p) => {
+    if (p.current_value != null) return sum + (p.current_value - p.total_buy_amount);
+    return sum;
+  }, 0) ?? 0;
+  const totalEval = positions?.reduce((sum, p) => sum + (p.current_value ?? p.total_buy_amount), 0) ?? 0;
+  const totalBuy = positions?.reduce((sum, p) => sum + p.total_buy_amount, 0) ?? 0;
+  const totalProfitPct = totalBuy > 0 ? (totalProfit / totalBuy) * 100 : 0;
+
   return (
     <div className="space-y-6">
-      <h1 className="text-xl font-bold">Portfolio</h1>
+      <div className="flex items-center justify-between">
+        <h1 className="text-xl font-bold">Portfolio</h1>
+        {updatedAt && (
+          <span className="text-xs text-text-muted">
+            {new Date(updatedAt).toLocaleTimeString("ko-KR")} updated
+          </span>
+        )}
+      </div>
 
       {/* Tabs */}
       <div className="flex gap-1 rounded-lg bg-bg-secondary p-1">
@@ -56,50 +81,84 @@ export default function Portfolio() {
 
       {tab === "positions" && (
         <>
-          {positions.isLoading && <LoadingSpinner />}
-          {positions.data && positions.data.length === 0 && (
+          {live.isLoading && <LoadingSpinner />}
+          {positions && positions.length === 0 && (
             <p className="py-8 text-center text-sm text-text-muted">No positions</p>
           )}
-          {positions.data && positions.data.length > 0 && (
-            <Card>
-              <div className="overflow-x-auto">
-                <table className="w-full text-sm">
-                  <thead>
-                    <tr className="border-b border-border-primary text-left text-xs text-text-secondary">
-                      <th className="pb-2">Stock</th>
-                      <th className="pb-2">Sector</th>
-                      <th className="pb-2 text-right">Qty</th>
-                      <th className="pb-2 text-right">Avg Price</th>
-                      <th className="pb-2 text-right">Amount</th>
-                      <th className="pb-2 text-right">Stop Loss</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {positions.data.map((p) => (
-                      <tr key={p.stock_code} className="border-b border-border-primary/50">
-                        <td className="py-2.5">
-                          <span className="font-medium">{p.stock_name}</span>
-                          <span className="ml-1 text-xs text-text-muted">{p.stock_code}</span>
-                        </td>
-                        <td className="py-2.5 text-xs text-text-secondary">
-                          {p.sector_group ?? "-"}
-                        </td>
-                        <td className="py-2.5 text-right font-mono">{p.quantity}</td>
-                        <td className="py-2.5 text-right font-mono">
-                          {p.average_buy_price.toLocaleString()}
-                        </td>
-                        <td className="py-2.5 text-right font-mono">
-                          {formatKRW(p.total_buy_amount)}
-                        </td>
-                        <td className="py-2.5 text-right font-mono text-text-muted">
-                          {p.stop_loss_price ? p.stop_loss_price.toLocaleString() : "-"}
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
+          {positions && positions.length > 0 && (
+            <>
+              {/* Summary bar */}
+              <div className="flex items-center gap-6 rounded-lg bg-bg-secondary px-4 py-3 text-sm">
+                <div>
+                  <span className="text-text-secondary">Holdings </span>
+                  <span className="font-bold">{positions.length}</span>
+                </div>
+                <div>
+                  <span className="text-text-secondary">Eval </span>
+                  <span className="font-bold">{formatKRW(totalEval)}</span>
+                </div>
+                <div>
+                  <span className="text-text-secondary">P&L </span>
+                  <span className={`font-bold ${profitColor(totalProfit)}`}>
+                    {totalProfit >= 0 ? "+" : ""}{formatKRW(totalProfit)}
+                    <span className="ml-1 text-xs">
+                      ({totalProfitPct >= 0 ? "+" : ""}{totalProfitPct.toFixed(1)}%)
+                    </span>
+                  </span>
+                </div>
               </div>
-            </Card>
+
+              <Card>
+                <div className="overflow-x-auto">
+                  <table className="w-full text-sm">
+                    <thead>
+                      <tr className="border-b border-border-primary text-left text-xs text-text-secondary">
+                        <th className="pb-2">Stock</th>
+                        <th className="pb-2">Sector</th>
+                        <th className="pb-2 text-right">Qty</th>
+                        <th className="pb-2 text-right">Avg Price</th>
+                        <th className="pb-2 text-right">Cur Price</th>
+                        <th className="pb-2 text-right">P&L</th>
+                        <th className="pb-2 text-right">Eval</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {positions
+                        .slice()
+                        .sort((a, b) => (b.profit_pct ?? 0) - (a.profit_pct ?? 0))
+                        .map((p) => (
+                        <tr key={p.stock_code} className="border-b border-border-primary/50">
+                          <td className="py-2.5">
+                            <span className="font-medium">{p.stock_name}</span>
+                            <span className="ml-1 text-xs text-text-muted">{p.stock_code}</span>
+                          </td>
+                          <td className="py-2.5 text-xs text-text-secondary">
+                            {p.sector_group ?? "-"}
+                          </td>
+                          <td className="py-2.5 text-right font-mono">{p.quantity}</td>
+                          <td className="py-2.5 text-right font-mono">
+                            {p.average_buy_price.toLocaleString()}
+                          </td>
+                          <td className="py-2.5 text-right font-mono">
+                            {p.current_price != null && p.current_price > 0
+                              ? p.current_price.toLocaleString()
+                              : "-"}
+                          </td>
+                          <td className={`py-2.5 text-right font-mono font-medium ${profitColor(p.profit_pct)}`}>
+                            {p.profit_pct != null
+                              ? `${p.profit_pct >= 0 ? "+" : ""}${p.profit_pct.toFixed(1)}%`
+                              : "-"}
+                          </td>
+                          <td className="py-2.5 text-right font-mono">
+                            {p.current_value != null ? formatKRW(p.current_value) : formatKRW(p.total_buy_amount)}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </Card>
+            </>
           )}
         </>
       )}

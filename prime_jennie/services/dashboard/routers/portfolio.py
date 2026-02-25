@@ -1,5 +1,6 @@
 """Portfolio API — 포트폴리오 상태, 보유 종목, 자산 히스토리."""
 
+import json
 import logging
 from datetime import UTC, datetime
 
@@ -13,6 +14,7 @@ from prime_jennie.infra.database.repositories import (
     PortfolioRepository,
 )
 from prime_jennie.infra.kis.client import KISClient
+from prime_jennie.infra.redis.client import get_redis
 from prime_jennie.services.deps import get_db_session
 
 logger = logging.getLogger(__name__)
@@ -128,6 +130,19 @@ def get_positions(session: Session = Depends(get_db_session)) -> list[Position]:
         )
         for p in positions_db
     ]
+
+
+@router.get("/live")
+def get_live_positions() -> dict:
+    """Monitor가 캐싱한 실시간 포지션 스냅샷 (30초 갱신, KIS API 미호출)."""
+    try:
+        r = get_redis()
+        raw = r.get("monitoring:live_positions")
+        if raw:
+            return json.loads(raw)
+    except Exception:
+        logger.debug("Redis live_positions read failed", exc_info=True)
+    return {"positions": [], "updated_at": None}
 
 
 @router.get("/history")

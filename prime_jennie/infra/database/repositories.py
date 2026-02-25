@@ -141,6 +141,30 @@ class PortfolioRepository:
         session.commit()
 
     @staticmethod
+    def bulk_update_watermarks(session: Session, watermarks: dict[str, int]) -> int:
+        """Redis 워터마크 → DB 일괄 동기화 (높은 값만 갱신).
+
+        Args:
+            watermarks: {stock_code: watermark_price}
+
+        Returns:
+            실제 갱신된 행 수
+        """
+        if not watermarks:
+            return 0
+
+        updated = 0
+        for code, wm in watermarks.items():
+            pos = session.get(PositionDB, code)
+            if pos and (pos.high_watermark is None or wm > pos.high_watermark):
+                pos.high_watermark = wm
+                pos.updated_at = datetime.utcnow()
+                updated += 1
+        if updated:
+            session.commit()
+        return updated
+
+    @staticmethod
     def reduce_position(session: Session, stock_code: str, sell_qty: int) -> None:
         """포지션 수량 감소. 전량 매도 시 삭제."""
         pos = session.get(PositionDB, stock_code)

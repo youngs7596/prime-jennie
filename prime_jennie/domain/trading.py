@@ -105,6 +105,7 @@ class PositionSizingRequest(BaseModel):
     portfolio_value: int
     llm_score: Score
     trade_tier: TradeTier
+    risk_tag: RiskTag = RiskTag.NEUTRAL
     sector_group: SectorGroup | None = None
     held_sector_groups: list[SectorGroup] = Field(default_factory=list)
     portfolio_risk_pct: float = 0.0

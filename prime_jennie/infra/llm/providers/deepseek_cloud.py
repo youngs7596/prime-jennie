@@ -1,8 +1,8 @@
 """CloudFailover Provider — DeepSeek multi-chain failover.
 
 Provider 체인 (순차 시도):
-  1. OpenRouter (deepseek/deepseek-r1)
-  2. DeepSeek Official API (deepseek-reasoner)
+  1. DeepSeek Official API (deepseek-reasoner)
+  2. OpenRouter (deepseek/deepseek-r1)
   3. 로컬 vLLM (Ollama Provider)
 """
 
@@ -38,16 +38,7 @@ class CloudFailoverProvider(BaseLLMProvider):
 
         secrets = get_config().secrets
 
-        # 1. OpenRouter (deepseek-r1, 안정적)
-        if secrets.openrouter_api_key:
-            provider = OpenAILLMProvider(
-                api_key=secrets.openrouter_api_key,
-                base_url="https://openrouter.ai/api/v1",
-                default_model="deepseek/deepseek-r1",
-            )
-            self._providers.append(("openrouter", provider))
-
-        # 2. DeepSeek Official API (fallback, reasoner 빈 응답 이슈 있음)
+        # 1. DeepSeek Official API (deepseek-reasoner)
         if secrets.deepseek_api_key:
             provider = OpenAILLMProvider(
                 api_key=secrets.deepseek_api_key,
@@ -55,6 +46,15 @@ class CloudFailoverProvider(BaseLLMProvider):
                 default_model="deepseek-reasoner",
             )
             self._providers.append(("deepseek-api", provider))
+
+        # 2. OpenRouter (deepseek/deepseek-r1, fallback)
+        if secrets.openrouter_api_key:
+            provider = OpenAILLMProvider(
+                api_key=secrets.openrouter_api_key,
+                base_url="https://openrouter.ai/api/v1",
+                default_model="deepseek/deepseek-r1",
+            )
+            self._providers.append(("openrouter", provider))
 
         # 3. Local vLLM fallback
         try:
