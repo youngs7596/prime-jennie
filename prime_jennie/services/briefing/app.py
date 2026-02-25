@@ -46,7 +46,8 @@ async def preview_report(session: Session = Depends(get_db_session)):
     reporter = _get_reporter()
     try:
         data = reporter.collect_report_data(session)
-        summary = reporter.format_report(data)
-        return {"status": "ok", "preview": summary}
+        context = reporter._build_data_context(data)
+        fallback = reporter._format_fallback_html(data)
+        return {"status": "ok", "data": data, "context": context, "preview": fallback}
     except Exception as e:
         return {"status": "error", "message": str(e)}
