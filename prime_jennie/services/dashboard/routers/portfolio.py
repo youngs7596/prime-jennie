@@ -133,8 +133,9 @@ def get_positions(session: Session = Depends(get_db_session)) -> list[Position]:
 
 
 @router.get("/live")
-def get_live_positions() -> dict:
-    """Monitor가 캐싱한 실시간 포지션 스냅샷 (30초 갱신, KIS API 미호출)."""
+def get_live_positions(session: Session = Depends(get_db_session)) -> dict:
+    """Monitor가 캐싱한 실시간 포지션 스냅샷. Redis 비면 KIS/DB fallback."""
+    # 1차: Redis (Monitor 30초 갱신)
     try:
         r = get_redis()
         raw = r.get("monitoring:live_positions")
@@ -142,7 +143,60 @@ def get_live_positions() -> dict:
             return json.loads(raw)
     except Exception:
         logger.debug("Redis live_positions read failed", exc_info=True)
-    return {"positions": [], "updated_at": None}
+
+    # 2차: KIS 실시간 + DB 메타데이터 (fallback)
+    try:
+        kis = KISClient()
+        balance = kis.get_balance()
+        kis.close()
+
+        kis_positions = {p["stock_code"]: p for p in balance.get("positions", [])}
+        db_map = {p.stock_code: p for p in PortfolioRepository.get_positions(session)}
+
+        positions = []
+        for code, kp in kis_positions.items():
+            db_pos = db_map.get(code)
+            positions.append(
+                {
+                    "stock_code": kp["stock_code"],
+                    "stock_name": kp["stock_name"],
+                    "quantity": kp["quantity"],
+                    "average_buy_price": kp["average_buy_price"],
+                    "total_buy_amount": kp["total_buy_amount"],
+                    "current_price": kp.get("current_price"),
+                    "current_value": kp.get("current_value"),
+                    "profit_pct": kp.get("profit_pct"),
+                    "sector_group": db_pos.sector_group if db_pos else None,
+                    "high_watermark": db_pos.high_watermark if db_pos else None,
+                    "stop_loss_price": db_pos.stop_loss_price if db_pos else None,
+                }
+            )
+        return {
+            "positions": positions,
+            "updated_at": datetime.now(UTC).isoformat(),
+        }
+    except Exception:
+        logger.debug("KIS fallback for live positions failed", exc_info=True)
+
+    # 3차: DB only (가격 없이라도 보여줌)
+    positions_db = PortfolioRepository.get_positions(session)
+    positions = [
+        {
+            "stock_code": p.stock_code,
+            "stock_name": p.stock_name,
+            "quantity": p.quantity,
+            "average_buy_price": p.average_buy_price,
+            "total_buy_amount": p.total_buy_amount,
+            "current_price": None,
+            "current_value": None,
+            "profit_pct": None,
+            "sector_group": p.sector_group,
+            "high_watermark": p.high_watermark,
+            "stop_loss_price": p.stop_loss_price,
+        }
+        for p in positions_db
+    ]
+    return {"positions": positions, "updated_at": None}
 
 
 @router.get("/history")

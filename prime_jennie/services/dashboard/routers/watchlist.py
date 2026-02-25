@@ -39,6 +39,9 @@ def get_history(session: Session = Depends(get_db_session)) -> list[dict]:
             "trade_tier": e.trade_tier,
             "risk_tag": e.risk_tag,
             "rank": e.rank,
+            "quant_score": e.quant_score,
+            "sector_group": e.sector_group,
+            "market_regime": e.market_regime,
         }
         for e in entries
     ]

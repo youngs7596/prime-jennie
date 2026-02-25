@@ -99,6 +99,9 @@ export interface WatchlistEntry {
   trade_tier: string;
   risk_tag: string | null;
   rank: number;
+  quant_score: number | null;
+  sector_group: string | null;
+  market_regime: string | null;
 }
 
 export interface TradeRecord {

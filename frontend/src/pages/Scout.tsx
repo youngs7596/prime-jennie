@@ -80,7 +80,9 @@ export default function Scout() {
                 <tr className="border-b border-border-primary text-left text-xs text-text-secondary">
                   <th className="pb-2">Date</th>
                   <th className="pb-2">Stock</th>
+                  <th className="pb-2">Sector</th>
                   <th className="pb-2 text-right">Hybrid</th>
+                  <th className="pb-2 text-right">Quant</th>
                   <th className="pb-2 text-right">LLM</th>
                   <th className="pb-2">Tier</th>
                   <th className="pb-2">Risk</th>
@@ -94,8 +96,12 @@ export default function Scout() {
                       <span className="font-medium">{s.stock_name}</span>
                       <span className="ml-1 text-xs text-text-muted">{s.stock_code}</span>
                     </td>
+                    <td className="py-2 text-xs text-text-secondary">{s.sector_group ?? "-"}</td>
                     <td className="py-2 text-right">
                       <ScoreBar value={s.hybrid_score} />
+                    </td>
+                    <td className="py-2 text-right">
+                      <ScoreBar value={s.quant_score} />
                     </td>
                     <td className="py-2 text-right">
                       <ScoreBar value={s.llm_score} />
