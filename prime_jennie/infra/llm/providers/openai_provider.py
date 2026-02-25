@@ -142,11 +142,23 @@ class OpenAILLMProvider(BaseLLMProvider):
             kwargs["response_format"] = {"type": "json_object"}
             kwargs["temperature"] = temperature
 
-        response = await self._client.chat.completions.create(**kwargs)
+        raw = await self._client.chat.completions.create(**kwargs)
 
-        content = response.choices[0].message.content or ""
+        content = raw.choices[0].message.content or ""
         if not content.strip():
             raise ValueError("LLM returned empty content")
+
+        # 토큰 사용량 기록
+        usage = raw.usage
+        llm_resp = LLMResponse(
+            content=content,
+            model=model,
+            tokens_in=usage.prompt_tokens if usage else 0,
+            tokens_out=usage.completion_tokens if usage else 0,
+            provider=self.provider_name,
+        )
+        self._record_usage(llm_resp, service)
+
         return _extract_json(content)
 
     async def generate_embeddings(self, texts: list[str]) -> list[list[float]]:

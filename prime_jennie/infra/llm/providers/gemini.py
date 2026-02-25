@@ -56,13 +56,15 @@ class GeminiLLMProvider(BaseLLMProvider):
         tokens_in = usage.prompt_token_count if usage else 0
         tokens_out = usage.candidates_token_count if usage else 0
 
-        return LLMResponse(
+        resp = LLMResponse(
             content=content,
             model=self._default_model,
             tokens_in=tokens_in,
             tokens_out=tokens_out,
             provider=self.provider_name,
         )
+        self._record_usage(resp, service)
+        return resp
 
     async def generate_json(
         self,
@@ -91,6 +93,18 @@ class GeminiLLMProvider(BaseLLMProvider):
         )
 
         content = response.text or ""
+
+        # 토큰 사용량 기록
+        usage = response.usage_metadata
+        llm_resp = LLMResponse(
+            content=content,
+            model=self._default_model,
+            tokens_in=usage.prompt_token_count if usage else 0,
+            tokens_out=usage.candidates_token_count if usage else 0,
+            provider=self.provider_name,
+        )
+        self._record_usage(llm_resp, service)
+
         return json.loads(content)
 
     async def generate_embeddings(self, texts: list[str]) -> list[list[float]]:

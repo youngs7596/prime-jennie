@@ -115,6 +115,17 @@ class ClaudeLLMProvider(BaseLLMProvider):
             messages=[{"role": "user", "content": prompt}],
         )
 
+        # 토큰 사용량 기록
+        usage = response.usage
+        llm_resp = LLMResponse(
+            content="",
+            model=model,
+            tokens_in=usage.input_tokens if usage else 0,
+            tokens_out=usage.output_tokens if usage else 0,
+            provider=self.provider_name,
+        )
+        self._record_usage(llm_resp, service)
+
         # TextBlock에서 content 추출 (ThinkingBlock 스킵)
         from anthropic.types import TextBlock
 
