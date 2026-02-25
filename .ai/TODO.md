@@ -2,42 +2,26 @@
 
 ## 긴급 (다음 세션 우선)
 
-### 0. 재부팅 후 전체 서비스 상태 점검 (별도 창에서 진행 중)
-- [ ] 전체 서비스 정상 기동: `docker compose --profile infra --profile real ps`
-- [ ] Monitor/Scanner tick consumer Redis 연결 확인 (BusyLoadingError 없이 시작)
-- [ ] **Gateway WebSocket 연결 유지 확인** — PINGPONG 수정 후 ~10초 끊김 해소 여부
-  - `docker logs prime-jennie-kis-gateway-1 | grep -i "pingpong\|closed\|connected"`
-- [ ] buy-scanner / price-monitor tick 수신 확인 (장중 tick count 증가 로그)
-- [ ] Airflow DAG `/start`(09:00), `/stop`(15:30) 정상 호출 확인
-- [ ] Loki 로그 공백 없이 정상 수집 (Grafana에서 09:00~15:30 연속 확인)
-- [ ] 장중 매수/매도 정상 발생 여부 (매수/매도 건수 확인)
-- **참고**: `session-2026-02-23-race-condition-fix.md`, `session-2026-02-23-websocket-pingpong-fix.md`
+### ~~0. 재부팅 후 전체 서비스 상태 점검~~ ✅ 완료
+- 2026-02-23 세션에서 점검 완료
 
-### 1. ROE 정기 갱신 Job 추가
-- **현상**: stock_fundamentals에 ROE를 쓰는 정기 Job이 없음 (레거시 중단됨)
-- **해결안**: prime-jennie job-worker에 월간 ROE 수집 엔드포인트 추가 (네이버 금융 크롤링)
-- **참고**: 2026-02-22 수동 backfill로 184종목 ROE 100% 채움 (네이버 금융 기준)
-- 분기 재무제표 기반이라 월 1회 갱신이면 충분
+### ~~1. ROE 정기 갱신 Job 추가~~ ✅ 완료
+- `crawl_naver_roe()` + `/jobs/collect-naver-roe` 엔드포인트 + 월간 DAG (`0 3 1 * *`)
 
 ### 2. FINANCIAL_METRICS_QUARTERLY 정기 갱신
 - 레거시 `collect_quarterly_financials.py`를 prime-jennie Job으로 이식
 - 분기 실적 발표 후 자동 갱신 (매 분기 1회, 4/5/7/8/10/11월)
 - 현재 최신 데이터: 2025-09-30 (Q3)
 
-### 6. 명시적 장 오픈 시간 체크 추가
-- **현상**: buy-scanner, price-monitor, executor 어디에도 "장이 열려있는지" 체크가 없음
-- **현재 안전장치**: KIS WebSocket이 장외에 틱을 안 보내서 사실상 동작 안 함 (암묵적 의존)
-- **위험**: 어떤 이유로 장외에 틱이 발생하면 매수/매도 주문이 실행될 수 있음
-- **해결안**: scanner risk_gates에 장 오픈 시간(09:00~15:30) 체크 gate 추가, executor에도 주문 전 시간 검증
-- **참고**: Gateway `/api/market/is-market-open` 엔드포인트는 이미 존재 (다른 서비스에서 호출 안 함)
-- **참고**: `session-2026-02-23-websocket-pingpong-fix.md`
+### ~~6. 명시적 장 오픈 시간 체크 추가~~ ✅ 완료
+- buyer/seller executor `process_signal()`에 KST 09:00~15:30 체크 추가
+- MANUAL 매도는 시간 체크 우회
 
-### 7. /watch, /unwatch 커맨드 실효성 확보
-- **현상**: `watchlist:manual` Redis hash에 기록하지만 Scanner가 읽지 않음 → 효과 없음
-- **해결안**: Scanner watchlist 로드 시 `watchlist:manual` 병합, 또는 커맨드 제거
-- **참고**: `session-2026-02-23-telegram-fix.md`
+### ~~7. /watch, /unwatch 커맨드 실효성 확보~~ ✅ 완료
+- Scanner `load_watchlist()`에서 `watchlist:manual` Redis hash 병합
+- manual 종목은 최소 스코어(50)로 watchlist에 추가
 
-### 8. ~~watchlist_histories DB 기록 프로세스 추가~~ ✅ 완료
+### ~~8. watchlist_histories DB 기록 프로세스 추가~~ ✅ 완료
 - Phase 8 DB 저장 구현 (커밋 `08f68b7`) + 컬럼 보강 (quant_score, sector_group, market_regime)
 - Alembic migration 005 추가
 

@@ -270,7 +270,7 @@ services:
     environment:
       <<: *env-common
       PORT: "8081"
-      SCANNER_CONVICTION_ENTRY_ENABLED: "true"
+      SCANNER_CONVICTION_ENTRY_ENABLED: "false"
       SCANNER_MOMENTUM_LIMIT_ORDER_ENABLED: "true"
       SCANNER_MOMENTUM_CONFIRMATION_BARS: "1"
     command: ["uvicorn", "prime_jennie.services.scanner.app:app", "--host", "0.0.0.0", "--port", "8081"]

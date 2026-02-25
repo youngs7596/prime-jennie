@@ -1,7 +1,7 @@
 """Sell Executor 단위 테스트."""
 
 from datetime import UTC, datetime
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -19,6 +19,12 @@ def _clear_config_cache():
     get_config.cache_clear()
     yield
     get_config.cache_clear()
+
+
+@pytest.fixture(autouse=True)
+def _mock_market_hours():
+    with patch("prime_jennie.services.seller.executor._is_market_hours", return_value=True):
+        yield
 
 
 def _make_sell_order(**overrides) -> SellOrder:

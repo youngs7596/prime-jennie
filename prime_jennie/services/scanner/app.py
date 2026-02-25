@@ -66,11 +66,15 @@ class BuyScanner:
         self._pending_momentum: dict[str, dict] = {}
 
     def load_watchlist(self) -> bool:
-        """Redis에서 watchlist 로드."""
+        """Redis에서 watchlist 로드 + manual watchlist 병합."""
         wl = self._watchlist_cache.get()
         if wl is None:
             logger.warning("No watchlist found in Redis")
             return False
+
+        # watchlist:manual Redis hash 병합
+        wl = self._merge_manual_watchlist(wl)
+
         self._watchlist = wl
         stock_summary = ", ".join(f"{s.stock_name}({s.stock_code})[{s.hybrid_score:.0f}]" for s in wl.stocks)
         logger.info(
@@ -80,6 +84,51 @@ class BuyScanner:
             stock_summary,
         )
         return True
+
+    def _merge_manual_watchlist(self, wl: HotWatchlist) -> HotWatchlist:
+        """watchlist:manual Redis hash의 종목을 병합.
+
+        이미 watchlist에 있는 종목은 건너뛰고,
+        없는 종목은 최소 스코어로 추가.
+        """
+        from prime_jennie.domain.enums import RiskTag, TradeTier
+        from prime_jennie.domain.watchlist import WatchlistEntry
+
+        try:
+            manual = self._redis.hgetall("watchlist:manual")
+        except Exception:
+            return wl
+
+        if not manual:
+            return wl
+
+        existing_codes = {s.stock_code for s in wl.stocks}
+        added = 0
+
+        for raw_code, raw_name in manual.items():
+            code = raw_code.decode() if isinstance(raw_code, bytes) else str(raw_code)
+            name = raw_name.decode() if isinstance(raw_name, bytes) else str(raw_name)
+
+            if code in existing_codes:
+                continue
+
+            entry = WatchlistEntry(
+                stock_code=code,
+                stock_name=name,
+                llm_score=50.0,
+                hybrid_score=50.0,
+                rank=len(wl.stocks) + added + 1,
+                is_tradable=True,
+                trade_tier=TradeTier.NORMAL,
+                risk_tag=RiskTag.NEUTRAL,
+            )
+            wl.stocks.append(entry)
+            added += 1
+
+        if added > 0:
+            logger.info("Merged %d manual watchlist entries", added)
+
+        return wl
 
     def load_context(self) -> None:
         """Redis에서 TradingContext 로드."""

@@ -6,7 +6,9 @@ Scanner로부터 BuySignal을 수신하여 다단계 검증 후 KIS Gateway 주�
 import contextlib
 import logging
 import time
+import zoneinfo
 from datetime import UTC, datetime
+from datetime import time as dt_time
 
 import redis
 
@@ -37,6 +39,16 @@ LOCK_PREFIX = "lock:buy:"
 EMERGENCY_STOP_KEY = "trading:stopped"
 TRADING_PAUSED_KEY = "trading:paused"
 DRYRUN_KEY = "trading_flags:dryrun"
+
+_KST = zoneinfo.ZoneInfo("Asia/Seoul")
+_MARKET_OPEN = dt_time(9, 0)
+_MARKET_CLOSE = dt_time(15, 30)
+
+
+def _is_market_hours() -> bool:
+    """현재 시각이 KST 09:00~15:30 이내인지 확인."""
+    now_kst = datetime.now(_KST).time()
+    return _MARKET_OPEN <= now_kst <= _MARKET_CLOSE
 
 
 class ExecutionResult:
@@ -98,6 +110,7 @@ class BuyExecutor:
         """매수 시그널 처리 파이프라인.
 
         Steps:
+        0. Market hours check
         1. Emergency stop check
         2. BLOCKED tier check
         3. Hard floor check
@@ -110,6 +123,10 @@ class BuyExecutor:
         """
         code = signal.stock_code
         name = signal.stock_name
+
+        # 0. Market hours check (09:00~15:30 KST)
+        if not _is_market_hours():
+            return ExecutionResult("skipped", code, name, reason="Outside market hours")
 
         # 1. Emergency stop
         if self._is_emergency_stopped():

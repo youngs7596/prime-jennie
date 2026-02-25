@@ -5,6 +5,9 @@ Price Monitor로부터 SellOrder를 수신하여 검증 후 KIS Gateway 주문.
 
 import contextlib
 import logging
+import zoneinfo
+from datetime import datetime
+from datetime import time as dt_time
 
 import redis
 
@@ -26,6 +29,16 @@ EMERGENCY_STOP_KEY = "trading:stopped"
 COOLDOWN_PREFIX = "stoploss_cooldown:"
 DRYRUN_KEY = "trading_flags:dryrun"
 COOLDOWN_REASONS = {SellReason.STOP_LOSS, SellReason.DEATH_CROSS, SellReason.BREAKEVEN_STOP}
+
+_KST = zoneinfo.ZoneInfo("Asia/Seoul")
+_MARKET_OPEN = dt_time(9, 0)
+_MARKET_CLOSE = dt_time(15, 30)
+
+
+def _is_market_hours() -> bool:
+    """현재 시각이 KST 09:00~15:30 이내인지 확인."""
+    now_kst = datetime.now(_KST).time()
+    return _MARKET_OPEN <= now_kst <= _MARKET_CLOSE
 
 
 class SellResult:
@@ -96,6 +109,7 @@ class SellExecutor:
         """매도 시그널 처리 파이프라인.
 
         Steps:
+        0. Market hours check (MANUAL bypasses)
         1. Emergency stop check (MANUAL bypasses)
         2. Position validation
         3. Distributed lock
@@ -106,6 +120,10 @@ class SellExecutor:
         code = order.stock_code
         name = order.stock_name
         is_manual = order.sell_reason == SellReason.MANUAL
+
+        # 0. Market hours check (MANUAL은 통과)
+        if not is_manual and not _is_market_hours():
+            return SellResult("skipped", code, name, reason="Outside market hours")
 
         # 1. Emergency stop (MANUAL은 통과)
         if not is_manual and self._is_emergency_stopped():

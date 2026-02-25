@@ -174,3 +174,15 @@ weekly_factor_analysis = _utility_dag(
     retries=2,
     tags=["analytics", "weekly"],
 )
+
+# ─── Monthly Jobs ──────────────────────────────────────────
+
+collect_naver_roe = _utility_dag(
+    "collect_naver_roe_monthly",
+    "0 3 1 * *",
+    "월간 ROE 수집 (네이버 금융 크롤링)",
+    "/jobs/collect-naver-roe",
+    timeout_min=30,
+    retries=2,
+    tags=["data", "monthly"],
+)

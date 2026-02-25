@@ -77,6 +77,25 @@ class NewsArchiver:
                 collection_name=self._collection_name,
                 embedding=embeddings,
             )
+
+            # Payload index 생성 (이미 존재하면 무시)
+            import contextlib
+
+            from qdrant_client.models import PayloadSchemaType
+
+            with contextlib.suppress(Exception):
+                client.create_payload_index(
+                    collection_name=self._collection_name,
+                    field_name="metadata.created_at_utc",
+                    field_schema=PayloadSchemaType.INTEGER,
+                )
+            with contextlib.suppress(Exception):
+                client.create_payload_index(
+                    collection_name=self._collection_name,
+                    field_name="metadata.stock_code",
+                    field_schema=PayloadSchemaType.KEYWORD,
+                )
+
             logger.info("Qdrant vectorstore initialized: %s", self._collection_name)
         except ImportError:
             logger.error("langchain/qdrant packages not installed")
