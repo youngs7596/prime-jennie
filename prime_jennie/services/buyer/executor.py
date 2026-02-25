@@ -130,6 +130,8 @@ class BuyExecutor:
 
         # 4. Already holding
         positions = self._get_positions()
+        if positions is None:
+            return ExecutionResult("skipped", code, name, reason="Position fetch failed")
         held_codes = {p.stock_code for p in positions}
         if code in held_codes:
             return ExecutionResult("skipped", code, name, reason="Already holding")
@@ -376,13 +378,13 @@ class BuyExecutor:
             logger.debug("[%s] Daily prices fetch failed, using 2%% fallback", stock_code)
         return clamp_atr(current_price * 0.02, current_price)
 
-    def _get_positions(self) -> list[Position]:
-        """현재 보유 포지션."""
+    def _get_positions(self) -> list[Position] | None:
+        """현재 보유 포지션. 실패 시 None (매수 차단용)."""
         try:
             return self._kis.get_positions()
         except Exception:
-            logger.error("Failed to get positions")
-            return []
+            logger.error("Failed to get positions — blocking buy")
+            return None
 
     def _get_cash_balance(self) -> int:
         """현금 잔고."""
