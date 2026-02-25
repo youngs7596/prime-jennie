@@ -86,6 +86,8 @@ def _persist_buy(signal: BuySignal, result: ExecutionResult) -> None:
             )
             PortfolioRepository.save_trade_log(session, trade)
 
+            config = get_config()
+            stop_loss_price = int(result.price * (1 - config.sell.stop_loss_pct / 100))
             pos = PositionDB(
                 stock_code=result.stock_code,
                 stock_name=result.stock_name,
@@ -93,6 +95,8 @@ def _persist_buy(signal: BuySignal, result: ExecutionResult) -> None:
                 average_buy_price=result.price,
                 total_buy_amount=result.quantity * result.price,
                 sector_group=str(signal.sector_group) if signal.sector_group else None,
+                high_watermark=result.price,
+                stop_loss_price=stop_loss_price,
             )
             PortfolioRepository.upsert_position(session, pos)
     except Exception:
