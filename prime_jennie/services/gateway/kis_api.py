@@ -380,7 +380,7 @@ class KISApi:
 
         return {
             "positions": positions,
-            "cash_balance": int(summary.get("dnca_tot_amt", 0)),
+            "cash_balance": int(summary.get("nxdy_excc_amt", 0)),
             "total_asset": int(summary.get("tot_evlu_amt", 0)),
             "stock_eval_amount": int(summary.get("scts_evlu_amt", 0)),
         }
