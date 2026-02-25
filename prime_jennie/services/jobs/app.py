@@ -57,6 +57,7 @@ def daily_asset_snapshot(session: Session = Depends(get_db_session)) -> JobResul
 
     KIS API의 tot_evlu_amt(총 평가금액)을 직접 사용.
     cash + stock_eval 수동 합산은 예수금 이중 계산 문제가 있어 사용하지 않음.
+    손익 계산: 미실현(포지션) + 실현(당일 매도 profit_amount 합산).
     """
     try:
         kis = _get_kis()
@@ -71,16 +72,59 @@ def daily_asset_snapshot(session: Session = Depends(get_db_session)) -> JobResul
         if total <= 0:
             total = cash + stock_eval
 
-        snapshot = DailyAssetSnapshotDB(
-            snapshot_date=date.today(),
-            total_asset=total,
-            cash_balance=cash,
-            stock_eval_amount=stock_eval,
-            position_count=len(positions),
-        )
-        session.add(snapshot)
+        # 미실현 손익: 보유 포지션의 (현재가 - 매입가) 합산
+        unrealized_pnl = 0
+        for p in positions:
+            current_val = int(p.get("current_value", 0))
+            buy_amt = int(p.get("total_buy_amount", 0))
+            unrealized_pnl += current_val - buy_amt
+
+        # 실현 손익: 당일 매도 거래의 profit_amount 합산
+        today = date.today()
+        today_start = datetime.combine(today, datetime.min.time())
+        today_end = datetime.combine(today, datetime.max.time())
+        realized_pnl_row = session.exec(
+            select(text("COALESCE(SUM(profit_amount), 0)"))
+            .select_from(TradeLogDB)
+            .where(TradeLogDB.trade_type == "SELL")
+            .where(col(TradeLogDB.trade_timestamp).between(today_start, today_end))
+        ).one()
+        realized_pnl = int(realized_pnl_row)
+
+        total_pnl = unrealized_pnl + realized_pnl
+
+        # UPSERT: 같은 날 재실행 시 UPDATE
+        existing = session.get(DailyAssetSnapshotDB, today)
+        if existing:
+            existing.total_asset = total
+            existing.cash_balance = cash
+            existing.stock_eval_amount = stock_eval
+            existing.position_count = len(positions)
+            existing.total_profit_loss = total_pnl
+            existing.realized_profit_loss = realized_pnl
+        else:
+            session.add(
+                DailyAssetSnapshotDB(
+                    snapshot_date=today,
+                    total_asset=total,
+                    cash_balance=cash,
+                    stock_eval_amount=stock_eval,
+                    position_count=len(positions),
+                    total_profit_loss=total_pnl,
+                    realized_profit_loss=realized_pnl,
+                )
+            )
         session.commit()
-        return JobResult(message=f"Asset snapshot saved: total={total:,}")
+
+        logger.info(
+            "Asset snapshot: total=%s, unrealized=%s, realized=%s",
+            f"{total:,}",
+            f"{unrealized_pnl:,}",
+            f"{realized_pnl:,}",
+        )
+        return JobResult(
+            message=f"Asset snapshot saved: total={total:,}, P&L={total_pnl:,} (realized={realized_pnl:,})"
+        )
     except Exception as e:
         logger.exception("Asset snapshot failed")
         return JobResult(success=False, message=str(e))
