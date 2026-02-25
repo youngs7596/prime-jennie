@@ -227,7 +227,9 @@ def _get_sector_stocks(sector_no: str) -> list[str]:
 def crawl_naver_roe(stock_code: str) -> float | None:
     """네이버 금융 종목 메인 페이지에서 ROE(%) 파싱.
 
-    재무 테이블에서 가장 최근 분기 ROE를 가져온다.
+    테이블 구조: table.tb_type1.tb_num 내 th에 "ROE" 포함 행.
+    - 간단 테이블(ROE(%)): TD[0]에 최근 값
+    - 상세 테이블(ROE(지배주주)): 여러 분기, 첫 번째 유효 값 사용
 
     Returns:
         ROE (float, e.g. 12.34) or None if not found.
@@ -238,37 +240,20 @@ def crawl_naver_roe(stock_code: str) -> float | None:
         resp.encoding = "euc-kr"
         soup = BeautifulSoup(resp.text, "html.parser")
 
-        # 투자지표 테이블에서 ROE 행 찾기
-        for table in soup.select("table.per_table, table.rwidth"):
+        # 모든 테이블에서 ROE 행 검색 (tb_type1 우선, 없으면 전체)
+        for table in soup.select("table"):
             for row in table.select("tr"):
-                th = row.select_one("th, td.t_nm")
-                if th and "ROE" in th.get_text():
-                    # 가장 최근 값 (마지막 td)
-                    tds = row.select("td")
-                    for td in reversed(tds):
-                        text = td.get_text(strip=True).replace(",", "")
-                        if text and text != "-" and text != "N/A":
-                            try:
-                                return float(text)
-                            except ValueError:
-                                continue
-                    break
-
-        # cop_analysis 테이블 (일부 종목 다른 구조)
-        cop_table = soup.select_one("#tab_con1 table")
-        if cop_table:
-            for row in cop_table.select("tr"):
                 th = row.select_one("th")
-                if th and "ROE" in th.get_text():
-                    tds = row.select("td")
-                    for td in reversed(tds):
-                        text = td.get_text(strip=True).replace(",", "")
-                        if text and text != "-" and text != "N/A":
-                            try:
-                                return float(text)
-                            except ValueError:
-                                continue
-                    break
+                if not th or "ROE" not in th.get_text():
+                    continue
+                # 첫 번째 유효 td 값 사용
+                for td in row.select("td"):
+                    text = td.get_text(strip=True).replace(",", "")
+                    if text and text not in ("-", "N/A", ""):
+                        try:
+                            return float(text)
+                        except ValueError:
+                            continue
 
     except Exception as e:
         logger.warning("[%s] ROE crawl failed: %s", stock_code, e)
