@@ -4,7 +4,7 @@ from unittest.mock import MagicMock
 
 from sqlmodel import Session
 
-from prime_jennie.infra.database.models import PositionDB
+from prime_jennie.infra.database.models import PositionDB, StockMasterDB
 from prime_jennie.services.jobs.app import apply_sync, compare_positions
 
 # ─── Fixtures ─────────────────────────────────────────────────
@@ -183,11 +183,15 @@ class TestApplySync:
         assert len(actions) == 1
         assert "INSERT" in actions[0]
         assert "000660" in actions[0]
-        session.add.assert_called_once()
-        added = session.add.call_args[0][0]
-        assert isinstance(added, PositionDB)
-        assert added.stock_code == "000660"
-        assert added.high_watermark == 180000
+        # StockMasterDB 자동 생성 + PositionDB INSERT = 2회 호출
+        assert session.add.call_count == 2
+        added_master = session.add.call_args_list[0][0][0]
+        added_pos = session.add.call_args_list[1][0][0]
+        assert isinstance(added_master, StockMasterDB)
+        assert added_master.stock_code == "000660"
+        assert isinstance(added_pos, PositionDB)
+        assert added_pos.stock_code == "000660"
+        assert added_pos.high_watermark == 180000
 
     def test_insert_fallback_high_watermark(self):
         """current_price가 0이면 average_buy_price를 high_watermark로 사용."""

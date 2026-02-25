@@ -981,6 +981,23 @@ def compare_positions(
     }
 
 
+def _ensure_stock_master(session: Session, stock_code: str, stock_name: str) -> None:
+    """stock_masters에 종목이 없으면 자동 생성 (ETF·수동매수 등 FK 위반 방지)."""
+    existing = session.get(StockMasterDB, stock_code)
+    if existing:
+        return
+    session.add(
+        StockMasterDB(
+            stock_code=stock_code,
+            stock_name=stock_name,
+            market="KOSPI",
+            is_active=True,
+        )
+    )
+    session.flush()
+    logger.info("stock_masters 자동 생성: %s %s", stock_code, stock_name)
+
+
 def apply_sync(session: Session, diff: dict) -> list[str]:
     """비교 결과를 DB에 반영. 적용된 변경 설명 리스트 반환."""
     actions: list[str] = []
@@ -992,6 +1009,7 @@ def apply_sync(session: Session, diff: dict) -> list[str]:
         avg = int(kis_pos.get("average_buy_price", 0))
         total = int(kis_pos.get("total_buy_amount", 0)) or qty * avg
         cur_price = int(kis_pos.get("current_price", 0)) or avg
+        _ensure_stock_master(session, code, name)
         session.add(
             PositionDB(
                 stock_code=code,
