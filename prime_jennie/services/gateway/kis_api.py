@@ -385,11 +385,13 @@ class KISApi:
             logger.warning("Buying power API failed, falling back to prvs_rcdl_excc_amt")
             cash_balance = int(summary.get("prvs_rcdl_excc_amt", 0))
 
+        stock_eval = int(summary.get("scts_evlu_amt", 0))
+
         return {
             "positions": positions,
             "cash_balance": cash_balance,
-            "total_asset": int(summary.get("tot_evlu_amt", 0)),
-            "stock_eval_amount": int(summary.get("scts_evlu_amt", 0)),
+            "total_asset": cash_balance + stock_eval,
+            "stock_eval_amount": stock_eval,
         }
 
     def get_buying_power(self) -> int:
