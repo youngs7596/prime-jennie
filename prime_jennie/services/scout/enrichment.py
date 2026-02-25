@@ -46,6 +46,7 @@ class EnrichedCandidate(BaseModel):
     investor_trading: InvestorTradingSummary | None = None
     financial_trend: FinancialTrend | None = None
     sector_avg_return_20d: float | None = None  # 섹터 20일 평균 수익률 (%)
+    rag_news_context: str | None = None  # Qdrant RAG 뉴스 컨텍스트
 
 
 def enrich_candidates(

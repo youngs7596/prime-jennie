@@ -210,6 +210,11 @@ def _build_prompt(
             ]
         )
 
+    # RAG 뉴스 컨텍스트 주입
+    skip_news = {"뉴스 DB 미연결", "최근 관련 뉴스 없음", "뉴스 검색 오류"}
+    if candidate.rag_news_context and candidate.rag_news_context not in skip_news:
+        lines.extend(["", "### 최근 뉴스 (RAG)", f"  {candidate.rag_news_context}"])
+
     lines.extend(
         [
             "",

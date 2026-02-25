@@ -29,15 +29,16 @@ from prime_jennie.domain.config import get_config
 from prime_jennie.domain.macro import TradingContext
 from prime_jennie.domain.scoring import HybridScore, QuantScore
 from prime_jennie.domain.sector import SectorAnalysis, SectorBudget
+from prime_jennie.domain.stock import StockMaster
 from prime_jennie.domain.watchlist import HotWatchlist
 from prime_jennie.infra.database.models import WatchlistHistoryDB
-from prime_jennie.infra.database.repositories import WatchlistRepository
+from prime_jennie.infra.database.repositories import StockRepository, WatchlistRepository
 from prime_jennie.infra.llm.factory import LLMFactory
 from prime_jennie.infra.redis.client import get_redis
 from prime_jennie.services.base import create_app
 from prime_jennie.services.deps import get_db_session, get_kis_client
 
-from . import analyst, enrichment, quant, sector_budget, selection, universe
+from . import analyst, enrichment, quant, rag_retriever, sector_budget, selection, universe
 
 logger = logging.getLogger(__name__)
 
@@ -125,11 +126,20 @@ async def run_pipeline(session: Session) -> HotWatchlist:
     redis_client = get_redis()
     kis = get_kis_client()
 
+    # --- RAG vectorstore 초기화 ---
+    vectorstore = rag_retriever.init_vectorstore()
+
     # --- Phase 1: Universe ---
     _update_progress("universe", 10)
     candidates = universe.load_universe(session, config.scout)
     if not candidates:
         raise RuntimeError("No candidates in universe")
+
+    # --- Phase 1.5: RAG 후보 발굴 ---
+    _update_progress("rag_discovery", 15)
+    rag_candidates = rag_retriever.discover_rag_candidates(vectorstore, candidates)
+    if rag_candidates:
+        _merge_rag_candidates(session, candidates, rag_candidates)
 
     # --- Phase 2: Enrichment ---
     _update_progress("enrichment", 25)
@@ -156,6 +166,12 @@ async def run_pipeline(session: Session) -> HotWatchlist:
             candidate.sector_avg_return_20d = sector_avg.get(group)
 
     logger.info("Sector 20d returns: %s", {str(g): f"{v:.1f}%" for g, v in sector_avg.items()})
+
+    # --- Phase 2.5: RAG 뉴스 프리페치 ---
+    news_cache = rag_retriever.fetch_news_for_stocks(vectorstore, enriched)
+    for code, news_text in news_cache.items():
+        if code in enriched:
+            enriched[code].rag_news_context = news_text
 
     # --- Phase 3: Quant Scoring ---
     _update_progress("quant_scoring", 45)
@@ -291,6 +307,38 @@ def _compute_budget(
     sector_budget.save_budget_to_redis(budget, redis_client)
 
     return budget
+
+
+def _merge_rag_candidates(
+    session: Session,
+    candidates: dict[str, StockMaster],
+    rag_candidates: dict[str, list[str]],
+) -> None:
+    """RAG 후보를 universe에 병합 (DB에서 StockMaster 조회)."""
+    added = 0
+    for code, tags in rag_candidates.items():
+        if code in candidates:
+            continue
+        db_stock = StockRepository.get_stock(session, code)
+        if not db_stock or not db_stock.is_active:
+            continue
+        try:
+            candidates[code] = StockMaster(
+                stock_code=db_stock.stock_code,
+                stock_name=db_stock.stock_name,
+                market=db_stock.market,
+                market_cap=db_stock.market_cap,
+                sector_naver=db_stock.sector_naver,
+                sector_group=db_stock.sector_group,
+                is_active=db_stock.is_active,
+            )
+            added += 1
+            logger.info("RAG candidate added: %s (%s) — %s", db_stock.stock_name, code, tags)
+        except Exception as e:
+            logger.warning("RAG candidate %s skip: %s", code, e)
+
+    if added:
+        logger.info("RAG added %d candidates to universe (total: %d)", added, len(candidates))
 
 
 def _save_watchlist_to_db(session: Session, watchlist: HotWatchlist) -> None:

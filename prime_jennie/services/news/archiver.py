@@ -6,6 +6,7 @@ LLM 호출 없음 — 순수 임베딩 + 저장.
 
 import hashlib
 import logging
+from datetime import UTC, datetime
 
 import redis
 
@@ -194,8 +195,10 @@ class NewsArchiver:
         content = f"[{stock_code}] {headline}"
         metadata = {
             "stock_code": stock_code,
+            "stock_name": self._decode(data, "stock_name"),
             "source_url": article_url,
             "source": self._decode(data, "source", "NAVER"),
+            "created_at_utc": int(datetime.now(UTC).timestamp()),
         }
 
         doc = Document(page_content=content, metadata=metadata)
