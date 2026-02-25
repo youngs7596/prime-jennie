@@ -119,7 +119,7 @@ class BuyScanner:
                 hybrid_score=50.0,
                 rank=len(wl.stocks) + added + 1,
                 is_tradable=True,
-                trade_tier=TradeTier.NORMAL,
+                trade_tier=TradeTier.TIER2,
                 risk_tag=RiskTag.NEUTRAL,
             )
             wl.stocks.append(entry)
