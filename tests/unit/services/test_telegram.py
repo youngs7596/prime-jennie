@@ -217,7 +217,16 @@ class TestCommandHandler:
         assert "확인" in result
 
     def test_sellall_with_confirmation(self):
-        handler, mock_redis, *_ = self._make_handler()
+        handler, mock_redis, mock_kis, _ = self._make_handler()
+        mock_pos = MagicMock(
+            stock_code="005930",
+            stock_name="삼성전자",
+            quantity=10,
+            average_buy_price=70000,
+        )
+        mock_kis.get_positions.return_value = [mock_pos]
+        mock_kis.get_price.return_value = MagicMock(price=72000)
+
         result = handler.process_command("/sellall", "확인", "123")
         assert "청산 요청" in result
         mock_redis.xadd.assert_called_once()
