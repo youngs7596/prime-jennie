@@ -128,11 +128,15 @@ class BuyScanner:
         rsi = compute_rsi_from_bars(bars)
         regime = self._watchlist.market_regime
 
-        # Conviction Entry는 risk gate 우회
+        # Conviction Entry는 risk gate 우회 (단, 시그널 쿨다운은 적용)
+        from .risk_gates import check_cooldown
         from .strategies import detect_conviction_entry
 
         conv = detect_conviction_entry(bars, entry, price, vwap, rsi, regime, self._config.scanner)
         if conv.detected:
+            cd = check_cooldown(stock_code, self._last_signal_times, self._config.scanner.signal_cooldown_seconds)
+            if not cd:
+                return None
             return self._publish_signal(stock_code, entry, conv.signal_type, price, rsi, vol_info["ratio"], vwap)
 
         # 나머지 전략은 risk gate 통과 필요
