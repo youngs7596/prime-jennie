@@ -105,13 +105,22 @@ NAVER_TO_GROUP: dict[str, SectorGroup] = {
 }
 
 
-def get_sector_group(naver_sector: str) -> SectorGroup:
+# 종목별 섹터 오버라이드 (복합기업 등 네이버 세분류가 부정확한 경우)
+STOCK_SECTOR_OVERRIDE: dict[str, SectorGroup] = {
+    "000880": SectorGroup.DEFENSE_SHIPBUILDING,  # 한화 — 방산/조선 핵심 지주
+}
+
+
+def get_sector_group(naver_sector: str, stock_code: str | None = None) -> SectorGroup:
     """네이버 세분류 → SectorGroup 대분류.
 
     Args:
         naver_sector: 네이버 업종 세분류명 (예: "반도체와반도체장비")
+        stock_code: 종목코드 (오버라이드 매핑용, 선택)
 
     Returns:
-        SectorGroup. 매핑 없으면 ETC.
+        SectorGroup. 종목 오버라이드 > 네이버 매핑 > ETC.
     """
+    if stock_code and stock_code in STOCK_SECTOR_OVERRIDE:
+        return STOCK_SECTOR_OVERRIDE[stock_code]
     return NAVER_TO_GROUP.get(naver_sector, SectorGroup.ETC)

@@ -1141,7 +1141,7 @@ def update_naver_sectors(session: Session = Depends(get_db_session)) -> JobResul
             stock = session.exec(select(StockMasterDB).where(StockMasterDB.stock_code == code)).first()
             if stock:
                 stock.sector_naver = sector
-                stock.sector_group = get_sector_group(sector).value
+                stock.sector_group = get_sector_group(sector, stock_code=code).value
                 count += 1
 
         session.commit()
