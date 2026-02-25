@@ -221,8 +221,8 @@ class TestCloudFailoverProvider:
 
         p = CloudFailoverProvider()
         names = [n for n, _ in p._providers]
-        assert names[0] == "deepseek-api"
-        assert names[1] == "openrouter"
+        assert names[0] == "openrouter"
+        assert names[1] == "deepseek-api"
 
     def test_provider_name(self):
         with patch.dict("os.environ", {"DEEPSEEK_API_KEY": "test"}):
