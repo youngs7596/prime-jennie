@@ -1785,6 +1785,32 @@ wheels = [
 ]
 
 [[package]]
+name = "langchain-qdrant"
+version = "1.0.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "langchain-core" },
+    { name = "pydantic" },
+    { name = "qdrant-client" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/c1/43/0aac18ad51b11c2fc7a1e32809272678e91d47dfed7a961e6285d9b833d1/langchain_qdrant-1.0.0.tar.gz", hash = "sha256:6ac4567b387ed2a94465d3039080e82ec031bf605b215045c148032c2ebce4b7", size = 195601, upload-time = "2025-10-17T15:19:44.808Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/3f/ff/41b7a64ee9fbb75efaa9789f7ef7b64b0b71ee9f5dfae76b1599a1493773/langchain_qdrant-1.0.0-py3-none-any.whl", hash = "sha256:c47e18073474c25ae04ae3106af1823c1dae92d8d3c59265369076d0e9e2bdca", size = 24331, upload-time = "2025-10-17T15:19:43.623Z" },
+]
+
+[[package]]
+name = "langchain-text-splitters"
+version = "1.1.1"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "langchain-core" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/85/38/14121ead61e0e75f79c3a35e5148ac7c2fe754a55f76eab3eed573269524/langchain_text_splitters-1.1.1.tar.gz", hash = "sha256:34861abe7c07d9e49d4dc852d0129e26b32738b60a74486853ec9b6d6a8e01d2", size = 279352, upload-time = "2026-02-18T23:02:42.798Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/84/66/d9e0c3b83b0ad75ee746c51ba347cacecb8d656b96e1d513f3e334d1ccab/langchain_text_splitters-1.1.1-py3-none-any.whl", hash = "sha256:5ed0d7bf314ba925041e7d7d17cd8b10f688300d5415fb26c29442f061e329dc", size = 35734, upload-time = "2026-02-18T23:02:41.913Z" },
+]
+
+[[package]]
 name = "langsmith"
 version = "0.7.4"
 source = { registry = "https://pypi.org/simple" }
@@ -2894,6 +2920,8 @@ dependencies = [
     { name = "google-generativeai" },
     { name = "httpx" },
     { name = "langchain-openai" },
+    { name = "langchain-qdrant" },
+    { name = "langchain-text-splitters" },
     { name = "numpy" },
     { name = "openai" },
     { name = "opendartreader" },
@@ -2949,6 +2977,8 @@ requires-dist = [
     { name = "httpx", specifier = ">=0.27,<1" },
     { name = "hypothesis", marker = "extra == 'dev'", specifier = ">=6.98" },
     { name = "langchain-openai", specifier = ">=0.1" },
+    { name = "langchain-qdrant", specifier = ">=0.1" },
+    { name = "langchain-text-splitters", specifier = ">=0.3" },
     { name = "mypy", marker = "extra == 'dev'", specifier = ">=1.10" },
     { name = "mysqlclient", marker = "extra == 'airflow'", specifier = ">=2.2" },
     { name = "numpy", specifier = ">=1.26,<2" },
