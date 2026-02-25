@@ -307,6 +307,9 @@ def _save_watchlist_to_db(session: Session, watchlist: HotWatchlist) -> None:
             trade_tier=e.trade_tier.value if e.trade_tier else None,
             risk_tag=e.risk_tag.value if e.risk_tag else None,
             rank=e.rank,
+            quant_score=e.quant_score,
+            sector_group=e.sector_group.value if e.sector_group else None,
+            market_regime=watchlist.market_regime.value,
         )
         for e in watchlist.stocks
     ]

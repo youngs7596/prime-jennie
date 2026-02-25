@@ -325,3 +325,6 @@ class WatchlistHistoryDB(SQLModel, table=True):
     trade_tier: str | None = Field(default=None, max_length=10)
     risk_tag: str | None = Field(default=None, max_length=30)
     rank: int | None = None
+    quant_score: float | None = None
+    sector_group: str | None = Field(default=None, max_length=30)
+    market_regime: str | None = Field(default=None, max_length=20)

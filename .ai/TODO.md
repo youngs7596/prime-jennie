@@ -37,11 +37,9 @@
 - **해결안**: Scanner watchlist 로드 시 `watchlist:manual` 병합, 또는 커맨드 제거
 - **참고**: `session-2026-02-23-telegram-fix.md`
 
-### 8. watchlist_histories DB 기록 프로세스 추가
-- **현상**: Scout가 Redis `watchlist:active`에만 기록, DB `watchlist_histories`에는 레거시 데이터(2/19)만 존재
-- rank/hybrid_score/trade_tier 전부 NULL
-- **해결안**: Scout 스코어링 완료 후 DB에도 스냅샷 저장 (백테스트/분석용)
-- **참고**: `session-2026-02-23-telegram-fix.md`
+### 8. ~~watchlist_histories DB 기록 프로세스 추가~~ ✅ 완료
+- Phase 8 DB 저장 구현 (커밋 `08f68b7`) + 컬럼 보강 (quant_score, sector_group, market_regime)
+- Alembic migration 005 추가
 
 ## 중요 (성능 개선)
 
