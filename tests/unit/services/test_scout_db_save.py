@@ -3,8 +3,6 @@
 from datetime import UTC, datetime
 from unittest.mock import MagicMock, patch
 
-import pytest
-
 from prime_jennie.domain.enums import (
     MarketRegime,
     RiskTag,
