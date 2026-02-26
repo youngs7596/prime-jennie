@@ -1072,7 +1072,7 @@ def apply_sync(session: Session, diff: dict, kis_positions: list[dict]) -> list[
     config = get_config()
     kis_map = {p["stock_code"]: p for p in kis_positions}
 
-    # 1. KIS에만 있는 종목 → INSERT
+    # 1. KIS에만 있는 종목 → INSERT + BUY trade_log
     for kis_pos in diff["only_in_kis"]:
         code = kis_pos["stock_code"]
         name = kis_pos.get("stock_name", "")
@@ -1095,12 +1095,34 @@ def apply_sync(session: Session, diff: dict, kis_positions: list[dict]) -> list[
                 sector_group=sector,
             )
         )
+        session.add(
+            TradeLogDB(
+                stock_code=code,
+                stock_name=name,
+                trade_type="BUY",
+                quantity=qty,
+                price=avg,
+                total_amount=total,
+                reason="MANUAL_SYNC",
+            )
+        )
         actions.append(f"INSERT {code} {name} qty={qty} avg={avg:,}")
 
-    # 2. DB에만 있는 종목 → DELETE
+    # 2. DB에만 있는 종목 → DELETE + SELL trade_log
     for db_pos in diff["only_in_db"]:
         pos = session.get(PositionDB, db_pos.stock_code)
         if pos:
+            session.add(
+                TradeLogDB(
+                    stock_code=db_pos.stock_code,
+                    stock_name=db_pos.stock_name,
+                    trade_type="SELL",
+                    quantity=db_pos.quantity,
+                    price=db_pos.average_buy_price,
+                    total_amount=db_pos.quantity * db_pos.average_buy_price,
+                    reason="MANUAL_SYNC",
+                )
+            )
             session.delete(pos)
             actions.append(f"DELETE {db_pos.stock_code} {db_pos.stock_name}")
 

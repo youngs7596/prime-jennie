@@ -4,7 +4,7 @@ from unittest.mock import MagicMock
 
 from sqlmodel import Session
 
-from prime_jennie.infra.database.models import PositionDB, StockMasterDB
+from prime_jennie.infra.database.models import PositionDB, StockMasterDB, TradeLogDB
 from prime_jennie.services.jobs.app import apply_sync, compare_positions
 
 # ─── Fixtures ─────────────────────────────────────────────────
@@ -186,16 +186,20 @@ class TestApplySync:
         assert len(actions) == 1
         assert "INSERT" in actions[0]
         assert "000660" in actions[0]
-        # StockMasterDB 자동 생성 + PositionDB INSERT = 2회 호출
-        assert session.add.call_count == 2
+        # StockMasterDB 자동 생성 + PositionDB INSERT + TradeLogDB BUY = 3회 호출
+        assert session.add.call_count == 3
         added_master = session.add.call_args_list[0][0][0]
         added_pos = session.add.call_args_list[1][0][0]
+        added_log = session.add.call_args_list[2][0][0]
         assert isinstance(added_master, StockMasterDB)
         assert added_master.stock_code == "000660"
         assert isinstance(added_pos, PositionDB)
         assert added_pos.stock_code == "000660"
         assert added_pos.high_watermark == 180000
         assert added_pos.stop_loss_price is not None
+        assert isinstance(added_log, TradeLogDB)
+        assert added_log.trade_type == "BUY"
+        assert added_log.reason == "MANUAL_SYNC"
 
     def test_insert_fallback_high_watermark(self):
         """current_price가 0이면 average_buy_price를 high_watermark로 사용."""
@@ -209,8 +213,8 @@ class TestApplySync:
             "matched": [],
         }
         apply_sync(session, diff, kis)
-        added = session.add.call_args[0][0]
-        assert added.high_watermark == 170000
+        added_pos = session.add.call_args_list[1][0][0]
+        assert added_pos.high_watermark == 170000
 
     def test_delete_only_in_db(self):
         pos = _db_pos(stock_code="035420", stock_name="NAVER")
@@ -227,6 +231,11 @@ class TestApplySync:
         assert len(actions) == 1
         assert "DELETE" in actions[0]
         session.delete.assert_called_once_with(pos)
+        # TradeLogDB SELL 기록
+        added_log = session.add.call_args[0][0]
+        assert isinstance(added_log, TradeLogDB)
+        assert added_log.trade_type == "SELL"
+        assert added_log.reason == "MANUAL_SYNC"
 
     def test_overwrite_quantity_from_kis(self):
         """수량 불일치 시 KIS 기준으로 덮어쓰기."""
