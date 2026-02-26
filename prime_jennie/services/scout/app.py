@@ -328,12 +328,15 @@ def _merge_rag_candidates(
     rag_candidates: dict[str, list[str]],
 ) -> None:
     """RAG 후보를 universe에 병합 (DB에서 StockMaster 조회)."""
+    config = get_config().scout
     added = 0
     for code, tags in rag_candidates.items():
         if code in candidates:
             continue
         db_stock = StockRepository.get_stock(session, code)
         if not db_stock or not db_stock.is_active:
+            continue
+        if (db_stock.market_cap or 0) < config.min_market_cap:
             continue
         try:
             candidates[code] = StockMaster(
