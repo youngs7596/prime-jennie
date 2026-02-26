@@ -225,6 +225,13 @@ class QuantScoreRepository:
         )
         return list(session.exec(stmt).all())
 
+    @staticmethod
+    def replace_scores(session: Session, score_date: date, entries: list[DailyQuantScoreDB]) -> None:
+        """같은 날짜 기존 행 삭제 후 INSERT (재실행 시 PK 충돌 방지)."""
+        session.exec(delete(DailyQuantScoreDB).where(DailyQuantScoreDB.score_date == score_date))  # type: ignore[call-overload]
+        session.add_all(entries)
+        session.commit()
+
 
 # ─── Watchlist ───────────────────────────────────────────────────
 

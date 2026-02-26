@@ -85,6 +85,8 @@ async def run_analyst(
         trade_tier=trade_tier,
         is_tradable=is_tradable,
         veto_applied=veto_applied,
+        llm_grade=llm_result["grade"],
+        llm_reason=llm_result["reason"],
         scored_at=now,
     )
 

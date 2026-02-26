@@ -117,6 +117,7 @@ class DailyQuantScoreDB(SQLModel, table=True):
     trade_tier: str | None = Field(default=None, max_length=10)
     is_tradable: bool = True
     is_final_selected: bool = False
+    llm_grade: str | None = Field(default=None, max_length=5)
     llm_reason: str | None = Field(default=None, max_length=2000)
 
     __table_args__ = (

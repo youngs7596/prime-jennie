@@ -31,8 +31,8 @@ from prime_jennie.domain.scoring import HybridScore, QuantScore
 from prime_jennie.domain.sector import SectorAnalysis, SectorBudget
 from prime_jennie.domain.stock import StockMaster
 from prime_jennie.domain.watchlist import HotWatchlist
-from prime_jennie.infra.database.models import WatchlistHistoryDB
-from prime_jennie.infra.database.repositories import StockRepository, WatchlistRepository
+from prime_jennie.infra.database.models import DailyQuantScoreDB, WatchlistHistoryDB
+from prime_jennie.infra.database.repositories import QuantScoreRepository, StockRepository, WatchlistRepository
 from prime_jennie.infra.llm.factory import LLMFactory
 from prime_jennie.infra.redis.client import get_redis
 from prime_jennie.services.base import create_app
@@ -173,6 +173,15 @@ async def run_pipeline(session: Session) -> HotWatchlist:
         if code in enriched:
             enriched[code].rag_news_context = news_text
 
+    # --- Phase 2.9: 현재가 하한 필터 ---
+    min_price = config.scout.min_price
+    before_count = len(enriched)
+    low_price_codes = [code for code, c in enriched.items() if c.snapshot and c.snapshot.price < min_price]
+    for code in low_price_codes:
+        del enriched[code]
+    if low_price_codes:
+        logger.info("Price filter: %d → %d (min=%s원)", before_count, len(enriched), f"{min_price:,}")
+
     # --- Phase 3: Quant Scoring ---
     _update_progress("quant_scoring", 45)
     quant_scores: list[QuantScore] = []
@@ -184,8 +193,8 @@ async def run_pipeline(session: Session) -> HotWatchlist:
     _update_progress("llm_analysis", 60)
     llm_provider = LLMFactory.get_provider("reasoning")
 
-    # LLM API 동시 호출 제한 (rate limit 방지)
-    sem = asyncio.Semaphore(5)
+    # LLM API 동시 호출 제한 (DeepSeek PoC 결과 20이 최적)
+    sem = asyncio.Semaphore(20)
 
     async def _analyze_one(qs: QuantScore) -> HybridScore | None:
         candidate = enriched.get(qs.stock_code)
@@ -214,6 +223,10 @@ async def run_pipeline(session: Session) -> HotWatchlist:
         context,
         max_size=config.scout.max_watchlist_size,
     )
+
+    # --- Phase 6.5: 전 종목 분석 결과 DB 저장 ---
+    selected_codes = {e.stock_code for e in watchlist.stocks}
+    _save_all_scores_to_db(session, quant_scores, hybrid_scores, selected_codes)
 
     # --- Phase 7: Save to Redis ---
     _update_progress("saving", 95)
@@ -339,6 +352,50 @@ def _merge_rag_candidates(
 
     if added:
         logger.info("RAG added %d candidates to universe (total: %d)", added, len(candidates))
+
+
+def _save_all_scores_to_db(
+    session: Session,
+    quant_scores: list[QuantScore],
+    hybrid_scores: list[HybridScore],
+    selected_codes: set[str],
+) -> None:
+    """전 종목 Quant + LLM 분석 결과를 daily_quant_scores에 저장."""
+    hybrid_map = {h.stock_code: h for h in hybrid_scores}
+    today = date.today()
+
+    entries = []
+    for qs in quant_scores:
+        hs = hybrid_map.get(qs.stock_code)
+        entries.append(
+            DailyQuantScoreDB(
+                score_date=today,
+                stock_code=qs.stock_code,
+                stock_name=qs.stock_name,
+                total_quant_score=qs.total_score,
+                momentum_score=qs.momentum_score,
+                quality_score=qs.quality_score,
+                value_score=qs.value_score,
+                technical_score=qs.technical_score,
+                news_score=qs.news_score,
+                supply_demand_score=qs.supply_demand_score,
+                llm_score=hs.llm_score if hs else None,
+                hybrid_score=hs.hybrid_score if hs else None,
+                risk_tag=hs.risk_tag.value if hs else None,
+                trade_tier=hs.trade_tier.value if hs else None,
+                is_tradable=hs.is_tradable if hs else False,
+                is_final_selected=qs.stock_code in selected_codes,
+                llm_grade=hs.llm_grade if hs else None,
+                llm_reason=hs.llm_reason if hs else None,
+            )
+        )
+
+    try:
+        QuantScoreRepository.replace_scores(session, today, entries)
+        logger.info("All scores saved to DB: %d entries for %s", len(entries), today)
+    except Exception:
+        logger.exception("Failed to save scores to DB")
+        session.rollback()
 
 
 def _save_watchlist_to_db(session: Session, watchlist: HotWatchlist) -> None:

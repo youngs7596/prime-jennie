@@ -50,6 +50,12 @@ def load_universe(session: Session, config: ScoutConfig) -> dict[str, StockMaste
             logger.warning("Skipping stock %s: %s", db_stock.stock_code, e)
             continue
 
+    # 시총 하한 필터
+    before = len(candidates)
+    candidates = [s for s in candidates if (s.market_cap or 0) >= config.min_market_cap]
+    if before != len(candidates):
+        logger.info("Market cap filter: %d → %d (min=%s)", before, len(candidates), f"{config.min_market_cap:,}")
+
     # 시가총액 내림차순 정렬 (None은 맨 뒤)
     candidates.sort(key=lambda s: s.market_cap or 0, reverse=True)
 

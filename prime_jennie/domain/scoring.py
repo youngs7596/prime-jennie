@@ -78,6 +78,8 @@ class HybridScore(BaseModel):
     trade_tier: TradeTier
     is_tradable: bool
     veto_applied: bool = False
+    llm_grade: str | None = None
+    llm_reason: str | None = None
     scored_at: datetime
 
     @model_validator(mode="after")

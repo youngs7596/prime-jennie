@@ -38,7 +38,7 @@ services:
       MARIADB_USER: "${DB_USER:-jennie}"
       MARIADB_PASSWORD: "${DB_PASSWORD:-q1w2e3R$}"
       MARIADB_DATABASE: "${DB_NAME:-jennie_db}"
-    command: --lower_case_table_names=1 --port=3307
+    command: --lower_case_table_names=1 --port=3307 --innodb_buffer_pool_size=1G
     volumes:
       - /docker_data/mariadb_data:/var/lib/mysql
     restart: always
