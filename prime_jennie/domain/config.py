@@ -171,7 +171,7 @@ class ScoutConfig(BaseSettings):
     max_watchlist_size: int = 20
     universe_size: int = 200
     enable_news_analysis: bool = True
-    min_market_cap: int = 300_000_000_000  # 시총 하한 (3,000억)
+    min_market_cap: int = 300_000  # 시총 하한 (3,000억, 백만원 단위)
     min_price: int = 10_000  # 주가 하한 (1만원)
 
     model_config = {"env_prefix": "SCOUT_"}
