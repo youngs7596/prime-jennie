@@ -1153,8 +1153,8 @@ def _resolve_sector(session: Session, stock_code: str) -> str | None:
     from prime_jennie.domain.sector_taxonomy import get_sector_group
 
     master = session.get(StockMasterDB, stock_code)
-    if master and master.naver_sector:
-        return str(get_sector_group(master.naver_sector, stock_code=stock_code))
+    if master and master.sector_naver:
+        return str(get_sector_group(master.sector_naver, stock_code=stock_code))
     return None
 
 

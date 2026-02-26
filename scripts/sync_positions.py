@@ -140,7 +140,7 @@ def main() -> None:
                 print("취소됨")
                 sys.exit(0)
 
-        actions = apply_sync(session, diff)
+        actions = apply_sync(session, diff, kis_positions)
         session.commit()
 
         print(f"\n{len(actions)}건 적용 완료:")
