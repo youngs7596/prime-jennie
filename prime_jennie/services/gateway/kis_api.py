@@ -8,6 +8,7 @@ Reference: https://apiportal.koreainvestment.com/
 
 import json
 import logging
+import threading
 import time
 from datetime import UTC, date, datetime
 from pathlib import Path
@@ -44,33 +45,39 @@ class KISApi:
         )
         self._access_token: str | None = None
         self._token_expires_at: float = 0.0
+        self._token_lock = threading.Lock()
         self._load_cached_token()
 
     # ─── Authentication ──────────────────────────────────────────
 
-    def authenticate(self) -> str:
-        """접근 토큰 발급/갱신. 캐싱된 유효 토큰이 있으면 재사용."""
-        if self._access_token and time.time() < self._token_expires_at - 60:
+    def authenticate(self, *, force: bool = False) -> str:
+        """접근 토큰 발급/갱신. 캐싱된 유효 토큰이 있으면 재사용.
+
+        Args:
+            force: True이면 만료 여부와 무관하게 강제 재발급
+        """
+        with self._token_lock:
+            if not force and self._access_token and time.time() < self._token_expires_at - 60:
+                return self._access_token
+
+            resp = self._client.post(
+                "/oauth2/tokenP",
+                json={
+                    "grant_type": "client_credentials",
+                    "appkey": self._config.app_key,
+                    "appsecret": self._config.app_secret,
+                },
+            )
+            resp.raise_for_status()
+            data = resp.json()
+
+            self._access_token = data["access_token"]
+            # KIS 토큰은 보통 24시간 유효
+            self._token_expires_at = time.time() + data.get("expires_in", 86400)
+            self._save_cached_token()
+
+            logger.info("KIS token refreshed, expires in %ds", data.get("expires_in", 86400))
             return self._access_token
-
-        resp = self._client.post(
-            "/oauth2/tokenP",
-            json={
-                "grant_type": "client_credentials",
-                "appkey": self._config.app_key,
-                "appsecret": self._config.app_secret,
-            },
-        )
-        resp.raise_for_status()
-        data = resp.json()
-
-        self._access_token = data["access_token"]
-        # KIS 토큰은 보통 24시간 유효
-        self._token_expires_at = time.time() + data.get("expires_in", 86400)
-        self._save_cached_token()
-
-        logger.info("KIS token refreshed, expires in %ds", data.get("expires_in", 86400))
-        return self._access_token
 
     def _load_cached_token(self) -> None:
         """파일에서 캐싱된 토큰 로드."""
@@ -125,10 +132,23 @@ class KISApi:
         params: dict[str, Any] | None = None,
         json_data: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
-        """KIS API 공통 요청."""
+        """KIS API 공통 요청. 인증 오류 시 토큰 재발급 후 1회 재시도."""
         headers = self._headers(tr_id)
 
         resp = self._client.request(method, path, headers=headers, params=params, json=json_data)
+
+        # 인증 오류 의심 → 토큰 재발급 후 재시도 (1회)
+        if resp.status_code in (401, 403, 500):
+            logger.warning(
+                "KIS %s %s → %d, retrying with fresh token",
+                method,
+                path,
+                resp.status_code,
+            )
+            self.authenticate(force=True)
+            headers = self._headers(tr_id)
+            resp = self._client.request(method, path, headers=headers, params=params, json=json_data)
+
         resp.raise_for_status()
         data = resp.json()
 
@@ -329,6 +349,87 @@ class KISApi:
         except KISApiError as e:
             logger.error("Cancel order failed: %s", e)
             return False
+
+    def check_order_status(self, order_no: str) -> dict[str, Any] | None:
+        """주문 체결 조회 (TTTC0081R).
+
+        레거시 2단계 로직:
+        Step 1: CCLD_DVSN="01" (체결만) → tot_ccld_qty > 0이면 체결 존재
+        Step 2: CCLD_DVSN="00" (전체) → rmn_qty == 0이면 전량 체결
+
+        Returns:
+            {"filled": bool, "filled_qty": int, "avg_price": float} 또는 실패 시 None
+        """
+        tr_id = "TTTC0081R"
+        if self._config.is_paper:
+            tr_id = "VTTC0081R"
+
+        today = date.today().strftime("%Y%m%d")
+        base_params = {
+            "CANO": self._config.account_no,
+            "ACNT_PRDT_CD": self._config.account_product_code,
+            "INQR_STRT_DT": today,
+            "INQR_END_DT": today,
+            "SLL_BUY_DVSN_CD": "00",  # 전체
+            "INQR_DVSN": "00",
+            "PDNO": "",
+            "CCLD_DVSN": "",
+            "ORD_GNO_BRNO": "",
+            "ODNO": order_no,
+            "INQR_DVSN_3": "00",
+            "INQR_DVSN_1": "",
+            "CTX_AREA_FK100": "",
+            "CTX_AREA_NK100": "",
+        }
+
+        try:
+            # Step 1: 체결 건만 조회
+            params_filled = {**base_params, "CCLD_DVSN": "01"}
+            data1 = self._request(
+                "GET",
+                "/uapi/domestic-stock/v1/trading/inquire-daily-ccld",
+                tr_id=tr_id,
+                params=params_filled,
+            )
+
+            filled_qty = 0
+            avg_price = 0.0
+            for row in data1.get("output1", []):
+                if row.get("odno") == order_no:
+                    filled_qty += int(row.get("tot_ccld_qty", 0))
+                    price_val = float(row.get("avg_prvs", 0))
+                    if price_val > 0:
+                        avg_price = price_val
+
+            if filled_qty == 0:
+                return {"filled": False, "filled_qty": 0, "avg_price": 0.0}
+
+            # Step 2: 전체 조회로 잔여 수량 확인
+            params_all = {**base_params, "CCLD_DVSN": "00"}
+            data2 = self._request(
+                "GET",
+                "/uapi/domestic-stock/v1/trading/inquire-daily-ccld",
+                tr_id=tr_id,
+                params=params_all,
+            )
+
+            fully_filled = False
+            for row in data2.get("output1", []):
+                if row.get("odno") == order_no:
+                    rmn_qty = int(row.get("rmn_qty", -1))
+                    if rmn_qty == 0:
+                        fully_filled = True
+                    break
+
+            return {
+                "filled": fully_filled,
+                "filled_qty": filled_qty,
+                "avg_price": avg_price,
+            }
+
+        except Exception as e:
+            logger.error("check_order_status failed for %s: %s", order_no, e)
+            return None
 
     # ─── Account ─────────────────────────────────────────────────
 

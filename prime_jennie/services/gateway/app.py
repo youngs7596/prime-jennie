@@ -11,6 +11,7 @@ Endpoints (04-service-contracts.md):
     POST /api/trading/buy         → OrderResult
     POST /api/trading/sell        → OrderResult
     POST /api/trading/cancel
+    POST /api/trading/order-status → OrderFillStatus
     POST /api/account/balance     → PortfolioState
     POST /api/account/cash
     GET  /health                  → HealthStatus
@@ -96,6 +97,10 @@ class MinutePricesRequest(BaseModel):
 
 
 class CancelRequest(BaseModel):
+    order_no: str
+
+
+class OrderStatusRequest(BaseModel):
     order_no: str
 
 
@@ -349,6 +354,22 @@ async def trading_cancel(request: Request, body: CancelRequest) -> dict:
         raise HTTPException(503, "Circuit breaker open") from err
     except KISApiError as e:
         return {"success": False, "error": str(e)}
+
+
+@app.post("/api/trading/order-status")
+@_limiter.limit("5/second")
+async def trading_order_status(request: Request, body: OrderStatusRequest) -> dict:
+    """주문 체결 상태 조회."""
+    _record_request("order_status", body.order_no)
+    try:
+        result = _circuit_breaker.call(_get_kis_api().check_order_status, body.order_no)
+        if result is None:
+            raise HTTPException(502, "KIS order status check failed")
+        return result
+    except pybreaker.CircuitBreakerError as err:
+        raise HTTPException(503, "Circuit breaker open") from err
+    except KISApiError as e:
+        raise HTTPException(502, f"KIS API error: {e}") from e
 
 
 # ─── Account Endpoints ───────────────────────────────────────────

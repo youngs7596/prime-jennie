@@ -1,6 +1,6 @@
 """Mock KIS Gateway — httpx.MockTransport 기반.
 
-실제 KIS Gateway의 11개 엔드포인트를 mock 구현.
+실제 KIS Gateway의 12개 엔드포인트를 mock 구현.
 httpx.MockTransport로 네트워크 없이 sync httpx.Client에서 직접 호출.
 """
 
@@ -58,7 +58,10 @@ def create_mock_transport(state: GatewayState) -> httpx.MockTransport:
             return _handle_order(state, payload)
 
         if path == "/api/trading/cancel" and method == "POST":
-            return _json_response({"success": True, "order_no": payload.get("order_no")})
+            return _handle_cancel(state, payload)
+
+        if path == "/api/trading/order-status" and method == "POST":
+            return _handle_order_status(state, payload)
 
         # --- Account ---
         if path == "/api/account/balance" and method == "POST":
@@ -106,16 +109,55 @@ def _handle_order(state: GatewayState, payload: dict) -> httpx.Response:
             }
         )
 
+    order_no = state.issue_order_no()
+    state.issued_orders[order_no] = {
+        "stock_code": stock_code,
+        "quantity": quantity,
+        "price": price,
+    }
+
     return _json_response(
         {
             "success": True,
-            "order_no": state.issue_order_no(),
+            "order_no": order_no,
             "stock_code": stock_code,
             "quantity": quantity,
             "price": price,
             "message": "filled",
         }
     )
+
+
+def _handle_cancel(state: GatewayState, payload: dict) -> httpx.Response:
+    """주문 취소."""
+    order_no = payload.get("order_no", "")
+    if state.cancel_should_fail:
+        return _json_response({"success": False, "order_no": order_no})
+    return _json_response({"success": True, "order_no": order_no})
+
+
+def _handle_order_status(state: GatewayState, payload: dict) -> httpx.Response:
+    """주문 체결 상태 조회."""
+    order_no = payload.get("order_no", "")
+
+    # 개별 주문 오버라이드
+    if order_no in state.order_fill_overrides:
+        return _json_response(state.order_fill_overrides[order_no])
+
+    # 기본 동작: issued_orders 참조
+    if state.default_filled and order_no in state.issued_orders:
+        order_info = state.issued_orders[order_no]
+        fill_price = state.fill_price_override or order_info["price"]
+        return _json_response(
+            {
+                "filled": True,
+                "filled_qty": order_info["quantity"],
+                "avg_price": float(fill_price),
+            }
+        )
+
+    # 미체결
+    return _json_response({"filled": False, "filled_qty": 0, "avg_price": 0.0})
 
 
 def _handle_snapshot(state: GatewayState, payload: dict) -> httpx.Response:

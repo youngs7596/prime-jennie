@@ -67,6 +67,16 @@ def _patch_config():
     get_config.cache_clear()
 
 
+@pytest.fixture(autouse=True)
+def _mock_market_hours():
+    """장중 시간 mock — E2E 테스트가 시간대와 무관하게 동작."""
+    with (
+        patch("prime_jennie.services.buyer.executor._is_market_hours", return_value=True),
+        patch("prime_jennie.services.seller.executor._is_market_hours", return_value=True),
+    ):
+        yield
+
+
 # ---------------------------------------------------------------------------
 # Mock KIS Gateway
 # ---------------------------------------------------------------------------

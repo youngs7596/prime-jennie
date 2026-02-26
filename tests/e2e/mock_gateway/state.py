@@ -33,6 +33,13 @@ class GatewayState:
     is_market_open: bool = True
     is_trading_day: bool = True
 
+    # 체결 확인
+    issued_orders: dict[str, dict] = field(default_factory=dict)  # {order_no: {stock_code, quantity, price}}
+    order_fill_overrides: dict[str, dict] = field(default_factory=dict)  # {order_no: {filled, filled_qty, avg_price}}
+    default_filled: bool = True  # 기본: 즉시 전량 체결
+    fill_price_override: int | None = None  # 체결가 오버라이드 (슬리피지 시뮬레이션)
+    cancel_should_fail: bool = False  # True면 cancel 실패 (이미 체결됨 시나리오)
+
     def issue_order_no(self) -> str:
         """주문 번호 발급."""
         no = f"MOCK-{self.next_order_no:04d}"

@@ -216,11 +216,35 @@ class SellExecutor:
                 reason=f"Order rejected: {result.message}",
             )
 
+        # 체결 확인 (3회, 2초 간격)
+        order_no = result.order_no or ""
+        sell_price = current_price
+        if order_no and order_no != "DRYRUN-0000":
+            fill = self._kis.confirm_order(order_no)
+            if fill:
+                if fill["avg_price"] > 0:
+                    sell_price = int(fill["avg_price"])
+                logger.info("[%s] Sell confirmed: qty=%d, avg_price=%d", code, fill["filled_qty"], sell_price)
+            else:
+                # 매도 미체결 → 취소 시도 + 경고
+                logger.error("[%s] SELL order %s NOT FILLED — attempting cancel", code, order_no)
+                self._kis.cancel_order(order_no)
+                return SellResult(
+                    "error",
+                    code,
+                    name,
+                    reason=f"Sell not filled, cancelled: {order_no}",
+                )
+
+        # 체결가로 수익률 재계산
+        if buy_price > 0 and sell_price != current_price:
+            profit_pct = round((sell_price - buy_price) / buy_price * 100, 2)
+
         logger.info(
             "[%s] SELL %d shares at %d (%s, profit=%.1f%%)",
             code,
             sell_qty,
-            current_price,
+            sell_price,
             order.sell_reason,
             profit_pct,
         )
@@ -240,9 +264,9 @@ class SellExecutor:
             "success",
             code,
             name,
-            order_no=result.order_no or "",
+            order_no=order_no,
             quantity=sell_qty,
-            price=current_price,
+            price=sell_price,
             profit_pct=profit_pct,
         )
 

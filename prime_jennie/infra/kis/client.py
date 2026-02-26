@@ -5,6 +5,7 @@ KIS Gateway 서비스(kis-gateway:8080)와 통신.
 """
 
 import logging
+import time
 
 import httpx
 
@@ -73,6 +74,41 @@ class KISClient:
         resp = self._client.post("/api/trading/cancel", json={"order_no": order_no})
         resp.raise_for_status()
         return resp.json().get("success", False)
+
+    def check_order_status(self, order_no: str) -> dict | None:
+        """주문 체결 상태 조회.
+
+        Returns:
+            {"filled": bool, "filled_qty": int, "avg_price": float} 또는 실패 시 None
+        """
+        try:
+            resp = self._client.post("/api/trading/order-status", json={"order_no": order_no})
+            resp.raise_for_status()
+            return resp.json()
+        except Exception as e:
+            logger.error("check_order_status failed: %s", e)
+            return None
+
+    def confirm_order(self, order_no: str, *, max_retries: int = 3, interval: float = 2.0) -> dict | None:
+        """주문 체결 확인 (폴링).
+
+        max_retries회 반복하며 전량 체결 여부 확인.
+
+        Returns:
+            {"filled_qty": int, "avg_price": float} 체결 시, None 미체결/실패 시
+        """
+        for attempt in range(max_retries):
+            status = self.check_order_status(order_no)
+            if status and status.get("filled"):
+                return {
+                    "filled_qty": status["filled_qty"],
+                    "avg_price": status["avg_price"],
+                }
+            if attempt < max_retries - 1:
+                time.sleep(interval)
+
+        logger.warning("Order %s not fully filled after %d retries", order_no, max_retries)
+        return None
 
     def get_balance(self) -> dict:
         """잔고 조회 (현금 + 보유 종목)."""

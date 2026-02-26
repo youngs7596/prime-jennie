@@ -272,6 +272,25 @@ class BuyExecutor:
                 reason=f"Order failed: {order_result.message}",
             )
 
+        # 체결 확인 (3회, 2초 간격)
+        actual_price = current_price
+        order_no = order_result.order_no or ""
+        if order_no and order_no != "DRYRUN-0000":
+            fill = self._kis.confirm_order(order_no)
+            if fill:
+                actual_price = int(fill["avg_price"]) if fill["avg_price"] > 0 else current_price
+                logger.info("[%s] Order confirmed: qty=%d, avg_price=%d", code, fill["filled_qty"], actual_price)
+            else:
+                # 미체결 → 취소 시도
+                logger.warning("[%s] Order %s not filled, cancelling", code, order_no)
+                self._kis.cancel_order(order_no)
+                return ExecutionResult(
+                    "error",
+                    code,
+                    name,
+                    reason=f"Order not filled, cancelled: {order_no}",
+                )
+
         self._increment_buy_count()
         self._cleanup_position_state(code)
 
@@ -279,28 +298,17 @@ class BuyExecutor:
             "[%s] BUY %d shares at %d (signal=%s, tier=%s, hybrid=%.1f)",
             code,
             sizing.quantity,
-            current_price,
+            actual_price,
             signal.signal_type,
             signal.trade_tier,
             signal.hybrid_score,
         )
 
-        # 주문 성공 후 실제 체결가 조회 (시장가 체결가와 스냅샷 가격 차이 보정)
-        actual_price = current_price
-        try:
-            fill_positions = self._kis.get_positions()
-            for p in fill_positions:
-                if p.stock_code == code:
-                    actual_price = p.average_buy_price
-                    break
-        except Exception:
-            logger.debug("[%s] Failed to fetch actual fill price, using snapshot", code)
-
         return ExecutionResult(
             "success",
             code,
             name,
-            order_no=order_result.order_no or "",
+            order_no=order_no,
             quantity=sizing.quantity,
             price=actual_price,
         )
@@ -354,6 +362,10 @@ class BuyExecutor:
                             price=limit_price,
                             message="Limit order timeout",
                         )
+                    # 취소 실패 = 이미 체결됨 → 체결가 조회
+                    fill = self._kis.confirm_order(result.order_no, max_retries=2, interval=1.0)
+                    if fill and fill["avg_price"] > 0:
+                        result.price = int(fill["avg_price"])
                 return result
             except Exception as e:
                 logger.error("[%s] Limit order failed: %s", signal.stock_code, e)

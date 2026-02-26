@@ -61,6 +61,7 @@ def _mock_executor():
         quantity=10,
         price=72000,
     )
+    kis.confirm_order.return_value = {"filled_qty": 10, "avg_price": 72000.0}
 
     redis_client = MagicMock()
     redis_client.get.return_value = None  # no emergency stop
