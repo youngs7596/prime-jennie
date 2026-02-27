@@ -13,7 +13,13 @@ export default function Scout() {
       <h1 className="text-xl font-bold">Scout / Watchlist</h1>
 
       {/* Current Active Watchlist */}
-      <Card title="Active Watchlist (Redis)">
+      <Card
+        title={
+          current.data?.generated_at
+            ? `Active Watchlist — ${new Date(current.data.generated_at).toLocaleString("ko-KR", { timeZone: "Asia/Seoul", month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" })}`
+            : "Active Watchlist"
+        }
+      >
         {current.isLoading && <LoadingSpinner />}
         {current.data?.status === "no_data" && (
           <p className="py-4 text-sm text-text-muted">No active watchlist</p>
@@ -68,7 +74,13 @@ export default function Scout() {
       </Card>
 
       {/* Watchlist History */}
-      <Card title="Watchlist History (DB)">
+      <Card
+        title={
+          history.data && history.data.length > 0
+            ? `Watchlist History — ${history.data[0].snapshot_date}`
+            : "Watchlist History"
+        }
+      >
         {history.isLoading && <LoadingSpinner />}
         {history.data && history.data.length === 0 && (
           <p className="py-4 text-sm text-text-muted">No history</p>

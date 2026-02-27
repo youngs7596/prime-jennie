@@ -221,7 +221,7 @@ export function useMacroDates(limit = 30) {
 }
 
 export function useWatchlistCurrent() {
-  return useQuery<{ stocks?: WatchlistEntry[]; status?: string }>({
+  return useQuery<{ stocks?: WatchlistEntry[]; status?: string; generated_at?: string; market_regime?: string }>({
     queryKey: ["watchlist", "current"],
     queryFn: () => api.get("/watchlist/current").then((r) => r.data),
   });
