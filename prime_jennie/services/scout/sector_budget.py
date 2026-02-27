@@ -22,6 +22,11 @@ TIER_CAPS = {
     SectorTier.COOL: {"watchlist": 3, "portfolio": 2},
 }
 
+# 섹터별 watchlist cap 오버라이드 (티어 cap보다 우선)
+SECTOR_CAP_OVERRIDES: dict[SectorGroup, int] = {
+    SectorGroup.SEMICONDUCTOR_IT: 4,
+}
+
 REDIS_KEY = "sector_budget:active"
 REDIS_TTL = 86400  # 24h
 
@@ -87,7 +92,7 @@ def compute_sector_budget(
 
     for group, tier in tiers.items():
         caps = TIER_CAPS[tier]
-        wl_cap = caps["watchlist"]
+        wl_cap = SECTOR_CAP_OVERRIDES.get(group, caps["watchlist"])
         pf_cap = caps["portfolio"]
         current_held = held.get(group, 0)
 
