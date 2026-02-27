@@ -262,7 +262,7 @@ def run_all_gates(
             else config.rsi_guard_max,
         ),
         lambda: check_macro_risk(context),
-        lambda: check_market_regime(context.market_regime),
+        lambda: check_market_regime(context.market_regime, block_bear=False),
         lambda: check_combined_risk(
             volume_ratio,
             vwap,
@@ -284,7 +284,7 @@ def run_all_gates(
     for gate_fn in gates:
         result = gate_fn()
         if not result:
-            logger.debug(
+            logger.info(
                 "[%s] Gate FAIL: %s — %s",
                 stock_code,
                 result.gate_name,

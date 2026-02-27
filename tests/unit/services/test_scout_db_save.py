@@ -60,7 +60,7 @@ class TestSaveWatchlistToDb:
     @patch("prime_jennie.services.scout.app.WatchlistRepository")
     @patch("prime_jennie.services.scout.app.date")
     def test_new_columns_mapped(self, mock_date, mock_repo):
-        """quant_score, sector_group, market_regime 이 DB 엔트리에 매핑되는지 확인."""
+        """quant_score, sector_group, market_regime, run_id 이 DB 엔트리에 매핑되는지 확인."""
         mock_date.today.return_value = mock_date
         mock_date.__eq__ = lambda self, other: True
 
@@ -71,17 +71,21 @@ class TestSaveWatchlistToDb:
         )
         watchlist = _make_watchlist([entry], regime=MarketRegime.BULL)
 
-        _save_watchlist_to_db(session, watchlist)
+        _save_watchlist_to_db(session, watchlist, run_id="scout-20260225-0300")
 
-        # replace_history 호출 확인
-        mock_repo.replace_history.assert_called_once()
-        _session, _date, entries = mock_repo.replace_history.call_args[0]
+        # save_history 호출 확인
+        mock_repo.save_history.assert_called_once()
+        call_args = mock_repo.save_history.call_args
+        _session, _date, _run_id, entries = call_args[0]
 
+        assert _run_id == "scout-20260225-0300"
         assert len(entries) == 1
         db_entry: WatchlistHistoryDB = entries[0]
         assert db_entry.quant_score == 72.5
         assert db_entry.sector_group == "조선/방산"
         assert db_entry.market_regime == "BULL"
+        assert db_entry.run_id == "scout-20260225-0300"
+        assert db_entry.is_active is True
 
     @patch("prime_jennie.services.scout.app.WatchlistRepository")
     @patch("prime_jennie.services.scout.app.date")
@@ -94,9 +98,9 @@ class TestSaveWatchlistToDb:
         entry = _make_entry(sector_group=None)
         watchlist = _make_watchlist([entry])
 
-        _save_watchlist_to_db(session, watchlist)
+        _save_watchlist_to_db(session, watchlist, run_id="scout-20260225-0300")
 
-        _session, _date, entries = mock_repo.replace_history.call_args[0]
+        _session, _date, _run_id, entries = mock_repo.save_history.call_args[0]
         db_entry: WatchlistHistoryDB = entries[0]
         assert db_entry.sector_group is None
         assert db_entry.market_regime == "SIDEWAYS"
@@ -109,12 +113,12 @@ class TestSaveWatchlistToDb:
         mock_date.__eq__ = lambda self, other: True
 
         session = MagicMock()
-        mock_repo.replace_history.side_effect = RuntimeError("DB error")
+        mock_repo.save_history.side_effect = RuntimeError("DB error")
 
         watchlist = _make_watchlist([_make_entry()])
 
         # 예외가 전파되지 않고 내부에서 처리됨
-        _save_watchlist_to_db(session, watchlist)
+        _save_watchlist_to_db(session, watchlist, run_id="scout-20260225-0300")
 
         session.rollback.assert_called_once()
 
@@ -133,11 +137,31 @@ class TestSaveWatchlistToDb:
         ]
         watchlist = _make_watchlist(entries, regime=MarketRegime.BEAR)
 
-        _save_watchlist_to_db(session, watchlist)
+        _save_watchlist_to_db(session, watchlist, run_id="scout-20260225-0300")
 
-        _session, _date, db_entries = mock_repo.replace_history.call_args[0]
+        _session, _date, _run_id, db_entries = mock_repo.save_history.call_args[0]
         assert len(db_entries) == 3
         assert db_entries[0].sector_group == "반도체/IT"
         assert db_entries[2].sector_group == "미디어/엔터"
         # 모든 엔트리의 market_regime이 동일 (watchlist 레벨)
         assert all(e.market_regime == "BEAR" for e in db_entries)
+        # run_id 일관성
+        assert all(e.run_id == "scout-20260225-0300" for e in db_entries)
+
+    @patch("prime_jennie.services.scout.app.WatchlistRepository")
+    @patch("prime_jennie.services.scout.app.date")
+    def test_test_source_sets_inactive(self, mock_date, mock_repo):
+        """source=test일 때 is_active=False로 저장."""
+        mock_date.today.return_value = mock_date
+        mock_date.__eq__ = lambda self, other: True
+
+        session = MagicMock()
+        watchlist = _make_watchlist([_make_entry()])
+
+        _save_watchlist_to_db(session, watchlist, run_id="scout-test-001", is_active=False)
+
+        call_kwargs = mock_repo.save_history.call_args[1]
+        assert call_kwargs["is_active"] is False
+
+        _session, _date, _run_id, entries = mock_repo.save_history.call_args[0]
+        assert entries[0].is_active is False

@@ -99,7 +99,7 @@ async def trigger(
 
     # 동기 실행 (Airflow 트리거는 완료까지 대기)
     try:
-        await run_pipeline(session, llm_provider_override=body.llm_provider)
+        await run_pipeline(session, run_id=job_id, source=body.source, llm_provider_override=body.llm_provider)
         return TriggerResponse(job_id=job_id, status="completed")
     except Exception as e:
         logger.exception("Scout pipeline failed: %s", e)
@@ -119,7 +119,13 @@ async def status() -> StatusResponse:
 # ─── Pipeline ────────────────────────────────────────────────────
 
 
-async def run_pipeline(session: Session, *, llm_provider_override: str | None = None) -> HotWatchlist:
+async def run_pipeline(
+    session: Session,
+    *,
+    run_id: str = "",
+    source: str = "manual",
+    llm_provider_override: str | None = None,
+) -> HotWatchlist:
     """7단계 파이프라인 순차 실행."""
     global _current_phase, _progress_pct, _last_completed_at
 
@@ -236,7 +242,8 @@ async def run_pipeline(session: Session, *, llm_provider_override: str | None = 
 
     # --- Phase 6.5: 전 종목 분석 결과 DB 저장 ---
     selected_codes = {e.stock_code for e in watchlist.stocks}
-    _save_all_scores_to_db(session, quant_scores, hybrid_scores, selected_codes)
+    is_active = source != "test"
+    _save_all_scores_to_db(session, quant_scores, hybrid_scores, selected_codes, run_id=run_id, is_active=is_active)
 
     # --- Phase 7: Save to Redis ---
     _update_progress("saving", 95)
@@ -247,7 +254,7 @@ async def run_pipeline(session: Session, *, llm_provider_override: str | None = 
     )
 
     # --- Phase 8: Save to DB ---
-    _save_watchlist_to_db(session, watchlist)
+    _save_watchlist_to_db(session, watchlist, run_id=run_id, is_active=is_active)
 
     _update_progress("idle", 100)
     _last_completed_at = datetime.now(UTC)
@@ -372,6 +379,9 @@ def _save_all_scores_to_db(
     quant_scores: list[QuantScore],
     hybrid_scores: list[HybridScore],
     selected_codes: set[str],
+    *,
+    run_id: str = "",
+    is_active: bool = True,
 ) -> None:
     """전 종목 Quant + LLM 분석 결과를 daily_quant_scores에 저장."""
     hybrid_map = {h.stock_code: h for h in hybrid_scores}
@@ -400,19 +410,27 @@ def _save_all_scores_to_db(
                 is_final_selected=qs.stock_code in selected_codes,
                 llm_grade=hs.llm_grade if hs else None,
                 llm_reason=hs.llm_reason if hs else None,
+                run_id=run_id,
+                is_active=is_active,
             )
         )
 
     try:
-        QuantScoreRepository.replace_scores(session, today, entries)
-        logger.info("All scores saved to DB: %d entries for %s", len(entries), today)
+        QuantScoreRepository.save_scores(session, today, run_id, entries, is_active=is_active)
+        logger.info("All scores saved to DB: %d entries (run_id=%s) for %s", len(entries), run_id, today)
     except Exception:
         logger.exception("Failed to save scores to DB")
         session.rollback()
 
 
-def _save_watchlist_to_db(session: Session, watchlist: HotWatchlist) -> None:
-    """워치리스트 → watchlist_histories 테이블 저장 (같은 날 재실행 시 교체)."""
+def _save_watchlist_to_db(
+    session: Session,
+    watchlist: HotWatchlist,
+    *,
+    run_id: str = "",
+    is_active: bool = True,
+) -> None:
+    """워치리스트 → watchlist_histories 테이블 저장 (run_id 기반 이력 보존)."""
     today = date.today()
     entries = [
         WatchlistHistoryDB(
@@ -428,12 +446,14 @@ def _save_watchlist_to_db(session: Session, watchlist: HotWatchlist) -> None:
             quant_score=e.quant_score,
             sector_group=e.sector_group.value if e.sector_group else None,
             market_regime=watchlist.market_regime.value,
+            run_id=run_id,
+            is_active=is_active,
         )
         for e in watchlist.stocks
     ]
     try:
-        WatchlistRepository.replace_history(session, today, entries)
-        logger.info("Watchlist saved to DB: %d entries for %s", len(entries), today)
+        WatchlistRepository.save_history(session, today, run_id, entries, is_active=is_active)
+        logger.info("Watchlist saved to DB: %d entries (run_id=%s) for %s", len(entries), run_id, today)
     except Exception:
         logger.exception("Failed to save watchlist to DB")
         session.rollback()

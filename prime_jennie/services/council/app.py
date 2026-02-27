@@ -204,15 +204,25 @@ def _update_trading_context(insight: MacroInsight) -> None:
     try:
         from prime_jennie.domain.enums import MarketRegime
 
-        # Sentiment → Regime 매핑
-        regime_map = {
-            "bullish": MarketRegime.STRONG_BULL,
-            "neutral_to_bullish": MarketRegime.BULL,
-            "neutral": MarketRegime.SIDEWAYS,
-            "neutral_to_bearish": MarketRegime.BEAR,
-            "bearish": MarketRegime.STRONG_BEAR,
-        }
-        regime = regime_map.get(insight.sentiment, MarketRegime.SIDEWAYS)
+        # Sentiment score → Regime 매핑 (label 대신 점수 기반)
+        score = insight.sentiment_score
+        if score >= 70:
+            regime = MarketRegime.STRONG_BULL
+        elif score >= 55:
+            regime = MarketRegime.BULL
+        elif score >= 40:
+            regime = MarketRegime.SIDEWAYS
+        elif score >= 25:
+            regime = MarketRegime.BEAR
+        else:
+            regime = MarketRegime.STRONG_BEAR
+
+        logger.info(
+            "Regime determined: score=%d, sentiment=%s → %s",
+            score,
+            insight.sentiment,
+            regime.value,
+        )
 
         context = TradingContext(
             date=insight.insight_date,

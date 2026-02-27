@@ -119,10 +119,13 @@ class DailyQuantScoreDB(SQLModel, table=True):
     is_final_selected: bool = False
     llm_grade: str | None = Field(default=None, max_length=5)
     llm_reason: str | None = Field(default=None, max_length=2000)
+    run_id: str = Field(default="", max_length=30)
+    is_active: bool = Field(default=True)
 
     __table_args__ = (
-        UniqueConstraint("score_date", "stock_code", name="uq_quant_date_code"),
+        UniqueConstraint("score_date", "stock_code", "run_id", name="uq_quant_date_code_run"),
         Index("ix_quant_final", "is_final_selected", "score_date"),
+        Index("ix_quant_active", "score_date", "is_active"),
     )
 
 
@@ -339,6 +342,7 @@ class WatchlistHistoryDB(SQLModel, table=True):
         foreign_key="stock_masters.stock_code",
         max_length=10,
     )
+    run_id: str = Field(default="", primary_key=True, max_length=30)
     stock_name: str = Field(max_length=100)
     llm_score: float | None = None
     hybrid_score: float | None = None
@@ -349,3 +353,6 @@ class WatchlistHistoryDB(SQLModel, table=True):
     quant_score: float | None = None
     sector_group: str | None = Field(default=None, max_length=30)
     market_regime: str | None = Field(default=None, max_length=20)
+    is_active: bool = Field(default=True)
+
+    __table_args__ = (Index("ix_watchlist_active", "snapshot_date", "is_active"),)

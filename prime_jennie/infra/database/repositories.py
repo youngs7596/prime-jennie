@@ -7,7 +7,7 @@
 import logging
 from datetime import date, datetime, timedelta
 
-from sqlalchemy import delete, desc
+from sqlalchemy import desc, update
 from sqlmodel import Session, select
 
 from .models import (
@@ -249,14 +249,28 @@ class QuantScoreRepository:
         stmt = (
             select(DailyQuantScoreDB)
             .where(DailyQuantScoreDB.score_date == score_date)
+            .where(DailyQuantScoreDB.is_active == True)  # noqa: E712
             .order_by(desc(DailyQuantScoreDB.hybrid_score))
         )
         return list(session.exec(stmt).all())
 
     @staticmethod
-    def replace_scores(session: Session, score_date: date, entries: list[DailyQuantScoreDB]) -> None:
-        """같은 날짜 기존 행 삭제 후 INSERT (재실행 시 PK 충돌 방지)."""
-        session.exec(delete(DailyQuantScoreDB).where(DailyQuantScoreDB.score_date == score_date))  # type: ignore[call-overload]
+    def save_scores(
+        session: Session,
+        score_date: date,
+        run_id: str,
+        entries: list[DailyQuantScoreDB],
+        *,
+        is_active: bool = True,
+    ) -> None:
+        """run_id 기반 이력 보존: 기존 active 해제 → 새 entries INSERT."""
+        if is_active:
+            session.exec(
+                update(DailyQuantScoreDB)  # type: ignore[call-overload]
+                .where(DailyQuantScoreDB.score_date == score_date)
+                .where(DailyQuantScoreDB.is_active == True)  # noqa: E712
+                .values(is_active=False)
+            )
         session.add_all(entries)
         session.commit()
 
@@ -268,22 +282,33 @@ class WatchlistRepository:
     """워치리스트 이력."""
 
     @staticmethod
-    def save_history(session: Session, entries: list[WatchlistHistoryDB]) -> None:
-        session.add_all(entries)
-        session.commit()
-
-    @staticmethod
-    def replace_history(session: Session, snapshot_date: date, entries: list[WatchlistHistoryDB]) -> None:
-        """같은 날짜 기존 행 삭제 후 INSERT (재실행 시 PK 충돌 방지)."""
-        session.exec(delete(WatchlistHistoryDB).where(WatchlistHistoryDB.snapshot_date == snapshot_date))  # type: ignore[call-overload]
+    def save_history(
+        session: Session,
+        snapshot_date: date,
+        run_id: str,
+        entries: list[WatchlistHistoryDB],
+        *,
+        is_active: bool = True,
+    ) -> None:
+        """run_id 기반 이력 보존: 기존 active 해제 → 새 entries INSERT."""
+        if is_active:
+            session.exec(
+                update(WatchlistHistoryDB)  # type: ignore[call-overload]
+                .where(WatchlistHistoryDB.snapshot_date == snapshot_date)
+                .where(WatchlistHistoryDB.is_active == True)  # noqa: E712
+                .values(is_active=False)
+            )
         session.add_all(entries)
         session.commit()
 
     @staticmethod
     def get_latest(session: Session) -> list[WatchlistHistoryDB]:
-        # 가장 최근 날짜의 워치리스트 조회
+        """가장 최근 날짜의 active 워치리스트 조회."""
         latest_date_stmt = (
-            select(WatchlistHistoryDB.snapshot_date).order_by(desc(WatchlistHistoryDB.snapshot_date)).limit(1)
+            select(WatchlistHistoryDB.snapshot_date)
+            .where(WatchlistHistoryDB.is_active == True)  # noqa: E712
+            .order_by(desc(WatchlistHistoryDB.snapshot_date))
+            .limit(1)
         )
         latest_date = session.exec(latest_date_stmt).first()
         if not latest_date:
@@ -292,6 +317,7 @@ class WatchlistRepository:
         stmt = (
             select(WatchlistHistoryDB)
             .where(WatchlistHistoryDB.snapshot_date == latest_date)
+            .where(WatchlistHistoryDB.is_active == True)  # noqa: E712
             .order_by(WatchlistHistoryDB.rank)
         )
         return list(session.exec(stmt).all())
