@@ -36,6 +36,18 @@ class FinancialTrend(BaseModel):
     roe: float | None = None
 
 
+class ConsensusInfo(BaseModel):
+    """Forward 컨센서스 데이터."""
+
+    forward_per: float | None = None
+    forward_eps: float | None = None
+    forward_roe: float | None = None
+    target_price: int | None = None
+    analyst_count: int | None = None
+    investment_opinion: float | None = None
+    eps_revision_pct: float | None = None  # 최근 30일 forward EPS 변화율 (%)
+
+
 class EnrichedCandidate(BaseModel):
     """Phase 2 출력 — 팩터 분석에 필요한 모든 데이터."""
 
@@ -45,6 +57,7 @@ class EnrichedCandidate(BaseModel):
     news_sentiment_avg: float | None = None  # 최근 뉴스 평균 감성 점수
     investor_trading: InvestorTradingSummary | None = None
     financial_trend: FinancialTrend | None = None
+    consensus: ConsensusInfo | None = None  # Forward 컨센서스
     sector_avg_return_20d: float | None = None  # 섹터 20일 평균 수익률 (%)
     rag_news_context: str | None = None  # Qdrant RAG 뉴스 컨텍스트
 
@@ -137,6 +150,35 @@ def enrich_candidates(
                 )
         except Exception as e:
             logger.warning("[%s] fundamentals fetch failed: %s", code, e)
+
+        # Consensus (Forward PER/ROE + Earnings Revision)
+        try:
+            cons_row = StockRepository.get_consensus(session, code)
+            if cons_row:
+                consensus = ConsensusInfo(
+                    forward_per=cons_row.forward_per,
+                    forward_eps=cons_row.forward_eps,
+                    forward_roe=cons_row.forward_roe,
+                    target_price=cons_row.target_price,
+                    analyst_count=cons_row.analyst_count,
+                    investment_opinion=cons_row.investment_opinion,
+                )
+                # Earnings Revision: 30일 전 EPS 대비 변화율
+                if cons_row.forward_eps is not None:
+                    history = StockRepository.get_consensus_history(session, code, days=30)
+                    if len(history) >= 2:
+                        oldest = history[0]
+                        if (
+                            oldest.forward_eps is not None
+                            and oldest.forward_eps != 0
+                            and oldest.trade_date != cons_row.trade_date
+                        ):
+                            consensus.eps_revision_pct = (
+                                (cons_row.forward_eps - oldest.forward_eps) / abs(oldest.forward_eps)
+                            ) * 100
+                enriched.consensus = consensus
+        except Exception as e:
+            logger.warning("[%s] consensus fetch failed: %s", code, e)
 
         # News sentiment
         try:

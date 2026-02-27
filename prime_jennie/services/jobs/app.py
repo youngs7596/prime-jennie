@@ -19,6 +19,7 @@ from prime_jennie.infra.database.models import (
     DailyAssetSnapshotDB,
     DailyQuantScoreDB,
     PositionDB,
+    StockConsensusDB,
     StockDailyPriceDB,
     StockDisclosureDB,
     StockFundamentalDB,
@@ -1413,6 +1414,83 @@ def weekly_factor_analysis(session: Session = Depends(get_db_session)) -> JobRes
         )
     except Exception as e:
         logger.exception("Weekly factor analysis failed")
+        return JobResult(success=False, message=str(e))
+
+
+@app.post("/jobs/collect-consensus")
+def collect_consensus(session: Session = Depends(get_db_session)) -> JobResult:
+    """주간 컨센서스 수집 (FnGuide/Naver → stock_consensus UPSERT).
+
+    활성 종목 상위 300개를 순회하며 Forward PER/EPS/ROE 수집.
+    0.5초 딜레이, 100건 배치 커밋.
+    """
+    from prime_jennie.infra.crawlers.fnguide import crawl_consensus
+
+    try:
+        stocks = session.exec(
+            select(StockMasterDB)
+            .where(StockMasterDB.is_active)
+            .order_by(col(StockMasterDB.market_cap).desc())
+            .limit(300)
+        ).all()
+
+        today = date.today()
+        updated = 0
+        fnguide_ok = 0
+        naver_ok = 0
+        failed = 0
+
+        for idx, stock in enumerate(stocks, 1):
+            data = crawl_consensus(stock.stock_code)
+            if data is not None:
+                existing = session.get(StockConsensusDB, (stock.stock_code, today))
+                if existing:
+                    existing.forward_per = data.forward_per
+                    existing.forward_eps = data.forward_eps
+                    existing.forward_roe = data.forward_roe
+                    existing.target_price = data.target_price
+                    existing.analyst_count = data.analyst_count
+                    existing.investment_opinion = data.investment_opinion
+                    existing.source = data.source
+                else:
+                    session.add(
+                        StockConsensusDB(
+                            stock_code=stock.stock_code,
+                            trade_date=today,
+                            forward_per=data.forward_per,
+                            forward_eps=data.forward_eps,
+                            forward_roe=data.forward_roe,
+                            target_price=data.target_price,
+                            analyst_count=data.analyst_count,
+                            investment_opinion=data.investment_opinion,
+                            source=data.source,
+                        )
+                    )
+                updated += 1
+                if data.source == "FNGUIDE":
+                    fnguide_ok += 1
+                else:
+                    naver_ok += 1
+            else:
+                failed += 1
+
+            if idx % 100 == 0:
+                session.commit()
+                logger.info(
+                    "Consensus collect progress: %d/%d (updated=%d)",
+                    idx,
+                    len(stocks),
+                    updated,
+                )
+
+            time.sleep(0.5)
+
+        session.commit()
+        msg = f"Consensus collected: {updated}/{len(stocks)} (fnguide={fnguide_ok}, naver={naver_ok}, failed={failed})"
+        logger.info(msg)
+        return JobResult(count=updated, message=msg)
+    except Exception as e:
+        logger.exception("Consensus collection failed")
         return JobResult(success=False, message=str(e))
 
 

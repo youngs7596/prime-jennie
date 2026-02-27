@@ -175,6 +175,16 @@ weekly_factor_analysis = _utility_dag(
     tags=["analytics", "weekly"],
 )
 
+collect_consensus_weekly = _utility_dag(
+    "collect_consensus_weekly",
+    "0 21 * * 0",
+    "주간 컨센서스 수집 (Forward PER/EPS/ROE)",
+    "/jobs/collect-consensus",
+    timeout_min=30,
+    retries=2,
+    tags=["data", "weekly"],
+)
+
 # ─── Monthly Jobs ──────────────────────────────────────────
 
 collect_naver_roe = _utility_dag(

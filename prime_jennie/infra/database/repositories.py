@@ -15,6 +15,7 @@ from .models import (
     DailyMacroInsightDB,
     DailyQuantScoreDB,
     PositionDB,
+    StockConsensusDB,
     StockDailyPriceDB,
     StockFundamentalDB,
     StockInvestorTradingDB,
@@ -83,6 +84,33 @@ class StockRepository:
             .limit(1)
         )
         return session.exec(stmt).first()
+
+    @staticmethod
+    def get_consensus(session: Session, stock_code: str) -> StockConsensusDB | None:
+        """최신 컨센서스 데이터 (trade_date DESC)."""
+        stmt = (
+            select(StockConsensusDB)
+            .where(StockConsensusDB.stock_code == stock_code)
+            .order_by(desc(StockConsensusDB.trade_date))
+            .limit(1)
+        )
+        return session.exec(stmt).first()
+
+    @staticmethod
+    def get_consensus_history(
+        session: Session,
+        stock_code: str,
+        days: int = 30,
+    ) -> list[StockConsensusDB]:
+        """Earnings Revision 계산용: 최근 N일치 히스토리."""
+        cutoff = date.today() - timedelta(days=days)
+        stmt = (
+            select(StockConsensusDB)
+            .where(StockConsensusDB.stock_code == stock_code)
+            .where(StockConsensusDB.trade_date >= cutoff)
+            .order_by(StockConsensusDB.trade_date)
+        )
+        return list(session.exec(stmt).all())
 
     @staticmethod
     def get_news_sentiments(

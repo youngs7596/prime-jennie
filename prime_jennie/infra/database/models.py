@@ -292,6 +292,26 @@ class StockDisclosureDB(SQLModel, table=True):
     )
 
 
+class StockConsensusDB(SQLModel, table=True):
+    __tablename__ = "stock_consensus"
+
+    stock_code: str = Field(
+        foreign_key="stock_masters.stock_code",
+        primary_key=True,
+        max_length=10,
+    )
+    trade_date: date = Field(primary_key=True)
+    forward_per: float | None = None
+    forward_eps: float | None = None
+    forward_roe: float | None = None
+    target_price: int | None = None
+    analyst_count: int | None = None
+    investment_opinion: float | None = None
+    source: str = Field(default="FNGUIDE", max_length=20)
+
+    __table_args__ = (Index("ix_consensus_date", "trade_date"),)
+
+
 class StockMinutePriceDB(SQLModel, table=True):
     __tablename__ = "stock_minute_prices"
 

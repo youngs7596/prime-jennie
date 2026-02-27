@@ -69,7 +69,7 @@ def score_candidate(
     if len(prices) < 20:
         return _neutral_score(candidate, reason=f"Insufficient data: {len(prices)} days")
 
-    momentum = _momentum_score(prices, benchmark_prices, is_bull=is_bull)
+    momentum = _momentum_score(prices, benchmark_prices, is_bull=is_bull, consensus=candidate.consensus)
     quality = _quality_score(candidate)
     value = _value_score(candidate)
     technical = _technical_score(prices)
@@ -107,8 +107,9 @@ def _momentum_score(
     benchmark: list[DailyPrice] | None,
     *,
     is_bull: bool = False,
+    consensus: object | None = None,
 ) -> float:
-    """모멘텀 점수 (0-20): RSI + 가격 모멘텀 + 눌림목."""
+    """모멘텀 점수 (0-20): RSI + 가격 모멘텀 + 눌림목 + Earnings Revision."""
     if len(prices) < 20:
         return V2_NEUTRAL["momentum"]
 
@@ -153,26 +154,45 @@ def _momentum_score(
         elif mom_6m > 10 and mom_1m > 3:
             score += 3.5  # 추세 지속 보너스 (꾸준한 상승)
 
+    # 5. Earnings Revision 보너스 (0-2): EPS 상향 시 추가 점수
+    if consensus is not None:
+        eps_rev = getattr(consensus, "eps_revision_pct", None)
+        if eps_rev is not None:
+            if eps_rev >= 10:
+                score += 2.0  # EPS 10%+ 상향
+            elif eps_rev >= 5:
+                score += 1.0  # EPS 5%+ 상향
+
     return min(20.0, score)
 
 
 def _quality_score(candidate: EnrichedCandidate) -> float:
-    """품질 점수 (0-20): ROE + 재무 건전성."""
+    """품질 점수 (0-20): ROE + 재무 건전성.
+
+    Forward 컨센서스 우선, 없으면 trailing 사용.
+    """
     ft = candidate.financial_trend
+    cons = candidate.consensus
     if not ft:
         return V2_NEUTRAL["quality"]
 
     score = 0.0
 
-    # ROE (0-10)
-    if ft.roe is not None:
-        if ft.roe >= 15:
+    # ROE (0-10): forward ROE 우선
+    effective_roe = None
+    if cons and cons.forward_roe is not None:
+        effective_roe = cons.forward_roe
+    elif ft.roe is not None:
+        effective_roe = ft.roe
+
+    if effective_roe is not None:
+        if effective_roe >= 15:
             score += 10.0
-        elif ft.roe >= 10:
+        elif effective_roe >= 10:
             score += 8.0
-        elif ft.roe >= 5:
+        elif effective_roe >= 5:
             score += 5.0
-        elif ft.roe >= 0:
+        elif effective_roe >= 0:
             score += 2.0
         else:
             score += 0.0  # 적자
@@ -190,13 +210,19 @@ def _quality_score(candidate: EnrichedCandidate) -> float:
         else:
             score += 1.0  # 고PBR 성장주 하한선 (반도체/조선 등)
 
-    # PER 안정성 (0-5): 적정 PER 보유 여부
-    if ft.per is not None and ft.per > 0:
-        if 5 <= ft.per <= 15:
+    # PER 안정성 (0-5): forward PER 우선
+    effective_per = None
+    if cons and cons.forward_per is not None and cons.forward_per > 0:
+        effective_per = cons.forward_per
+    elif ft.per is not None and ft.per > 0:
+        effective_per = ft.per
+
+    if effective_per is not None:
+        if 5 <= effective_per <= 15:
             score += 5.0
-        elif 3 <= ft.per <= 25:
+        elif 3 <= effective_per <= 25:
             score += 3.0
-        elif ft.per <= 50:
+        elif effective_per <= 50:
             score += 1.0
         else:
             score += 0.5  # 고PER 성장주 하한선
@@ -205,27 +231,37 @@ def _quality_score(candidate: EnrichedCandidate) -> float:
 
 
 def _value_score(candidate: EnrichedCandidate) -> float:
-    """가치 점수 (0-20): PER 할인 + PBR 평가."""
+    """가치 점수 (0-20): PER 할인 + PBR 평가.
+
+    Forward PER 컨센서스 우선, 없으면 trailing PER 사용.
+    """
     ft = candidate.financial_trend
     snap = candidate.snapshot
+    cons = candidate.consensus
     if not ft:
         return V2_NEUTRAL["value"]
 
     score = 0.0
 
-    # PER 할인 (0-10): 업종 평균 대비 저평가 (구간 세분화)
-    if ft.per is not None and ft.per > 0:
-        if ft.per < 8:
+    # PER 할인 (0-10): forward PER 우선, 없으면 trailing PER
+    effective_per = None
+    if cons and cons.forward_per is not None and cons.forward_per > 0:
+        effective_per = cons.forward_per
+    elif ft.per is not None and ft.per > 0:
+        effective_per = ft.per
+
+    if effective_per is not None:
+        if effective_per < 8:
             score += 10.0
-        elif ft.per < 12:
+        elif effective_per < 12:
             score += 7.0
-        elif ft.per < 15:
+        elif effective_per < 15:
             score += 5.5  # 대형주 적정 PER (삼성 15 등)
-        elif ft.per < 20:
+        elif effective_per < 20:
             score += 4.0
-        elif ft.per < 30:
+        elif effective_per < 30:
             score += 2.5
-        elif ft.per < 50:
+        elif effective_per < 50:
             score += 2.0
         else:
             score += 1.5
