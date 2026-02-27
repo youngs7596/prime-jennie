@@ -123,7 +123,7 @@ DOCKER_DATA_DIR=/docker_data     # Docker 볼륨 경로 (기본: /docker_data)
 docker compose --profile infra --profile gpu up -d
 
 # 트레이딩 서비스
-docker compose --profile real up -d --build
+docker compose --profile real up -d
 ```
 
 **Cloud 모드** (GPU 없음):
@@ -133,7 +133,7 @@ docker compose --profile infra up -d
 
 # 트레이딩 서비스 (Cloud LLM 오버라이드)
 docker compose -f docker-compose.yml -f docker-compose.no-gpu.yml \
-  --profile infra --profile real up -d --build
+  --profile infra --profile real up -d
 ```
 
 ### Step 4. 확인
@@ -170,7 +170,7 @@ alembic upgrade head
 python scripts/seed_stock_masters.py --market KOSPI
 
 # 6. 트레이딩 서비스
-docker compose --profile real up -d --build
+docker compose --profile real up -d
 ```
 
 ---
@@ -391,7 +391,7 @@ Hard Stop(-10%) → Profit Floor → Profit Lock(ATR) → Breakeven Stop(+3%→+
 ### 인프라
 - **Docker Compose** — 24개 서비스 (infra + gpu + real 프로파일)
 - **Airflow** — 15+ DAG 기반 워크플로우 스케줄러
-- **GitHub Actions** — CI/CD (lint + test + deploy)
+- **GitHub Actions** — CI/CD (lint + test + GHCR publish + deploy)
 - **Grafana + Loki** — 모니터링 + 로그 집계
 
 ---
