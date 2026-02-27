@@ -197,6 +197,18 @@ collect_naver_roe = _utility_dag(
     tags=["data", "monthly"],
 )
 
+# ─── Daily Monitoring ──────────────────────────────────────
+
+contract_smoke_test = _utility_dag(
+    "contract_smoke_test",
+    "0 21 * * *",
+    "외부 크롤러 contract smoke test (HTML 구조 변경 감지)",
+    "/jobs/contract-smoke-test",
+    timeout_min=5,
+    retries=1,
+    tags=["monitoring", "daily"],
+)
+
 # ─── Quarterly Jobs ────────────────────────────────────────
 
 collect_quarterly_financials = _utility_dag(

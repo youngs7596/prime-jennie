@@ -1644,3 +1644,103 @@ def collect_quarterly_financials(session: Session = Depends(get_db_session)) -> 
     except Exception as e:
         logger.exception("Quarterly financials collection failed")
         return JobResult(success=False, message=str(e))
+
+
+# ─── Contract Smoke Tests ──────────────────────────────────────
+
+
+@app.post("/jobs/contract-smoke-test")
+def contract_smoke_test() -> JobResult:
+    """외부 크롤러 contract smoke test — HTML 구조 변경 감지.
+
+    Sentinel 종목(삼성전자 005930)으로 5개 크롤러를 호출하여
+    응답 구조와 값 범위를 검증한다. 하나라도 실패 시 success=False.
+    """
+    from prime_jennie.infra.crawlers.fnguide import crawl_fnguide_consensus
+    from prime_jennie.infra.crawlers.naver import (
+        build_naver_sector_mapping,
+        crawl_naver_fundamentals,
+        crawl_naver_roe,
+        crawl_stock_news,
+    )
+
+    sentinel = "005930"
+    passed: list[str] = []
+    failed: list[str] = []
+
+    # 1) crawl_naver_fundamentals
+    try:
+        fund = crawl_naver_fundamentals(sentinel)
+        if fund is None:
+            failed.append("fundamentals: returned None")
+        elif fund.per is None or not (1 < fund.per < 200):
+            failed.append(f"fundamentals: PER out of range ({fund.per})")
+        elif fund.pbr is None or not (0.1 < fund.pbr < 50):
+            failed.append(f"fundamentals: PBR out of range ({fund.pbr})")
+        else:
+            passed.append(f"fundamentals: PER={fund.per}, PBR={fund.pbr}, ROE={fund.roe}, Q={fund.quarter_name}")
+    except Exception as e:
+        failed.append(f"fundamentals: exception — {e}")
+
+    # 2) crawl_naver_roe
+    try:
+        roe = crawl_naver_roe(sentinel)
+        if roe is None:
+            failed.append("roe: returned None")
+        elif not (-50 < roe < 100):
+            failed.append(f"roe: out of range ({roe})")
+        else:
+            passed.append(f"roe: {roe}")
+    except Exception as e:
+        failed.append(f"roe: exception — {e}")
+
+    # 3) crawl_stock_news
+    try:
+        articles = crawl_stock_news(sentinel, "삼성전자", max_pages=1)
+        if not articles:
+            failed.append("news: no articles returned")
+        elif not articles[0].headline:
+            failed.append("news: empty headline")
+        else:
+            passed.append(f"news: {len(articles)} articles")
+    except Exception as e:
+        failed.append(f"news: exception — {e}")
+
+    # 4) build_naver_sector_mapping
+    try:
+        mapping = build_naver_sector_mapping()
+        if len(mapping) < 500:
+            failed.append(f"sector_mapping: too few stocks ({len(mapping)})")
+        elif sentinel not in mapping:
+            failed.append("sector_mapping: sentinel not found")
+        else:
+            passed.append(f"sector_mapping: {len(mapping)} stocks")
+    except Exception as e:
+        failed.append(f"sector_mapping: exception — {e}")
+
+    # 5) crawl_fnguide_consensus
+    try:
+        consensus = crawl_fnguide_consensus(sentinel)
+        if consensus is None:
+            failed.append("fnguide_consensus: returned None")
+        elif consensus.forward_per is None or not (1 < consensus.forward_per < 200):
+            failed.append(f"fnguide_consensus: forward_per out of range ({consensus.forward_per})")
+        else:
+            passed.append(f"fnguide_consensus: fwd_PER={consensus.forward_per}, fwd_EPS={consensus.forward_eps}")
+    except Exception as e:
+        failed.append(f"fnguide_consensus: exception — {e}")
+
+    lines = [f"PASS ({len(passed)}):"] + [f"  ✓ {p}" for p in passed]
+    if failed:
+        lines += [f"FAIL ({len(failed)}):"] + [f"  ✗ {f}" for f in failed]
+
+    msg = "\n".join(lines)
+    logger.info("Contract smoke test: %d passed, %d failed", len(passed), len(failed))
+    if failed:
+        logger.warning("Contract smoke test failures:\n%s", msg)
+
+    return JobResult(
+        success=len(failed) == 0,
+        count=len(passed),
+        message=msg,
+    )
