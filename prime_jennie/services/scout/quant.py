@@ -361,21 +361,21 @@ def _supply_demand_score(candidate: EnrichedCandidate) -> float:
 
     score = 0.0
 
-    # 외인 순매수 (0-8)
+    # 외인 순매수 (0-6): 외인 매도세가 강해도 개인 매수로 상쇄되는 시장 반영
     if it.foreign_net_buy_sum > 0:
-        score += min(8.0, 4.0 + it.foreign_net_buy_sum / 5e9 * 4.0)
+        score += min(6.0, 3.0 + it.foreign_net_buy_sum / 5e9 * 3.0)
     elif it.foreign_net_buy_sum < 0:
-        score += max(0.0, 4.0 + it.foreign_net_buy_sum / 5e9 * 4.0)
+        score += max(0.0, 3.0 + it.foreign_net_buy_sum / 5e9 * 3.0)
     else:
-        score += 4.0  # 중립
+        score += 3.0  # 중립
 
-    # 기관 순매수 (0-6)
+    # 기관 순매수 (0-8): 기관 수급 비중 강화
     if it.institution_net_buy_sum > 0:
-        score += min(6.0, 3.0 + it.institution_net_buy_sum / 5e9 * 3.0)
+        score += min(8.0, 4.0 + it.institution_net_buy_sum / 5e9 * 4.0)
     elif it.institution_net_buy_sum < 0:
-        score += max(0.0, 3.0 + it.institution_net_buy_sum / 5e9 * 3.0)
+        score += max(0.0, 4.0 + it.institution_net_buy_sum / 5e9 * 4.0)
     else:
-        score += 3.0
+        score += 4.0
 
     # 외인 보유비율 추세 (0-6)
     if it.foreign_ratio_trend is not None:
