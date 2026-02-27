@@ -164,7 +164,11 @@ class MacroCouncilPipeline:
             "시장 국면(sentiment)은 반드시 KOSPI 지수 동향 기준으로 판단하세요. "
             "KOSDAQ은 참고 지표일 뿐, KOSPI와 괴리가 있어도 sentiment에 반영하지 마세요. "
             "VIX는 참고용이며, 한국 시장 고유 요인을 우선 분석하세요. "
-            "12시간 이상 오래된 뉴스는 가중치를 낮추세요."
+            "12시간 이상 오래된 뉴스는 가중치를 낮추세요. "
+            "수급 해석 원칙: 외국인 매도 자체가 bearish는 아니다. "
+            "기관+개인이 외국인 매도를 흡수하면 수급은 중립이다. "
+            "KOSPI 실제 지수 변동이 최종 근거다 — "
+            "외국인이 매도해도 지수가 방어/반등하면 시장 복원력의 증거이지 약세가 아니다."
         )
         return await self._get_reasoning().generate_json(
             prompt=context,
@@ -211,7 +215,8 @@ class MacroCouncilPipeline:
             "우리 포트폴리오는 KOSPI 종목만 거래합니다. "
             "시장 국면은 KOSPI 지수 동향 기준으로 판단하세요. "
             "전략가의 분석을 기본으로, 리스크 분석가의 우려를 반영하세요. "
-            "의견 불일치 시 보수적 판단을 택하되, KOSPI 상승 추세가 명확하면 bullish/neutral_to_bullish를 택하세요."
+            "의견 불일치 시 보수적 판단을 택하되, KOSPI 상승 추세가 명확하면 bullish/neutral_to_bullish를 택하세요. "
+            "KOSPI 실제 가격이 진실이다 — 외국인 매도에도 지수가 방어/반등하면 neutral 이상으로 판단하라."
         )
         return await self._get_thinking().generate_json(
             prompt=prompt,
@@ -231,6 +236,12 @@ class MacroCouncilPipeline:
 
         if input_data.global_snapshot:
             snap = input_data.global_snapshot
+            # 순유입 합산 (외인+기관+개인)
+            foreign = snap.kospi_foreign_net or 0
+            institutional = snap.kospi_institutional_net or 0
+            retail = snap.kospi_retail_net or 0
+            net_total = foreign + institutional + retail
+
             snap_text = (
                 f"=== 글로벌 매크로 ===\n"
                 f"VIX: {snap.vix} ({snap.vix_regime})\n"
@@ -238,11 +249,13 @@ class MacroCouncilPipeline:
                 f"\n"
                 f"=== KOSPI (우리 포트폴리오 대상 시장) ===\n"
                 f"KOSPI 지수: {snap.kospi_index} (전일비: {snap.kospi_change_pct:+.2f}%)\n"
-                f"외국인 순매수: {snap.kospi_foreign_net}억\n"
-                f"기관 순매수: {snap.kospi_institutional_net}억\n"
+                f"외국인 순매수: {foreign}억\n"
+                f"기관 순매수: {institutional}억\n"
+                f"개인 순매수: {retail}억\n"
+                f"3주체 합산 순유입: {net_total}억\n"
                 f"\n"
                 f"=== KOSDAQ (참고용, 포트폴리오 대상 아님) ===\n"
-                f"KOSDAQ 지수: {snap.kosdaq_index} ({snap.kosdaq_change_pct:+.2f}%)"
+                f"KOSDAQ 지수: {snap.kosdaq_index} ({snap.kosdaq_change_pct:+.02f}%)"
             )
             parts.append(snap_text)
 
