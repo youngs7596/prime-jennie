@@ -212,7 +212,7 @@ class BuyScanner:
         vwap = self._bar_engine.get_vwap(stock_code)
         vol_info = self._bar_engine.get_volume_info(stock_code)
         rsi = compute_rsi_from_bars(bars)
-        regime = self._watchlist.market_regime
+        regime = self._context.market_regime
 
         # Conviction Entry는 risk gate 우회 (단, 시그널 쿨다운은 적용)
         from .risk_gates import check_cooldown
@@ -359,7 +359,7 @@ class BuyScanner:
             trade_tier=entry.trade_tier,
             risk_tag=entry.risk_tag,
             sector_group=entry.sector_group,
-            market_regime=self._watchlist.market_regime,
+            market_regime=self._context.market_regime,
             source="scanner",
             timestamp=datetime.now(UTC),
             rsi_value=rsi,
@@ -385,7 +385,7 @@ class BuyScanner:
         return {
             "watchlist_loaded": self._watchlist is not None,
             "stock_count": len(self._watchlist.stocks) if self._watchlist else 0,
-            "market_regime": (self._watchlist.market_regime if self._watchlist else "UNKNOWN"),
+            "market_regime": self._context.market_regime,
             "pending_momentum": len(self._pending_momentum),
             "active_cooldowns": len(self._last_signal_times),
         }
