@@ -133,6 +133,17 @@ async def run_pipeline(
     redis_client = get_redis()
     kis = get_kis_client()
 
+    # --- Phase 0: 이전 워치리스트 읽기 (히스테리시스용) ---
+    previous_codes: set[str] = set()
+    try:
+        prev_raw = redis_client.get(REDIS_WATCHLIST_KEY)
+        if prev_raw:
+            prev_wl = HotWatchlist.model_validate_json(prev_raw)
+            previous_codes = set(prev_wl.stock_codes)
+            logger.info("Previous watchlist loaded: %d stocks", len(previous_codes))
+    except Exception as e:
+        logger.warning("Failed to load previous watchlist: %s", e)
+
     # --- RAG vectorstore 초기화 ---
     vectorstore = rag_retriever.init_vectorstore()
 
@@ -226,11 +237,16 @@ async def run_pipeline(
     results = await asyncio.gather(*[_analyze_one(qs) for qs in quant_scores])
     hybrid_scores: list[HybridScore] = [r for r in results if r is not None]
 
+    # --- Phase 4.5: MA smoothing ---
+    historical = QuantScoreRepository.get_recent_hybrid_scores(session, lookback_dates=config.scout.ma_window - 1)
+    ma_map = _compute_ma_scores(hybrid_scores, historical, config.scout.ma_window)
+    logger.info("MA scores computed: %d stocks (historical from %d dates)", len(ma_map), len(historical))
+
     # --- Phase 5: Sector Budget ---
     _update_progress("sector_budget", 80)
     budget = _compute_budget(enriched, context, redis_client)
 
-    # --- Phase 6: Selection ---
+    # --- Phase 6: Selection (MA scores + hysteresis) ---
     _update_progress("selection", 90)
     watchlist = selection.select_watchlist(
         hybrid_scores,
@@ -238,9 +254,13 @@ async def run_pipeline(
         budget,
         context,
         max_size=config.scout.max_watchlist_size,
+        score_overrides=ma_map,
+        previous_codes=previous_codes,
+        entry_threshold=config.scout.entry_threshold,
+        exit_threshold=config.scout.exit_threshold,
     )
 
-    # --- Phase 6.5: 전 종목 분석 결과 DB 저장 ---
+    # --- Phase 6.5: 전 종목 분석 결과 DB 저장 (raw scores 보존) ---
     selected_codes = {e.stock_code for e in watchlist.stocks}
     is_active = source != "test"
     _save_all_scores_to_db(session, quant_scores, hybrid_scores, selected_codes, run_id=run_id, is_active=is_active)
@@ -255,6 +275,12 @@ async def run_pipeline(
 
     # --- Phase 8: Save to DB ---
     _save_watchlist_to_db(session, watchlist, run_id=run_id, is_active=is_active)
+
+    # --- Phase 9: 오래된 quant scores 정리 ---
+    try:
+        QuantScoreRepository.cleanup_old_scores(session, config.scout.history_retention_days)
+    except Exception:
+        logger.exception("Failed to cleanup old scores")
 
     _update_progress("idle", 100)
     _last_completed_at = datetime.now(UTC)
@@ -372,6 +398,35 @@ def _merge_rag_candidates(
 
     if added:
         logger.info("RAG added %d candidates to universe (total: %d)", added, len(candidates))
+
+
+def _compute_ma_scores(
+    hybrid_scores: list[HybridScore],
+    historical: dict[str, list[float]],
+    window: int = 3,
+) -> dict[str, float]:
+    """현재 run의 hybrid_score + 과거 scores → 이동평균 계산.
+
+    Returns: {stock_code: ma_score}
+    """
+    ma_map: dict[str, float] = {}
+    for hs in hybrid_scores:
+        past = historical.get(hs.stock_code, [])
+        all_scores = past + [hs.hybrid_score]
+        recent = all_scores[-window:]
+        ma = sum(recent) / len(recent)
+        ma_map[hs.stock_code] = round(ma, 1)
+
+        if abs(ma - hs.hybrid_score) >= 1.0:
+            logger.info(
+                "[MA] %s: raw=%.1f, ma=%.1f (window=%d/%d)",
+                hs.stock_name,
+                hs.hybrid_score,
+                ma,
+                len(recent),
+                window,
+            )
+    return ma_map
 
 
 def _save_all_scores_to_db(

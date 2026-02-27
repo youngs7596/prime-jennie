@@ -26,12 +26,17 @@ def select_watchlist(
     budget: SectorBudget | None,
     context: TradingContext,
     max_size: int = 20,
+    score_overrides: dict[str, float] | None = None,
+    previous_codes: set[str] | None = None,
+    entry_threshold: float = 62.0,
+    exit_threshold: float = 55.0,
 ) -> HotWatchlist:
-    """Phase 5: Greedy Selection (섹터 cap 존중).
+    """Phase 5: Greedy Selection (섹터 cap 존중 + MA smoothing + 히스테리시스).
 
     Algorithm:
-        1. hybrid_score 내림차순 정렬
+        1. MA score 기준 내림차순 정렬 (score_overrides 우선)
         2. BLOCKED 제외, is_tradable=True만 포함
+        2.5. 히스테리시스 필터 (entry/exit threshold)
         3. 섹터별 cap 체크하며 greedy 선정
         4. max_size 미달 시 스킵된 종목에서 backfill
 
@@ -41,15 +46,20 @@ def select_watchlist(
         budget: 섹터 예산 (None이면 기본 cap=3)
         context: 트레이딩 컨텍스트
         max_size: 워치리스트 최대 크기
+        score_overrides: MA smoothed scores {stock_code: ma_score}
+        previous_codes: 이전 워치리스트 종목 코드 (히스테리시스용)
+        entry_threshold: 신규 진입 최소 MA score
+        exit_threshold: 기존 종목 이탈 MA score
 
     Returns:
         HotWatchlist (Redis 저장 가능 형태)
     """
+    _overrides = score_overrides or {}
 
-    # 1. 정렬 (hybrid_score 5점 버킷 내림차순 → 동일 버킷 내 시총 내림차순)
-    # 예: 84점 vs 80점 → 같은 80-84 버킷, 시총으로 결정
+    # 1. 정렬 (MA score 5점 버킷 내림차순 → 동일 버킷 내 시총 내림차순)
     def _sort_key(s: HybridScore) -> tuple[int, int]:
-        bucket = int(s.hybrid_score // 5) * 5  # 80-84→80, 75-79→75
+        effective = _overrides.get(s.stock_code, s.hybrid_score)
+        bucket = int(effective // 5) * 5
         cand = candidates.get(s.stock_code)
         mcap = (cand.master.market_cap or 0) if cand else 0
         return (bucket, mcap)
@@ -58,6 +68,36 @@ def select_watchlist(
 
     # 2. 필터: BLOCKED 제거, tradable만
     eligible = [s for s in sorted_scores if s.trade_tier != TradeTier.BLOCKED and s.is_tradable]
+
+    # 2.5. 히스테리시스 필터
+    if previous_codes is not None:
+        filtered = []
+        for s in eligible:
+            ma_score = _overrides.get(s.stock_code, s.hybrid_score)
+            in_prev = s.stock_code in previous_codes
+
+            if ma_score >= entry_threshold:
+                filtered.append(s)
+            elif ma_score >= exit_threshold and in_prev:
+                logger.info(
+                    "[HYSTERESIS] %s(%s): ma=%.1f, below entry(%.0f) above exit(%.0f), KEPT",
+                    s.stock_name,
+                    s.stock_code,
+                    ma_score,
+                    entry_threshold,
+                    exit_threshold,
+                )
+                filtered.append(s)
+            elif ma_score < exit_threshold and in_prev:
+                logger.info(
+                    "[HYSTERESIS] %s(%s): ma=%.1f, below exit(%.0f), REMOVED",
+                    s.stock_name,
+                    s.stock_code,
+                    ma_score,
+                    exit_threshold,
+                )
+            # else: 유지 구간 + 이전 WL에 없음 → 진입 불가 (skip)
+        eligible = filtered
 
     # 3. Greedy selection with sector caps
     selected: list[HybridScore] = []
@@ -85,7 +125,7 @@ def select_watchlist(
         selected.extend(backfill)
         logger.info("Backfilled %d stocks to reach watchlist size", len(backfill))
 
-    # 5. WatchlistEntry 변환
+    # 5. WatchlistEntry 변환 (MA score 사용)
     now = datetime.now(UTC)
     entries = []
     for rank, score in enumerate(selected, start=1):
@@ -98,7 +138,7 @@ def select_watchlist(
                 stock_name=score.stock_name,
                 quant_score=score.quant_score,
                 llm_score=score.llm_score,
-                hybrid_score=score.hybrid_score,
+                hybrid_score=_overrides.get(score.stock_code, score.hybrid_score),
                 rank=rank,
                 is_tradable=score.is_tradable,
                 trade_tier=score.trade_tier,

@@ -7,7 +7,7 @@
 import logging
 from datetime import date, datetime, timedelta
 
-from sqlalchemy import desc, update
+from sqlalchemy import delete, desc, update
 from sqlmodel import Session, select
 
 from .models import (
@@ -253,6 +253,51 @@ class QuantScoreRepository:
             .order_by(desc(DailyQuantScoreDB.hybrid_score))
         )
         return list(session.exec(stmt).all())
+
+    @staticmethod
+    def get_recent_hybrid_scores(
+        session: Session,
+        lookback_dates: int = 3,
+    ) -> dict[str, list[float]]:
+        """최근 N개 distinct date의 active hybrid_scores를 stock_code별로 반환.
+
+        오늘(date.today()) 데이터는 제외 (현재 run과 중복 방지).
+        """
+        recent_dates = session.exec(
+            select(DailyQuantScoreDB.score_date)
+            .where(DailyQuantScoreDB.is_active == True)  # noqa: E712
+            .where(DailyQuantScoreDB.score_date < date.today())
+            .where(DailyQuantScoreDB.hybrid_score.is_not(None))  # type: ignore[union-attr]
+            .distinct()
+            .order_by(DailyQuantScoreDB.score_date.desc())
+            .limit(lookback_dates)
+        ).all()
+
+        if not recent_dates:
+            return {}
+
+        rows = session.exec(
+            select(DailyQuantScoreDB.stock_code, DailyQuantScoreDB.hybrid_score)
+            .where(DailyQuantScoreDB.is_active == True)  # noqa: E712
+            .where(DailyQuantScoreDB.score_date.in_(recent_dates))
+            .where(DailyQuantScoreDB.hybrid_score.is_not(None))  # type: ignore[union-attr]
+        ).all()
+
+        result: dict[str, list[float]] = {}
+        for code, score in rows:
+            result.setdefault(code, []).append(score)
+        return result
+
+    @staticmethod
+    def cleanup_old_scores(session: Session, retention_days: int = 30) -> int:
+        """retention_days 이전의 오래된 quant scores 삭제."""
+        cutoff = date.today() - timedelta(days=retention_days)
+        result = session.execute(delete(DailyQuantScoreDB).where(DailyQuantScoreDB.score_date < cutoff))
+        session.commit()
+        deleted = result.rowcount  # type: ignore[union-attr]
+        if deleted:
+            logger.info("Cleaned up %d old quant scores (before %s)", deleted, cutoff)
+        return deleted
 
     @staticmethod
     def save_scores(

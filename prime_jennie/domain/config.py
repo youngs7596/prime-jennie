@@ -173,6 +173,11 @@ class ScoutConfig(BaseSettings):
     enable_news_analysis: bool = True
     min_market_cap: int = 50_000  # 시총 하한 (500억, 백만원 단위)
     min_price: int = 10_000  # 주가 하한 (1만원)
+    # MA smoothing + Hysteresis
+    ma_window: int = 3  # 이동평균 윈도우 (현재 run 포함)
+    entry_threshold: float = 62.0  # 신규 진입 최소 MA score
+    exit_threshold: float = 55.0  # 기존 종목 이탈 MA score
+    history_retention_days: int = 30  # daily_quant_scores 보존 기간
 
     model_config = {"env_prefix": "SCOUT_"}
 
