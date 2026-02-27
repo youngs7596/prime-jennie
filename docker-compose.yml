@@ -4,6 +4,7 @@ name: prime-jennie
 # 공통 앵커
 # ============================================================================
 x-service-defaults: &service-defaults
+  image: ghcr.io/youngs7596/prime-jennie:${IMAGE_TAG:-latest}
   build:
     context: .
     dockerfile: Dockerfile
@@ -372,6 +373,7 @@ services:
       - stack=prime-jennie
 
   dashboard-frontend:
+    image: ghcr.io/youngs7596/prime-jennie-frontend:${IMAGE_TAG:-latest}
     build:
       context: ./frontend
       dockerfile: Dockerfile

@@ -1,0 +1,13 @@
+.git
+.venv
+node_modules
+__pycache__
+.env
+.env.*
+tests/
+docs/
+frontend/
+.ai/
+.github/
+*.md
+docker-compose*.yml
