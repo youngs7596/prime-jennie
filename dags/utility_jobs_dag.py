@@ -196,3 +196,15 @@ collect_naver_roe = _utility_dag(
     retries=2,
     tags=["data", "monthly"],
 )
+
+# ─── Quarterly Jobs ────────────────────────────────────────
+
+collect_quarterly_financials = _utility_dag(
+    "collect_quarterly_financials",
+    "0 4 15 1,4,7,10 *",
+    "분기 재무 수집 (PER/PBR/ROE)",
+    "/jobs/collect-quarterly-financials",
+    timeout_min=30,
+    retries=2,
+    tags=["data", "quarterly"],
+)

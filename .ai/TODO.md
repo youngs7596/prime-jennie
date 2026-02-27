@@ -8,10 +8,8 @@
 ### ~~1. ROE 정기 갱신 Job 추가~~ ✅ 완료
 - `crawl_naver_roe()` + `/jobs/collect-naver-roe` 엔드포인트 + 월간 DAG (`0 3 1 * *`)
 
-### 2. FINANCIAL_METRICS_QUARTERLY 정기 갱신
-- 레거시 `collect_quarterly_financials.py`를 prime-jennie Job으로 이식
-- 분기 실적 발표 후 자동 갱신 (매 분기 1회, 4/5/7/8/10/11월)
-- 현재 최신 데이터: 2025-09-30 (Q3)
+### ~~2. FINANCIAL_METRICS_QUARTERLY 정기 갱신~~ ✅ 완료
+- `crawl_naver_fundamentals()` + `/jobs/collect-quarterly-financials` + 분기 DAG (`0 4 15 1,4,7,10 *`)
 
 ### ~~6. 명시적 장 오픈 시간 체크 추가~~ ✅ 완료
 - buyer/seller executor `process_signal()`에 KST 09:00~15:30 체크 추가

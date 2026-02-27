@@ -11,6 +11,7 @@ import hashlib
 import logging
 import re
 import time
+from dataclasses import dataclass
 from datetime import UTC, datetime
 
 import httpx
@@ -257,6 +258,123 @@ def crawl_naver_roe(stock_code: str) -> float | None:
 
     except Exception as e:
         logger.warning("[%s] ROE crawl failed: %s", stock_code, e)
+
+    return None
+
+
+@dataclass
+class NaverFundamentals:
+    """네이버 금융 메인 페이지에서 파싱한 분기 재무 데이터."""
+
+    per: float | None = None
+    pbr: float | None = None
+    roe: float | None = None
+    quarter_name: str | None = None  # e.g. "2025.09"
+
+
+def crawl_naver_fundamentals(stock_code: str) -> NaverFundamentals | None:
+    """네이버 금융 메인 페이지에서 최신 실적 분기 PER/PBR/ROE 파싱.
+
+    주요재무정보 테이블에서 (E) 추정치를 제외한 가장 최근 실적 분기를 찾아
+    해당 분기의 PER/PBR/ROE를 반환한다.
+
+    Returns:
+        NaverFundamentals (최소 1개 유효값) or None.
+    """
+    url = f"https://finance.naver.com/item/main.naver?code={stock_code}"
+    try:
+        resp = httpx.get(url, headers=NAVER_HEADERS, timeout=10)
+        resp.encoding = "euc-kr"
+        soup = BeautifulSoup(resp.text, "html.parser")
+
+        # 주요재무정보 테이블 탐색: EPS/BPS/PER 모두 포함된 테이블
+        target_table = None
+        for table in soup.select("table"):
+            text = table.get_text()
+            if "EPS" in text and "BPS" in text and "PER" in text:
+                target_table = table
+                break
+
+        if not target_table:
+            return None
+
+        rows = target_table.select("tr")
+        if not rows:
+            return None
+
+        # 1) 날짜 행에서 실적(non-E) 분기 인덱스 결정
+        actual_col_idx: int | None = None
+        quarter_name: str | None = None
+
+        for row in rows:
+            ths = row.select("th")
+            if not ths:
+                continue
+            header_texts = [th.get_text(strip=True) for th in ths]
+            # 날짜 행: "2024.09", "2024.12(E)" 등의 패턴
+            date_ths = [t for t in header_texts if re.match(r"\d{4}\.\d{2}", t)]
+            if len(date_ths) < 2:
+                continue
+
+            # 오른쪽(최신)부터 탐색, (E) 없는 가장 최근 실적 분기
+            for i in range(len(ths) - 1, -1, -1):
+                th_text = ths[i].get_text(strip=True)
+                if re.match(r"\d{4}\.\d{2}", th_text) and "(E)" not in th_text:
+                    actual_col_idx = i
+                    quarter_name = th_text
+                    break
+            break  # 첫 번째 날짜 행만 사용
+
+        if actual_col_idx is None:
+            return None
+
+        # 2) 각 지표 행에서 해당 분기 값 추출
+        per_val: float | None = None
+        pbr_val: float | None = None
+        roe_val: float | None = None
+
+        for row in rows:
+            first = row.select_one("th")
+            if not first:
+                continue
+            label = first.get_text(strip=True)
+            tds = row.select("td")
+            if not tds:
+                continue
+
+            # th가 첫 열이므로 td 인덱스 = actual_col_idx - 1
+            td_idx = actual_col_idx - 1
+            if td_idx < 0 or td_idx >= len(tds):
+                continue
+
+            raw = tds[td_idx].get_text(strip=True).replace(",", "")
+            if not raw or raw in ("-", "N/A", ""):
+                continue
+
+            try:
+                value = float(raw)
+            except ValueError:
+                continue
+
+            if "PER" in label and "EPS" not in label:
+                per_val = value
+            elif "PBR" in label and "BPS" not in label:
+                pbr_val = value
+            elif "ROE" in label:
+                roe_val = value
+
+        if per_val is None and pbr_val is None and roe_val is None:
+            return None
+
+        return NaverFundamentals(
+            per=per_val,
+            pbr=pbr_val,
+            roe=roe_val,
+            quarter_name=quarter_name,
+        )
+
+    except Exception as e:
+        logger.warning("[%s] Fundamentals crawl failed: %s", stock_code, e)
 
     return None
 

@@ -1570,3 +1570,77 @@ def collect_naver_roe(session: Session = Depends(get_db_session)) -> JobResult:
     except Exception as e:
         logger.exception("ROE collection failed")
         return JobResult(success=False, message=str(e))
+
+
+@app.post("/jobs/collect-quarterly-financials")
+def collect_quarterly_financials(session: Session = Depends(get_db_session)) -> JobResult:
+    """분기 재무 수집 (네이버 금융 PER/PBR/ROE → stock_fundamentals UPSERT).
+
+    활성 종목 상위 300개를 순회하며 최신 실적 분기 PER/PBR/ROE를 수집.
+    0.5초 딜레이, 100건 배치 커밋.
+    """
+    from prime_jennie.infra.crawlers.naver import crawl_naver_fundamentals
+
+    try:
+        stocks = session.exec(
+            select(StockMasterDB)
+            .where(StockMasterDB.is_active)
+            .order_by(col(StockMasterDB.market_cap).desc())
+            .limit(300)
+        ).all()
+
+        today = date.today()
+        updated = 0
+        errors = 0
+
+        for idx, stock in enumerate(stocks, 1):
+            result = crawl_naver_fundamentals(stock.stock_code)
+            if result is not None:
+                existing = session.get(StockFundamentalDB, (stock.stock_code, today))
+                if existing:
+                    if result.per is not None:
+                        existing.per = result.per
+                    if result.pbr is not None:
+                        existing.pbr = result.pbr
+                    if result.roe is not None:
+                        existing.roe = result.roe
+                    existing.updated_at = datetime.utcnow()
+                else:
+                    session.add(
+                        StockFundamentalDB(
+                            stock_code=stock.stock_code,
+                            trade_date=today,
+                            per=result.per,
+                            pbr=result.pbr,
+                            roe=result.roe,
+                        )
+                    )
+                updated += 1
+            else:
+                errors += 1
+
+            if idx % 100 == 0:
+                session.commit()
+                logger.info(
+                    "Quarterly financials progress: %d/%d (updated=%d)",
+                    idx,
+                    len(stocks),
+                    updated,
+                )
+
+            time.sleep(0.5)
+
+        session.commit()
+        logger.info(
+            "Quarterly financials done: %d updated, %d errors out of %d",
+            updated,
+            errors,
+            len(stocks),
+        )
+        return JobResult(
+            count=updated,
+            message=f"Quarterly financials collected: {updated}/{len(stocks)} (errors={errors})",
+        )
+    except Exception as e:
+        logger.exception("Quarterly financials collection failed")
+        return JobResult(success=False, message=str(e))
