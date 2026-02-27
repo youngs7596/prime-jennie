@@ -34,6 +34,7 @@ def _make_request(**overrides) -> PositionSizingRequest:
         "available_cash": 10_000_000,
         "portfolio_value": 20_000_000,
         "llm_score": 65.0,
+        "hybrid_score": 85.0,
         "trade_tier": TradeTier.TIER1,
     }
     defaults.update(overrides)
@@ -77,8 +78,14 @@ class TestPortfolioHeat:
 
 
 class TestTierMultiplier:
-    def test_tier1(self):
-        assert get_tier_multiplier(TradeTier.TIER1) == 1.0
+    def test_tier1_high_score(self):
+        assert get_tier_multiplier(TradeTier.TIER1, hybrid_score=85) == 1.0
+
+    def test_tier1_mid_score(self):
+        assert get_tier_multiplier(TradeTier.TIER1, hybrid_score=75) == 0.8
+
+    def test_tier1_low_score(self):
+        assert get_tier_multiplier(TradeTier.TIER1, hybrid_score=65) == 0.6
 
     def test_tier2(self):
         assert get_tier_multiplier(TradeTier.TIER2) == 0.5

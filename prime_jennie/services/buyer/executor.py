@@ -222,6 +222,7 @@ class BuyExecutor:
             available_cash=balance,
             portfolio_value=portfolio_value,
             llm_score=signal.llm_score,
+            hybrid_score=signal.hybrid_score,
             trade_tier=signal.trade_tier,
             risk_tag=signal.risk_tag,
             sector_group=signal.sector_group,

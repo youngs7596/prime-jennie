@@ -104,6 +104,7 @@ class PositionSizingRequest(BaseModel):
     available_cash: int
     portfolio_value: int
     llm_score: Score
+    hybrid_score: Score = 0.0
     trade_tier: TradeTier
     risk_tag: RiskTag = RiskTag.NEUTRAL
     sector_group: SectorGroup | None = None

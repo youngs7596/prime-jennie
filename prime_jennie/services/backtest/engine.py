@@ -291,6 +291,7 @@ class BacktestEngine:
                 available_cash=self.portfolio.cash,
                 portfolio_value=pv,
                 llm_score=min(entry.llm_score, 100.0),
+                hybrid_score=min(entry.hybrid_score, 100.0),
                 trade_tier=entry.trade_tier,
                 sector_group=entry.sector_group,
                 held_sector_groups=self.portfolio.held_sector_groups(),

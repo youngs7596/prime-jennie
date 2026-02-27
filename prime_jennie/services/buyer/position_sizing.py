@@ -44,14 +44,27 @@ def check_portfolio_heat(current_risk_pct: float, new_risk_pct: float) -> bool:
     return (current_risk_pct + new_risk_pct) <= PORTFOLIO_HEAT_LIMIT
 
 
-def get_tier_multiplier(trade_tier: TradeTier) -> float:
-    """티어별 포지션 배율."""
-    get_config()
-    return {
-        TradeTier.TIER1: 1.0,
-        TradeTier.TIER2: 0.5,
-        TradeTier.BLOCKED: 0.0,
-    }.get(trade_tier, 0.5)
+def get_tier_multiplier(trade_tier: TradeTier, hybrid_score: float = 0.0) -> float:
+    """티어별 포지션 배율 — hybrid_score 기반 세분화.
+
+    TIER1 내에서 점수별 5단계 보정:
+      85+ → 1.0x, 80+ → 0.9x, 75+ → 0.8x, 70+ → 0.7x, 65+ → 0.6x
+    TIER2: 0.5x, BLOCKED: 0.0x
+    """
+    if trade_tier == TradeTier.BLOCKED:
+        return 0.0
+    if trade_tier == TradeTier.TIER2:
+        return 0.5
+    # TIER1: hybrid_score 기반 세분화
+    if hybrid_score >= 85:
+        return 1.0
+    if hybrid_score >= 80:
+        return 0.9
+    if hybrid_score >= 75:
+        return 0.8
+    if hybrid_score >= 70:
+        return 0.7
+    return 0.6
 
 
 def get_risk_tag_multiplier(risk_tag: RiskTag) -> float:
@@ -164,8 +177,8 @@ def calculate_position_size(request: PositionSizingRequest) -> PositionSizingRes
             ),
         )
 
-    # Tier multiplier
-    tier_mult = get_tier_multiplier(request.trade_tier)
+    # Tier multiplier (hybrid_score 기반 세분화)
+    tier_mult = get_tier_multiplier(request.trade_tier, request.hybrid_score)
 
     # Risk tag multiplier (CAUTION → 0.7x)
     risk_mult = get_risk_tag_multiplier(request.risk_tag)
