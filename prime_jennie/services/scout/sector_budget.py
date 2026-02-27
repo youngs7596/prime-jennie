@@ -19,7 +19,7 @@ logger = logging.getLogger(__name__)
 TIER_CAPS = {
     SectorTier.HOT: {"watchlist": 5, "portfolio": 5},
     SectorTier.WARM: {"watchlist": 3, "portfolio": 3},
-    SectorTier.COOL: {"watchlist": 2, "portfolio": 2},
+    SectorTier.COOL: {"watchlist": 3, "portfolio": 2},
 }
 
 REDIS_KEY = "sector_budget:active"
