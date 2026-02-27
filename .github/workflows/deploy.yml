@@ -1,56 +1,16 @@
-name: Deploy
+name: Deploy (Manual Fallback)
 
 on:
-  push:
-    branches: [development]
-    paths:
-      - 'prime_jennie/**'
-      - 'frontend/**'
-      - 'pyproject.toml'
-      - 'Dockerfile'
-      - 'docker-compose.yml'
-      - 'prompts/**'
-      - 'scripts/**'
-      - 'dags/**'
-      - 'migrations/**'
-      - 'alembic.ini'
+  workflow_dispatch:
 
 concurrency:
-  group: deploy-${{ github.ref }}
+  group: deploy-production
   cancel-in-progress: false
 
 jobs:
-  detect-changes:
-    runs-on: self-hosted
-    outputs:
-      backend: ${{ steps.filter.outputs.backend }}
-      frontend: ${{ steps.filter.outputs.frontend }}
-    steps:
-      - uses: actions/checkout@v4
-
-      - uses: dorny/paths-filter@v3
-        id: filter
-        with:
-          filters: |
-            backend:
-              - 'prime_jennie/**'
-              - 'pyproject.toml'
-              - 'Dockerfile'
-              - 'docker-compose.yml'
-              - 'prompts/**'
-              - 'scripts/**'
-              - 'dags/**'
-              - 'migrations/**'
-              - 'alembic.ini'
-            frontend:
-              - 'frontend/**'
-              - 'Dockerfile'
-              - 'docker-compose.yml'
-
   deploy:
     runs-on: self-hosted
     environment: production
-    needs: detect-changes
     steps:
       - name: Clean root-owned files from workspace
         run: |
@@ -71,30 +31,11 @@ jobs:
         run: |
           echo "Deploying: $(git log --oneline -1)"
 
-          BACKEND="${{ needs.detect-changes.outputs.backend }}"
-          FRONTEND="${{ needs.detect-changes.outputs.frontend }}"
-
-          echo "Changes detected — backend: $BACKEND, frontend: $FRONTEND"
-
           # Prune old build cache
           docker builder prune -f --filter "until=24h" || true
 
-          BACKEND_SERVICES="kis-gateway scout-job buy-scanner buy-executor sell-executor \
-            price-monitor macro-council news-pipeline dashboard daily-briefing \
-            telegram job-worker airflow-webserver airflow-scheduler"
-
-          if [ "$BACKEND" = "true" ] && [ "$FRONTEND" = "true" ]; then
-            echo "==> Full rebuild (backend + frontend)"
-            docker compose --profile real up -d --build
-          elif [ "$BACKEND" = "true" ]; then
-            echo "==> Backend only rebuild"
-            docker compose up -d --build $BACKEND_SERVICES
-          elif [ "$FRONTEND" = "true" ]; then
-            echo "==> Frontend only rebuild"
-            docker compose up -d --build dashboard-frontend
-          else
-            echo "==> No service changes detected, skipping deploy"
-          fi
+          echo "==> Full rebuild (backend + frontend)"
+          docker compose --profile real up -d --build
 
           # Cleanup dangling images
           docker image prune -f || true

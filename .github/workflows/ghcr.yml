@@ -2,7 +2,7 @@ name: GHCR Publish
 
 on:
   push:
-    branches: [main]
+    branches: [main, development]
     tags: ['v*']
     paths:
       - 'prime_jennie/**'
@@ -14,6 +14,7 @@ on:
       - 'dags/**'
       - 'migrations/**'
       - 'alembic.ini'
+      - 'docker-compose.yml'
   workflow_dispatch:
 
 concurrency:
@@ -95,3 +96,35 @@ jobs:
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
+
+  deploy:
+    if: github.ref == 'refs/heads/development'
+    needs: [build-backend, build-frontend]
+    runs-on: self-hosted
+    environment: production
+    concurrency:
+      group: deploy-production
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Copy .env from project
+        run: cp /home/youngs75/projects/prime-jennie/.env .env
+
+      - uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Pull & deploy
+        env:
+          COMPOSE_PROJECT_NAME: prime-jennie
+        run: |
+          echo "Deploying: $(git log --oneline -1)"
+          docker compose --profile real pull
+          docker compose --profile real up -d
+          docker image prune -f || true
+          echo ""
+          echo "=== Deployment complete ==="
+          docker compose --profile infra --profile gpu --profile real ps
