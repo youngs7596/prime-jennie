@@ -57,6 +57,7 @@ REDIS_WATCHLIST_TTL = 86400  # 24h
 
 class TriggerRequest(BaseModel):
     source: str = "manual"  # "airflow" | "manual"
+    llm_provider: str | None = None  # override: "gemini" | "deepseek_cloud" 등
 
 
 class TriggerResponse(BaseModel):
@@ -98,7 +99,7 @@ async def trigger(
 
     # 동기 실행 (Airflow 트리거는 완료까지 대기)
     try:
-        await run_pipeline(session)
+        await run_pipeline(session, llm_provider_override=body.llm_provider)
         return TriggerResponse(job_id=job_id, status="completed")
     except Exception as e:
         logger.exception("Scout pipeline failed: %s", e)
@@ -118,7 +119,7 @@ async def status() -> StatusResponse:
 # ─── Pipeline ────────────────────────────────────────────────────
 
 
-async def run_pipeline(session: Session) -> HotWatchlist:
+async def run_pipeline(session: Session, *, llm_provider_override: str | None = None) -> HotWatchlist:
     """7단계 파이프라인 순차 실행."""
     global _current_phase, _progress_pct, _last_completed_at
 
@@ -191,7 +192,16 @@ async def run_pipeline(session: Session) -> HotWatchlist:
 
     # --- Phase 4: LLM Analysis (병렬) ---
     _update_progress("llm_analysis", 60)
-    llm_provider = LLMFactory.get_provider("reasoning")
+    if llm_provider_override:
+        from prime_jennie.infra.llm.factory import _PROVIDER_REGISTRY, _try_import_provider
+
+        if llm_provider_override not in _PROVIDER_REGISTRY:
+            _try_import_provider(llm_provider_override)
+        provider_cls = _PROVIDER_REGISTRY[llm_provider_override]
+        llm_provider = provider_cls()
+        logger.info("LLM provider override: %s", llm_provider_override)
+    else:
+        llm_provider = LLMFactory.get_provider("reasoning")
 
     # LLM API 동시 호출 제한 (DeepSeek PoC 결과 20이 최적)
     sem = asyncio.Semaphore(20)
