@@ -306,6 +306,7 @@ class SecretsConfig(BaseSettings):
     gemini_api_key: str = ""
     openai_api_key: str = ""
     bok_ecos_api_key: str = ""
+    krx_open_api_key: str = ""  # KRX Open Data API — 향후 전환용
 
 
 class AppConfig(BaseSettings):

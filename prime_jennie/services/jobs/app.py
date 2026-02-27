@@ -800,64 +800,39 @@ def _fetch_usd_krw(api_key: str) -> float | None:
 def macro_collect_global() -> JobResult:
     """글로벌 매크로 수집 — 직전 거래일 KOSPI/KOSDAQ + 글로벌 지표.
 
-    pykrx는 최근 7일 범위로 조회하여 직전 거래일 데이터를 확보.
-    결과를 macro:data:snapshot:{거래일} 키로 Redis에 저장 (council 호환).
+    네이버 금융에서 지수/수급 데이터를 수집하여
+    macro:data:snapshot:{거래일} 키로 Redis에 저장 (council 호환).
     """
     try:
-        from pykrx import stock as pykrx_stock
+        from prime_jennie.infra.crawlers.naver_market import fetch_index_data, fetch_investor_flows
 
         r = get_redis()
-        today = date.today()
-        start_str = (today - timedelta(days=7)).strftime("%Y%m%d")
-        today_str = today.strftime("%Y%m%d")
 
-        # 직전 거래일 KOSPI/KOSDAQ 종가 수집 (7일 범위)
+        # KOSPI/KOSDAQ 지수 수집
         snapshot: dict = {}
         trading_date = None
 
-        for ticker, prefix in [("1001", "kospi"), ("2001", "kosdaq")]:
-            try:
-                df = pykrx_stock.get_index_ohlcv(start_str, today_str, ticker)
-                if not df.empty:
-                    last = df.iloc[-1]
-                    last_date = df.index[-1]
-                    if trading_date is None:
-                        trading_date = last_date.date() if hasattr(last_date, "date") else last_date
-                    # 전일 대비 등락률 계산
-                    change_pct = 0.0
-                    if len(df) >= 2:
-                        prev_close = float(df.iloc[-2]["종가"])
-                        if prev_close > 0:
-                            change_pct = round((float(last["종가"]) - prev_close) / prev_close * 100, 2)
-                    snapshot[f"{prefix}_index"] = float(last["종가"])
-                    snapshot[f"{prefix}_change_pct"] = change_pct
-            except Exception as e:
-                logger.warning("pykrx %s collection failed: %s", prefix, e)
+        for code, prefix in [("KOSPI", "kospi"), ("KOSDAQ", "kosdaq")]:
+            idx = fetch_index_data(code)
+            if idx is not None:
+                snapshot[f"{prefix}_index"] = idx.close
+                snapshot[f"{prefix}_change_pct"] = idx.change_pct
+                if trading_date is None:
+                    trading_date = idx.traded_at
 
         if not trading_date:
-            return JobResult(success=False, message="No trading data available from pykrx")
+            return JobResult(success=False, message="No trading data available from Naver")
 
         # 외국인/기관 수급 (직전 거래일)
         td_str = str(trading_date).replace("-", "")
-        for ticker, prefix in [("KOSPI", "kospi"), ("KOSDAQ", "kosdaq")]:
-            try:
-                df_inv = pykrx_stock.get_market_trading_value_by_investor(
-                    td_str,
-                    td_str,
-                    ticker,
-                )
-                if df_inv.empty:
-                    continue
-                if "외국인" in df_inv.index:
-                    val = float(df_inv.loc["외국인", "순매수"]) / 1e8
-                    snapshot[f"{prefix}_foreign_net"] = val
-                if prefix == "kospi":
-                    if "기관합계" in df_inv.index:
-                        snapshot["kospi_institutional_net"] = float(df_inv.loc["기관합계", "순매수"]) / 1e8
-                    if "개인" in df_inv.index:
-                        snapshot["kospi_retail_net"] = float(df_inv.loc["개인", "순매수"]) / 1e8
-            except Exception as e:
-                logger.warning("pykrx %s investor data failed: %s", prefix, e)
+        for market, prefix in [("kospi", "kospi"), ("kosdaq", "kosdaq")]:
+            flows = fetch_investor_flows(market, td_str)
+            if flows is None:
+                continue
+            snapshot[f"{prefix}_foreign_net"] = flows.foreign_net
+            if prefix == "kospi":
+                snapshot["kospi_institutional_net"] = flows.institutional_net
+                snapshot["kospi_retail_net"] = flows.retail_net
 
         # VIX
         vix, vix_regime = _fetch_vix()
@@ -886,7 +861,7 @@ def macro_collect_global() -> JobResult:
         else:
             snapshot["snapshot_date"] = td_iso
             snapshot["snapshot_time"] = datetime.now().astimezone().isoformat()
-            snapshot["data_sources"] = ["pykrx"]
+            snapshot["data_sources"] = ["naver"]
 
         r.set(existing_key, json.dumps(snapshot, ensure_ascii=False, default=str), ex=7 * 86400)
 

@@ -85,7 +85,7 @@ with DAG(
 with DAG(
     dag_id="enhanced_macro_quick",
     default_args=get_default_args(retries=2, retry_delay=timedelta(minutes=2)),
-    description="장중 매크로 빠른 업데이트 (pykrx)",
+    description="장중 매크로 빠른 업데이트 (naver)",
     schedule="30 9-14 * * 1-5",
     start_date=pendulum.datetime(2026, 1, 1, tz=local_tz),
     catchup=False,
