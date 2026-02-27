@@ -1067,7 +1067,7 @@ def _ensure_stock_master(session: Session, stock_code: str, stock_name: str) -> 
     logger.info("stock_masters 자동 생성: %s %s", stock_code, stock_name)
 
 
-def apply_sync(session: Session, diff: dict, kis_positions: list[dict]) -> list[str]:
+def apply_sync(session: Session, diff: dict, kis_positions: list[dict], redis_client=None) -> list[str]:
     """비교 결과를 DB에 반영. KIS 데이터 기준으로 덮어쓰기."""
     actions: list[str] = []
     config = get_config()
@@ -1084,6 +1084,9 @@ def apply_sync(session: Session, diff: dict, kis_positions: list[dict]) -> list[
         sector = _resolve_sector(session, code)
         stop_loss = int(avg * (1 - config.sell.stop_loss_pct / 100))
         _ensure_stock_master(session, code, name)
+        # 이전 보유 시 잔여 Redis 상태 초기화 (watermark, scale_out 등)
+        if redis_client:
+            _cleanup_redis_position_state(redis_client, code)
         session.add(
             PositionDB(
                 stock_code=code,
@@ -1171,6 +1174,24 @@ def apply_sync(session: Session, diff: dict, kis_positions: list[dict]) -> list[
     return actions
 
 
+def _cleanup_redis_position_state(redis_client, stock_code: str) -> None:
+    """MANUAL_SYNC 시 이전 보유의 잔여 Redis 상태 초기화.
+
+    이전 보유 시 기록된 watermark/scale_out/rsi_sold/profit_floor이
+    새 포지션에 잘못 적용되는 것을 방지.
+    """
+    try:
+        pipe = redis_client.pipeline()
+        pipe.delete(f"watermark:{stock_code}")
+        pipe.delete(f"scale_out:{stock_code}")
+        pipe.delete(f"rsi_sold:{stock_code}")
+        pipe.delete(f"profit_floor:{stock_code}")
+        pipe.execute()
+        logger.info("[%s] Redis position state cleaned (MANUAL_SYNC)", stock_code)
+    except Exception:
+        logger.debug("[%s] Redis cleanup failed", stock_code, exc_info=True)
+
+
 def _resolve_sector(session: Session, stock_code: str) -> str | None:
     """stock_masters에서 섹터 조회 → SectorGroup 변환."""
     from prime_jennie.domain.sector_taxonomy import get_sector_group
@@ -1233,7 +1254,7 @@ def sync_positions(
             lines.insert(0, "[DRY RUN] 변경사항 미적용")
             return JobResult(message="\n".join(lines))
 
-        actions = apply_sync(session, diff, kis_positions)
+        actions = apply_sync(session, diff, kis_positions, redis_client=get_redis())
         session.commit()
         lines.insert(0, f"[APPLIED] {len(actions)}건 적용 완료")
         lines.extend(["", "Actions:"] + [f"  {a}" for a in actions])
