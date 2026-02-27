@@ -52,12 +52,15 @@ def init_vectorstore():
         from langchain_qdrant import QdrantVectorStore
         from qdrant_client import QdrantClient
 
-        embeddings = OpenAIEmbeddings(
-            model="nlpai-lab/KURE-v1",
-            openai_api_base=config.llm.vllm_embed_url,
-            openai_api_key="not-needed",
-        )
-        client = QdrantClient(url="http://localhost:6333")
+        if config.llm.embed_provider == "openai":
+            embeddings = OpenAIEmbeddings(model=config.llm.embed_model)
+        else:
+            embeddings = OpenAIEmbeddings(
+                model=config.llm.embed_model,
+                openai_api_base=config.llm.vllm_embed_url,
+                openai_api_key="not-needed",
+            )
+        client = QdrantClient(url=config.infra.qdrant_url)
         vs = QdrantVectorStore(
             client=client,
             collection_name="rag_stock_data",

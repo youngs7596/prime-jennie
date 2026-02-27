@@ -1646,6 +1646,32 @@ def collect_quarterly_financials(session: Session = Depends(get_db_session)) -> 
         return JobResult(success=False, message=str(e))
 
 
+# ─── Stock Master Seeding ──────────────────────────────────────
+
+
+@app.post("/jobs/seed-stock-masters")
+def seed_stock_masters_endpoint(
+    market: str = "KOSPI",
+    session: Session = Depends(get_db_session),
+) -> JobResult:
+    """stock_masters 테이블 초기 시딩 (pykrx + 네이버 섹터).
+
+    신규 설치 시 DB 마이그레이션 직후 호출하여 Scout 유니버스를 구성한다.
+    """
+    from scripts.seed_stock_masters import seed_stock_masters
+
+    try:
+        result = seed_stock_masters(market=market)
+        return JobResult(
+            success=True,
+            count=result["total"],
+            message=f"Seeded: inserted={result['inserted']}, updated={result['updated']}, failed={result['failed']}",
+        )
+    except Exception as e:
+        logger.exception("Stock master seeding failed")
+        return JobResult(success=False, message=str(e))
+
+
 # ─── Contract Smoke Tests ──────────────────────────────────────
 
 

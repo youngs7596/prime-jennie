@@ -65,11 +65,17 @@ class NewsArchiver:
             from langchain_qdrant import QdrantVectorStore
             from qdrant_client import QdrantClient
 
-            embeddings = OpenAIEmbeddings(
-                model="nlpai-lab/KURE-v1",
-                openai_api_base=self._embed_url,
-                openai_api_key="not-needed",
-            )
+            from prime_jennie.domain.config import get_config
+
+            llm_cfg = get_config().llm
+            if llm_cfg.embed_provider == "openai":
+                embeddings = OpenAIEmbeddings(model=llm_cfg.embed_model)
+            else:
+                embeddings = OpenAIEmbeddings(
+                    model=llm_cfg.embed_model,
+                    openai_api_base=self._embed_url,
+                    openai_api_key="not-needed",
+                )
 
             client = QdrantClient(url=self._qdrant_url)
             self._vectorstore = QdrantVectorStore(

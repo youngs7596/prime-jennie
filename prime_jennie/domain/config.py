@@ -81,6 +81,9 @@ class LLMConfig(BaseSettings):
     claude_model: str = "claude-sonnet-4-5-20250514"
     gemini_model: str = "gemini-2.5-flash"
     openai_model: str = "gpt-4o-mini"
+    # 임베딩 설정
+    embed_model: str = "nlpai-lab/KURE-v1"
+    embed_provider: str = "vllm"  # vllm | openai
 
     model_config = {"env_prefix": "LLM_"}
 
@@ -178,6 +181,7 @@ class ScoutConfig(BaseSettings):
     entry_threshold: float = 62.0  # 신규 진입 최소 MA score
     exit_threshold: float = 55.0  # 기존 종목 이탈 MA score
     history_retention_days: int = 30  # daily_quant_scores 보존 기간
+    universe_market: str = "KOSPI"  # KOSPI | KOSDAQ
 
     model_config = {"env_prefix": "SCOUT_"}
 

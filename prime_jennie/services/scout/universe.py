@@ -25,7 +25,7 @@ def load_universe(session: Session, config: ScoutConfig) -> dict[str, StockMaste
     Returns:
         {stock_code: StockMaster} 딕셔너리 (최대 universe_size개)
     """
-    db_stocks = StockRepository.get_active_stocks(session, market="KOSPI")
+    db_stocks = StockRepository.get_active_stocks(session, market=config.universe_market)
 
     if not db_stocks:
         logger.warning("No active stocks found in DB")

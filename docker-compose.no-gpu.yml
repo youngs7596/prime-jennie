@@ -1,0 +1,38 @@
+# ============================================================================
+# GPU-Free Override — Cloud LLM만으로 실행 (vLLM 불필요)
+# ============================================================================
+# 사용법:
+#   docker compose -f docker-compose.yml -f docker-compose.no-gpu.yml \
+#     --profile infra --profile real up -d
+#
+# GPU 모드 (기본):
+#   docker compose --profile infra --profile gpu --profile real up -d
+#
+# 변경 사항:
+#   - FAST tier를 deepseek_cloud로 전환 (로컬 vLLM 대체)
+#   - 뉴스 임베딩을 OpenAI로 전환 (vLLM embed 대체)
+#   - 뉴스 RAG 비활성화 (SCOUT_ENABLE_NEWS_ANALYSIS=false)
+#
+# 필수 API 키: OPENROUTER_API_KEY (또는 DEEPSEEK_API_KEY)
+# OpenAI 임베딩 사용 시: OPENAI_API_KEY
+# ============================================================================
+
+services:
+  scout-job:
+    environment:
+      LLM_TIER_FAST_PROVIDER: deepseek_cloud
+      SCOUT_ENABLE_NEWS_ANALYSIS: "false"
+      LLM_EMBED_PROVIDER: openai
+
+  news-pipeline:
+    environment:
+      LLM_TIER_FAST_PROVIDER: deepseek_cloud
+      LLM_EMBED_PROVIDER: openai
+
+  daily-briefing:
+    environment:
+      LLM_TIER_FAST_PROVIDER: deepseek_cloud
+
+  job-worker:
+    environment:
+      LLM_TIER_FAST_PROVIDER: deepseek_cloud

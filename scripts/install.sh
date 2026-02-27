@@ -73,9 +73,19 @@ ok "Python dependencies installed"
 if [ ! -f ".env" ]; then
     info "Creating .env from template..."
     cp .env.example .env
+
+    # Auto-generate Airflow secrets
+    FERNET_KEY=$(python3 -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())" 2>/dev/null || openssl rand -base64 32)
+    SECRET_KEY=$(openssl rand -base64 16)
+    JWT_SECRET=$(openssl rand -base64 32)
+    sed -i "s|^AIRFLOW_FERNET_KEY=.*|AIRFLOW_FERNET_KEY=${FERNET_KEY}|" .env
+    sed -i "s|^AIRFLOW_SECRET_KEY=.*|AIRFLOW_SECRET_KEY=${SECRET_KEY}|" .env
+    sed -i "s|^AIRFLOW_JWT_SECRET=.*|AIRFLOW_JWT_SECRET=${JWT_SECRET}|" .env
+    ok "Airflow secrets auto-generated"
+
     warn ".env created — edit it with your API keys and database credentials"
     warn "  Required: DB_PASSWORD, KIS_APP_KEY, KIS_APP_SECRET, KIS_ACCOUNT_NO"
-    warn "  Required: TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID"
+    warn "  Required: TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_IDS"
     warn "  Required: At least one LLM API key (OPENROUTER_API_KEY or equivalent)"
 else
     ok ".env already exists"
@@ -92,7 +102,7 @@ else
 
     echo ""
     info "Ready to start infrastructure services?"
-    info "This will start: MariaDB, Redis, vLLM (requires GPU), Qdrant"
+    info "This will start: MariaDB, Redis, Qdrant"
     read -p "Start infrastructure now? [y/N] " -n 1 -r
     echo ""
 
@@ -100,6 +110,19 @@ else
         info "Starting infrastructure..."
         docker compose --profile infra up -d
         ok "Infrastructure services started"
+
+        # GPU check
+        if command -v nvidia-smi &>/dev/null && nvidia-smi &>/dev/null; then
+            read -p "NVIDIA GPU detected. Start vLLM (local LLM)? [y/N] " -n 1 -r
+            echo ""
+            if [[ $REPLY =~ ^[Yy]$ ]]; then
+                docker compose --profile gpu up -d
+                ok "vLLM services started"
+            fi
+        else
+            warn "No NVIDIA GPU detected — vLLM skipped (Cloud LLM mode)"
+            warn "Use: docker compose -f docker-compose.yml -f docker-compose.no-gpu.yml --profile infra --profile real up -d"
+        fi
 
         info "Waiting for MariaDB to be ready..."
         for i in $(seq 1 30); do
@@ -131,7 +154,19 @@ else
     info "No alembic.ini found — migrations will be set up later"
 fi
 
-# ─── Step 5: Verify Installation ────────────────────────────────
+# ─── Step 5: Seed Stock Masters ───────────────────────────────
+echo ""
+read -p "Seed stock_masters table? (required for first install) [y/N] " -n 1 -r
+echo ""
+if [[ $REPLY =~ ^[Yy]$ ]]; then
+    info "Seeding stock_masters (KOSPI)... this takes ~60 seconds"
+    .venv/bin/python scripts/seed_stock_masters.py --market KOSPI
+    ok "Stock masters seeded"
+else
+    info "Skipped. Seed manually: python scripts/seed_stock_masters.py"
+fi
+
+# ─── Step 6: Verify Installation ────────────────────────────────
 info "Verifying installation..."
 
 .venv/bin/python3 -c "
@@ -151,7 +186,9 @@ echo ""
 echo "Next steps:"
 echo "  1. Edit .env with your API keys and credentials"
 echo "  2. Start infrastructure:  docker compose --profile infra up -d"
-echo "  3. Start trading services: docker compose --profile trading up -d"
-echo "  4. Run tests:             make test"
-echo "  5. View dashboard:        http://localhost:80"
+echo "  3. Start vLLM (GPU only): docker compose --profile gpu up -d"
+echo "  4. Start trading services: docker compose --profile real up -d"
+echo "     (No GPU? Use: docker compose -f docker-compose.yml -f docker-compose.no-gpu.yml --profile infra --profile real up -d)"
+echo "  5. Run tests:             make test"
+echo "  6. View dashboard:        http://localhost:80"
 echo ""

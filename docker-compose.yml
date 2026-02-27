@@ -40,7 +40,7 @@ services:
       MARIADB_DATABASE: "${DB_NAME:-jennie_db}"
     command: --lower_case_table_names=1 --port=3307 --innodb_buffer_pool_size=1G
     volumes:
-      - /docker_data/mariadb_data:/var/lib/mysql
+      - ${DOCKER_DATA_DIR:-/docker_data}/mariadb_data:/var/lib/mysql
     restart: always
     healthcheck:
       test: ["CMD", "healthcheck.sh", "--connect", "--innodb_initialized"]
@@ -58,7 +58,7 @@ services:
     ports:
       - "6379:6379"
     volumes:
-      - /docker_data/redis_data:/data
+      - ${DOCKER_DATA_DIR:-/docker_data}/redis_data:/data
     restart: always
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
@@ -78,7 +78,7 @@ services:
       - "6333:6333"
       - "6334:6334"
     volumes:
-      - /docker_data/qdrant_data:/qdrant/storage
+      - ${DOCKER_DATA_DIR:-/docker_data}/qdrant_data:/qdrant/storage
     restart: always
     environment:
       QDRANT__SERVICE__GRPC_PORT: "6334"
@@ -103,7 +103,7 @@ services:
     command: -config.file=/etc/loki/loki-config.yaml
     volumes:
       - ./infra/loki/loki-config.yaml:/etc/loki/loki-config.yaml:ro
-      - /docker_data/loki_data:/loki
+      - ${DOCKER_DATA_DIR:-/docker_data}/loki_data:/loki
     restart: unless-stopped
     network_mode: host
     labels:
@@ -132,7 +132,7 @@ services:
       GF_SECURITY_ADMIN_PASSWORD: "${GRAFANA_PASSWORD:-admin}"
       GF_SERVER_HTTP_PORT: "3300"
     volumes:
-      - /docker_data/grafana_data:/var/lib/grafana
+      - ${DOCKER_DATA_DIR:-/docker_data}/grafana_data:/var/lib/grafana
       - ./infra/grafana/provisioning:/etc/grafana/provisioning:ro
     restart: unless-stopped
     network_mode: host
@@ -145,7 +145,7 @@ services:
   # ============================================================================
   vllm-llm:
     image: vllm/vllm-openai:v0.15.1
-    profiles: ["infra"]
+    profiles: ["gpu"]
     ipc: host
     environment:
       HF_HUB_OFFLINE: "1"
@@ -159,7 +159,7 @@ services:
       --trust-remote-code
       --enforce-eager
     volumes:
-      - /docker_data/huggingface_cache:/root/.cache/huggingface
+      - ${DOCKER_DATA_DIR:-/docker_data}/huggingface_cache:/root/.cache/huggingface
     restart: unless-stopped
     deploy:
       resources:
@@ -181,7 +181,7 @@ services:
 
   vllm-embed:
     image: vllm/vllm-openai:v0.15.1
-    profiles: ["infra"]
+    profiles: ["gpu"]
     ipc: host
     environment:
       HF_HUB_OFFLINE: "1"
@@ -194,7 +194,7 @@ services:
       --trust-remote-code
       --enforce-eager
     volumes:
-      - /docker_data/huggingface_cache:/root/.cache/huggingface
+      - ${DOCKER_DATA_DIR:-/docker_data}/huggingface_cache:/root/.cache/huggingface
     restart: unless-stopped
     deploy:
       resources:
@@ -228,7 +228,7 @@ services:
       KIS_ACCOUNT_NO: "${KIS_ACCOUNT_NO}"
       APP_TRADING_MODE: REAL
     volumes:
-      - /docker_data/kis_token:/app/config
+      - ${DOCKER_DATA_DIR:-/docker_data}/kis_token:/app/config
     command: ["uvicorn", "prime_jennie.services.gateway.app:app", "--host", "0.0.0.0", "--port", "8080"]
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
@@ -339,7 +339,7 @@ services:
       TELEGRAM_API_ID: "${TELEGRAM_API_ID}"
       TELEGRAM_API_HASH: "${TELEGRAM_API_HASH}"
     volumes:
-      - /docker_data/telegram_sessions:/app/.telegram_sessions
+      - ${DOCKER_DATA_DIR:-/docker_data}/telegram_sessions:/app/.telegram_sessions
     command: ["uvicorn", "prime_jennie.services.council.app:app", "--host", "0.0.0.0", "--port", "8089"]
     labels:
       - app=macro-council
@@ -434,9 +434,9 @@ services:
       <<: *env-common
       AIRFLOW__CORE__EXECUTOR: LocalExecutor
       AIRFLOW__CORE__DAGS_FOLDER: /app/dags
-      AIRFLOW__CORE__FERNET_KEY: "6esoqClrSix0ZzvqmDfokyE0cmuz-qA9WOhwFZl_kCQ="
-      AIRFLOW__CORE__SECRET_KEY: "dwuNaZ0RkqTQbMS9Eep0kA=="
-      AIRFLOW__API_AUTH__JWT_SECRET: "fRHNrpB8a3I0x2DXHdEfbGDJyQkJU52oXbkWPm_GGg4="
+      AIRFLOW__CORE__FERNET_KEY: "${AIRFLOW_FERNET_KEY}"
+      AIRFLOW__CORE__SECRET_KEY: "${AIRFLOW_SECRET_KEY}"
+      AIRFLOW__API_AUTH__JWT_SECRET: "${AIRFLOW_JWT_SECRET}"
       AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: "mysql+mysqldb://${DB_USER:-jennie}:${DB_PASSWORD:-q1w2e3R$}@127.0.0.1:3307/${DB_NAME:-jennie_db}"
       AIRFLOW__WEBSERVER__WEB_SERVER_PORT: "8085"
       AIRFLOW__CORE__LOAD_EXAMPLES: "false"
@@ -466,9 +466,9 @@ services:
       <<: *env-common
       AIRFLOW__CORE__EXECUTOR: LocalExecutor
       AIRFLOW__CORE__DAGS_FOLDER: /app/dags
-      AIRFLOW__CORE__FERNET_KEY: "6esoqClrSix0ZzvqmDfokyE0cmuz-qA9WOhwFZl_kCQ="
-      AIRFLOW__CORE__SECRET_KEY: "dwuNaZ0RkqTQbMS9Eep0kA=="
-      AIRFLOW__API_AUTH__JWT_SECRET: "fRHNrpB8a3I0x2DXHdEfbGDJyQkJU52oXbkWPm_GGg4="
+      AIRFLOW__CORE__FERNET_KEY: "${AIRFLOW_FERNET_KEY}"
+      AIRFLOW__CORE__SECRET_KEY: "${AIRFLOW_SECRET_KEY}"
+      AIRFLOW__API_AUTH__JWT_SECRET: "${AIRFLOW_JWT_SECRET}"
       AIRFLOW__CORE__EXECUTION_API_SERVER_URL: "http://localhost:8085/execution/"
       AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: "mysql+mysqldb://${DB_USER:-jennie}:${DB_PASSWORD:-q1w2e3R$}@127.0.0.1:3307/${DB_NAME:-jennie_db}"
       AIRFLOW__CORE__LOAD_EXAMPLES: "false"

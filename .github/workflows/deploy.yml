@@ -101,4 +101,4 @@ jobs:
 
           echo ""
           echo "=== Deployment complete ==="
-          docker compose --profile infra --profile real ps
+          docker compose --profile infra --profile gpu --profile real ps

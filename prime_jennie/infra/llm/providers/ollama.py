@@ -164,7 +164,10 @@ class OllamaLLMProvider(BaseLLMProvider):
             raise ValueError(f"Failed to parse JSON from LLM response: {content[:200]}") from err
 
     async def generate_embeddings(self, texts: list[str]) -> list[list[float]]:
-        payload = {"model": "nlpai-lab/KURE-v1", "input": texts}
+        from prime_jennie.domain.config import get_config
+
+        embed_model = get_config().llm.embed_model
+        payload = {"model": embed_model, "input": texts}
 
         async with httpx.AsyncClient(timeout=60.0) as client:
             resp = await client.post(f"{self._embed_url}/embeddings", json=payload)
