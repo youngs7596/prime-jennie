@@ -40,6 +40,7 @@
 4. position_size_pct: 리스크분석가 권고를 기본으로 하되, 전략가 낙관론도 가중
 5. strategies_to_favor/avoid: 시장 레짐에 맞는 전략 선택 (예: bearish → RSI_REBOUND/DIP_BUY 선호, MOMENTUM 회피; bullish → MOMENTUM_CONTINUATION/WATCHLIST_CONVICTION_ENTRY 선호)
 6. sectors_to_favor/avoid: 전략가의 섹터 분석 + 리스크분석가의 리스크 반영
+7. KOSPI 실제 가격 움직임이 sentiment의 최종 근거다. 외국인이 매도해도 지수가 반등/방어되고 있다면 neutral 이상으로 판단하라. 가격이 진실이다.
 
 ## council_consensus 기준
 - strong_agree: 전략가/리스크분석가 sentiment 차이 ≤ 5점
