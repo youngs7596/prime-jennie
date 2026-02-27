@@ -45,8 +45,16 @@ def select_watchlist(
     Returns:
         HotWatchlist (Redis 저장 가능 형태)
     """
-    # 1. 정렬 (hybrid_score 내림차순)
-    sorted_scores = sorted(scores, key=lambda s: s.hybrid_score, reverse=True)
+
+    # 1. 정렬 (hybrid_score 5점 버킷 내림차순 → 동일 버킷 내 시총 내림차순)
+    # 예: 84점 vs 80점 → 같은 80-84 버킷, 시총으로 결정
+    def _sort_key(s: HybridScore) -> tuple[int, int]:
+        bucket = int(s.hybrid_score // 5) * 5  # 80-84→80, 75-79→75
+        cand = candidates.get(s.stock_code)
+        mcap = (cand.master.market_cap or 0) if cand else 0
+        return (bucket, mcap)
+
+    sorted_scores = sorted(scores, key=_sort_key, reverse=True)
 
     # 2. 필터: BLOCKED 제거, tradable만
     eligible = [s for s in sorted_scores if s.trade_tier != TradeTier.BLOCKED and s.is_tradable]
