@@ -342,9 +342,9 @@ def crawl_naver_fundamentals(stock_code: str) -> NaverFundamentals | None:
             if not tds:
                 continue
 
-            # th가 첫 열이므로 td 인덱스 = actual_col_idx - 1
-            td_idx = actual_col_idx - 1
-            if td_idx < 0 or td_idx >= len(tds):
+            # 날짜 행은 th만으로 구성, 데이터 행은 th(라벨)+td → 동일 인덱스
+            td_idx = actual_col_idx
+            if td_idx >= len(tds):
                 continue
 
             raw = tds[td_idx].get_text(strip=True).replace(",", "")
