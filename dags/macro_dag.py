@@ -71,8 +71,8 @@ with DAG(
 ) as dag_council:
     run_council = HttpOperator(
         task_id="run_council",
-        http_conn_id="macro_council",
-        endpoint="/trigger",
+        http_conn_id="job_worker",
+        endpoint="/jobs/council-trigger",
         method="POST",
         headers={"Content-Type": "application/json"},
         response_check=lambda resp: resp.status_code == 200,

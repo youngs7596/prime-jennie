@@ -29,10 +29,6 @@ services:
       LLM_TIER_FAST_PROVIDER: deepseek_cloud
       LLM_EMBED_PROVIDER: openai
 
-  daily-briefing:
-    environment:
-      LLM_TIER_FAST_PROVIDER: deepseek_cloud
-
   job-worker:
     environment:
       LLM_TIER_FAST_PROVIDER: deepseek_cloud
