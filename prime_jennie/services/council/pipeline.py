@@ -55,6 +55,7 @@ class CouncilInput:
     global_snapshot: GlobalSnapshot | None = None
     political_news: list[str] = field(default_factory=list)
     sector_momentum_text: str = ""
+    index_technical_text: str = ""
     target_date: date | None = None
 
 
@@ -168,7 +169,10 @@ class MacroCouncilPipeline:
             "수급 해석 원칙: 외국인 매도 자체가 bearish는 아니다. "
             "기관+개인이 외국인 매도를 흡수하면 수급은 중립이다. "
             "KOSPI 실제 지수 변동이 최종 근거다 — "
-            "외국인이 매도해도 지수가 방어/반등하면 시장 복원력의 증거이지 약세가 아니다."
+            "외국인이 매도해도 지수가 방어/반등하면 시장 복원력의 증거이지 약세가 아니다. "
+            "지수 기술적 분석이 제공된 경우: MA 배열, RSI, BB %B, MACD 히스토그램을 "
+            "sentiment_score 산출의 정량 근거로 활용하세요. "
+            "뉴스 센티먼트와 기술 지표가 상충할 경우, 정량 지표에 더 높은 가중치를 두세요."
         )
         return await self._get_reasoning().generate_json(
             prompt=context,
@@ -265,6 +269,9 @@ class MacroCouncilPipeline:
 
         if input_data.sector_momentum_text:
             parts.append(f"=== 섹터 모멘텀 ===\n{input_data.sector_momentum_text}")
+
+        if input_data.index_technical_text:
+            parts.append(f"=== 지수 기술적 분석 ===\n{input_data.index_technical_text}")
 
         return "\n\n".join(parts)
 

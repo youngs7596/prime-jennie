@@ -1069,6 +1069,130 @@ def macro_quick() -> JobResult:
 # ─── Council (macro-council 통합) ─────────────────────────────
 
 
+def _build_index_technical_text() -> str:
+    """KOSPI/KOSDAQ 지수 기술 지표 텍스트 생성.
+
+    IndexDailyPriceDB에서 최근 120일 OHLCV를 조회하여
+    SMA, RSI, BB, MACD, 골든/데드크로스를 계산.
+    에러 시 빈 문자열 반환 (graceful degradation).
+    """
+    try:
+        from prime_jennie.infra.database.engine import get_engine
+        from prime_jennie.services.monitor.indicators import (
+            calculate_bollinger_bands,
+            calculate_macd,
+            calculate_rsi,
+            calculate_sma,
+            check_death_cross,
+        )
+
+        engine = get_engine()
+        sections: list[str] = []
+
+        for index_code, label in [("KOSPI", "KOSPI (포트폴리오 대상)"), ("KOSDAQ", "KOSDAQ (참고)")]:
+            with Session(engine) as session:
+                rows = session.exec(
+                    select(IndexDailyPriceDB)
+                    .where(IndexDailyPriceDB.index_code == index_code)
+                    .order_by(col(IndexDailyPriceDB.price_date).desc())
+                    .limit(150)
+                ).all()
+
+            if len(rows) < 21:
+                continue
+
+            rows = list(reversed(rows))  # oldest → newest
+            closes = [r.close_price for r in rows]
+            current = closes[-1]
+
+            # SMA
+            sma5 = calculate_sma(closes, 5)
+            sma20 = calculate_sma(closes, 20)
+            sma60 = calculate_sma(closes, 60)
+            sma120 = calculate_sma(closes, 120)
+
+            sma5_val = sma5[-1]
+            sma20_val = sma20[-1]
+            sma60_val = sma60[-1]
+            sma120_val = sma120[-1]
+
+            # MA 배열 판정 (5/20/60 기준)
+            if sma5_val and sma20_val and sma60_val:
+                if sma5_val > sma20_val > sma60_val:
+                    ma_status = "정배열 (강한 상승 추세)"
+                elif sma5_val < sma20_val < sma60_val:
+                    ma_status = "역배열 (하락 추세)"
+                else:
+                    ma_status = "혼조"
+            else:
+                ma_status = "데이터 부족"
+
+            lines = [f"[{label}] 현재가: {current:,.1f}"]
+
+            # 이동평균
+            ma_parts = []
+            if sma5_val:
+                ma_parts.append(f"5MA={sma5_val:,.1f}")
+            if sma20_val:
+                ma_parts.append(f"20MA={sma20_val:,.1f}")
+            if sma60_val:
+                ma_parts.append(f"60MA={sma60_val:,.1f}")
+            if sma120_val:
+                ma_parts.append(f"120MA={sma120_val:,.1f}")
+            if ma_parts:
+                lines.append(f"이동평균: {', '.join(ma_parts)}")
+            lines.append(f"MA 배열: {ma_status}")
+
+            # 120MA 이격도
+            if sma120_val:
+                disparity = (current / sma120_val - 1) * 100
+                lines.append(f"120MA 이격도: {disparity:+.1f}%")
+
+            # RSI
+            rsi = calculate_rsi(closes, 14)
+            if rsi is not None:
+                lines.append(f"RSI(14): {rsi:.1f}")
+
+            # Bollinger Bands
+            bb_upper, bb_middle, bb_lower = calculate_bollinger_bands(closes, 20, 2.0)
+            if bb_upper and bb_middle and bb_lower:
+                bb_width = (bb_upper - bb_lower) / bb_middle * 100 if bb_middle else 0
+                pct_b = (current - bb_lower) / (bb_upper - bb_lower) * 100 if (bb_upper - bb_lower) > 0 else 50
+                lines.append(
+                    f"BB(20,2): 상단={bb_upper:,.1f}, 하단={bb_lower:,.1f}, %B={pct_b:.0f}%, 밴드폭={bb_width:.1f}%"
+                )
+
+            # MACD
+            if len(closes) >= 26:
+                macd_line, signal_line = calculate_macd(closes)
+                macd_val = macd_line[-1]
+                signal_val = signal_line[-1]
+                histogram = macd_val - signal_val
+                hist_dir = "상승" if histogram >= 0 else "하락"
+                lines.append(
+                    f"MACD: {macd_val:.2f}, 시그널: {signal_val:.2f}, 히스토그램: {histogram:.2f} ({hist_dir})"
+                )
+
+            # 골든/데드크로스 (5MA/20MA)
+            if len(closes) >= 21:
+                is_death = check_death_cross(closes, short=5, long=20)
+                # 골든크로스: 반대 조건 — 현재 5MA > 20MA이고 직전 5MA <= 20MA
+                is_golden = False
+                if sma5[-1] and sma20[-1] and sma5[-2] and sma20[-2]:
+                    is_golden = sma5[-1] > sma20[-1] and sma5[-2] <= sma20[-2]
+                if is_death:
+                    lines.append("크로스: 데드크로스 (5MA < 20MA 하향 돌파)")
+                elif is_golden:
+                    lines.append("크로스: 골든크로스 (5MA > 20MA 상향 돌파)")
+
+            sections.append("\n".join(lines))
+
+        return "\n\n".join(sections)
+    except Exception:
+        logger.warning("Failed to build index technical text", exc_info=True)
+        return ""
+
+
 @app.post("/jobs/council-trigger")
 async def council_trigger(
     briefing_text: str = "",
@@ -1100,9 +1224,13 @@ async def council_trigger(
     # 브리핑 텍스트 병합: 텔레그램 + 레거시 인사이트 + 외부 briefing
     combined_briefing = "\n\n".join(filter(None, [telegram_briefing, legacy_briefing, briefing_text]))
 
+    # 지수 기술 지표 텍스트 생성
+    index_technical_text = _build_index_technical_text()
+
     input_data = CouncilInput(
         briefing_text=combined_briefing,
         global_snapshot=global_snapshot,
+        index_technical_text=index_technical_text,
         target_date=resolved_date,
     )
 

@@ -1,7 +1,9 @@
-"""기술적 지표 계산 — Death Cross, MACD Bearish Divergence.
+"""기술적 지표 계산 — SMA, EMA, RSI, Bollinger Bands, MACD, Death Cross.
 
 pandas 없이 순수 Python으로 구현.
 """
+
+import math
 
 
 def calculate_sma(prices: list[float], period: int) -> list[float | None]:
@@ -40,6 +42,60 @@ def calculate_ema(prices: list[float], span: int) -> list[float]:
     return result
 
 
+def calculate_rsi(closes: list[float], period: int = 14) -> float | None:
+    """RSI(Relative Strength Index) 계산.
+
+    EMA smoothing 방식 (Wilder's smoothing).
+
+    Returns:
+        RSI 값 (0-100) 또는 데이터 부족 시 None.
+    """
+    if len(closes) < period + 1:
+        return None
+
+    gains = []
+    losses = []
+    for i in range(1, len(closes)):
+        delta = closes[i] - closes[i - 1]
+        gains.append(max(0, delta))
+        losses.append(max(0, -delta))
+
+    avg_gain = sum(gains[:period]) / period
+    avg_loss = sum(losses[:period]) / period
+
+    for i in range(period, len(gains)):
+        avg_gain = (avg_gain * (period - 1) + gains[i]) / period
+        avg_loss = (avg_loss * (period - 1) + losses[i]) / period
+
+    if avg_loss == 0:
+        return 100.0
+    rs = avg_gain / avg_loss
+    return 100 - (100 / (1 + rs))
+
+
+def calculate_bollinger_bands(
+    prices: list[float],
+    period: int = 20,
+    num_std: float = 2.0,
+) -> tuple[float | None, float | None, float | None]:
+    """볼린저 밴드 계산 (최근 시점 기준).
+
+    Returns:
+        (upper, middle, lower) — 데이터 부족 시 (None, None, None).
+    """
+    if len(prices) < period:
+        return (None, None, None)
+
+    window = prices[-period:]
+    middle = sum(window) / period
+    variance = sum((x - middle) ** 2 for x in window) / period
+    std = math.sqrt(variance)
+
+    upper = middle + num_std * std
+    lower = middle - num_std * std
+    return (upper, middle, lower)
+
+
 def check_death_cross(
     close_prices: list[float],
     short: int = 5,
@@ -74,7 +130,7 @@ def check_death_cross(
     return curr_s < curr_l * (1 - gap) and prev_s >= prev_l
 
 
-def _calculate_macd(
+def calculate_macd(
     close_prices: list[float],
     fast: int = 12,
     slow: int = 26,
@@ -111,7 +167,7 @@ def check_macd_bearish_divergence(
     if len(close_prices) < min_required:
         return False
 
-    macd_line, signal_line = _calculate_macd(close_prices)
+    macd_line, signal_line = calculate_macd(close_prices)
     histogram = [m - s for m, s in zip(macd_line, signal_line, strict=True)]
 
     # lookback 구간 내 최고점 vs 현재
