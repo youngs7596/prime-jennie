@@ -23,6 +23,7 @@ from prime_jennie.infra.database.models import (
     DailyAssetSnapshotDB,
     DailyMacroInsightDB,
     DailyQuantScoreDB,
+    IndexDailyPriceDB,
     PositionDB,
     StockConsensusDB,
     StockDailyPriceDB,
@@ -234,6 +235,73 @@ def collect_full_market_data(session: Session = Depends(get_db_session)) -> JobR
         return JobResult(count=count, message=msg)
     except Exception as e:
         logger.exception("Market data collection failed")
+        return JobResult(success=False, message=str(e))
+
+
+@app.post("/jobs/collect-index-daily-prices")
+def collect_index_daily_prices(
+    days: int = 250,
+    session: Session = Depends(get_db_session),
+) -> JobResult:
+    """KOSPI/KOSDAQ 지수 일봉 OHLCV 수집 (fchart API).
+
+    Args:
+        days: 조회 거래일 수 (기본 250 ≈ 1년)
+    """
+    from prime_jennie.infra.crawlers.naver_market import fetch_index_daily_prices
+
+    indices = ["KOSPI", "KOSDAQ"]
+    total_upserted = 0
+
+    try:
+        for index_code in indices:
+            rows = fetch_index_daily_prices(index_code, count=days)
+            if not rows:
+                logger.warning("No index daily data for %s", index_code)
+                continue
+
+            # change_pct 계산 (전일 대비)
+            for i, row in enumerate(rows):
+                if i == 0:
+                    change_pct = None
+                else:
+                    prev_close = rows[i - 1].close_price
+                    change_pct = (row.close_price - prev_close) / prev_close * 100 if prev_close else None
+
+                existing = session.get(
+                    IndexDailyPriceDB,
+                    (row.index_code, row.price_date),
+                )
+                if existing:
+                    existing.open_price = row.open_price
+                    existing.high_price = row.high_price
+                    existing.low_price = row.low_price
+                    existing.close_price = row.close_price
+                    existing.volume = row.volume
+                    existing.change_pct = change_pct
+                else:
+                    session.add(
+                        IndexDailyPriceDB(
+                            index_code=row.index_code,
+                            price_date=row.price_date,
+                            open_price=row.open_price,
+                            high_price=row.high_price,
+                            low_price=row.low_price,
+                            close_price=row.close_price,
+                            volume=row.volume,
+                            change_pct=change_pct,
+                        )
+                    )
+                total_upserted += 1
+
+            session.commit()
+            logger.info("Index %s: %d rows upserted", index_code, len(rows))
+
+        msg = f"Index daily prices: {total_upserted} rows upserted for {indices}"
+        logger.info(msg)
+        return JobResult(count=total_upserted, message=msg)
+    except Exception as e:
+        logger.exception("Index daily price collection failed")
         return JobResult(success=False, message=str(e))
 
 

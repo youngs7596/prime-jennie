@@ -77,6 +77,16 @@ daily_market_data_collector = _utility_dag(
     tags=["data", "daily"],
 )
 
+daily_index_prices = _utility_dag(
+    "daily_index_prices",
+    "5 16 * * 1-5",
+    "KOSPI/KOSDAQ 지수 일봉 수집",
+    "/jobs/collect-index-daily-prices",
+    timeout_min=3,
+    retries=1,
+    tags=["data", "daily"],
+)
+
 daily_briefing_report = _utility_dag(
     "daily_briefing_report",
     "0 17 * * 1-5",

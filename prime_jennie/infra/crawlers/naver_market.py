@@ -7,10 +7,12 @@ Usage:
     idx = fetch_index_data("KOSPI")
     flows = fetch_investor_flows("kospi", "20260227")
     stocks = fetch_market_stocks("KOSPI")
+    ohlcv = fetch_index_daily_prices("KOSPI", count=250)
 """
 
 import logging
 import time
+import xml.etree.ElementTree as ET
 from dataclasses import dataclass
 from datetime import date
 
@@ -269,3 +271,89 @@ def fetch_market_stocks(market: str = "KOSPI") -> list[MarketStock]:
 
     logger.info("Naver market stocks (%s): %d stocks fetched", market, len(stocks))
     return stocks
+
+
+# ─── fchart XML API: 지수 일봉 OHLCV ────────────────────────────
+
+
+# fchart API 지수 코드 매핑 (네이버 내부 코드)
+_FCHART_INDEX_CODE = {
+    "KOSPI": "KOSPI",
+    "KOSDAQ": "KOSDAQ",
+}
+
+
+@dataclass
+class IndexDailyOHLCV:
+    """지수 일봉 OHLCV."""
+
+    index_code: str
+    price_date: date
+    open_price: float
+    high_price: float
+    low_price: float
+    close_price: float
+    volume: int
+
+
+def fetch_index_daily_prices(index_code: str, count: int = 250) -> list[IndexDailyOHLCV]:
+    """fchart API에서 지수 일봉 OHLCV 조회.
+
+    Args:
+        index_code: "KOSPI" 또는 "KOSDAQ"
+        count: 조회 거래일 수 (기본 250 ≈ 1년)
+
+    Returns:
+        IndexDailyOHLCV 리스트 (오래된 순 정렬). 에러 시 빈 리스트.
+    """
+    fchart_code = _FCHART_INDEX_CODE.get(index_code.upper(), index_code.upper())
+    url = "https://fchart.stock.naver.com/sise.nhn"
+    params = {
+        "symbol": fchart_code,
+        "timeframe": "day",
+        "count": str(count),
+        "requestType": "0",
+    }
+
+    try:
+        resp = httpx.get(url, headers=NAVER_HEADERS, params=params, timeout=15)
+        resp.raise_for_status()
+
+        root = ET.fromstring(resp.text)
+        items: list[IndexDailyOHLCV] = []
+
+        for item in root.iter("item"):
+            data = item.get("data", "")
+            parts = data.split("|")
+            if len(parts) < 6:
+                continue
+
+            try:
+                price_date = date(
+                    int(parts[0][:4]),
+                    int(parts[0][4:6]),
+                    int(parts[0][6:8]),
+                )
+                items.append(
+                    IndexDailyOHLCV(
+                        index_code=index_code.upper(),
+                        price_date=price_date,
+                        open_price=float(parts[1]),
+                        high_price=float(parts[2]),
+                        low_price=float(parts[3]),
+                        close_price=float(parts[4]),
+                        volume=int(parts[5]),
+                    )
+                )
+            except (ValueError, IndexError) as e:
+                logger.debug("fchart item parse skip: %s — %s", data, e)
+                continue
+
+        # 오래된 순 정렬
+        items.sort(key=lambda x: x.price_date)
+        logger.info("fchart %s: %d daily bars fetched", index_code, len(items))
+        return items
+
+    except Exception as e:
+        logger.warning("fchart index fetch failed (%s): %s", index_code, e)
+        return []

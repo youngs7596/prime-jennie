@@ -61,6 +61,21 @@ class StockDailyPriceDB(SQLModel, table=True):
     __table_args__ = (Index("ix_daily_prices_date", "price_date"),)
 
 
+class IndexDailyPriceDB(SQLModel, table=True):
+    __tablename__ = "index_daily_prices"
+
+    index_code: str = Field(primary_key=True, max_length=10)  # KOSPI, KOSDAQ
+    price_date: date = Field(primary_key=True)
+    open_price: float
+    high_price: float
+    low_price: float
+    close_price: float
+    volume: int = 0
+    change_pct: float | None = None
+
+    __table_args__ = (Index("ix_index_daily_date", "price_date"),)
+
+
 class StockInvestorTradingDB(SQLModel, table=True):
     __tablename__ = "stock_investor_tradings"
 

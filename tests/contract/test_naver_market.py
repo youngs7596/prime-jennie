@@ -12,8 +12,10 @@ from datetime import date, timedelta
 import pytest
 
 from prime_jennie.infra.crawlers.naver_market import (
+    IndexDailyOHLCV,
     IndexData,
     InvestorFlows,
+    fetch_index_daily_prices,
     fetch_index_data,
     fetch_investor_flows,
 )
@@ -114,3 +116,51 @@ class TestInvestorFlows:
         if kospi_flows is None:
             pytest.skip("no data")
         assert isinstance(kospi_flows.trade_date, date)
+
+
+# ── Index Daily OHLCV (fchart) ──────────────────────────────────
+
+
+@pytest.fixture(scope="module")
+def kospi_daily() -> list[IndexDailyOHLCV]:
+    return fetch_index_daily_prices("KOSPI", count=30)
+
+
+@pytest.fixture(scope="module")
+def kosdaq_daily() -> list[IndexDailyOHLCV]:
+    return fetch_index_daily_prices("KOSDAQ", count=30)
+
+
+class TestIndexDailyPrices:
+    def test_kospi_returns_data(self, kospi_daily):
+        assert len(kospi_daily) > 0, "fetch_index_daily_prices('KOSPI') returned empty"
+
+    def test_kosdaq_returns_data(self, kosdaq_daily):
+        assert len(kosdaq_daily) > 0, "fetch_index_daily_prices('KOSDAQ') returned empty"
+
+    def test_kospi_ohlcv_range(self, kospi_daily):
+        if not kospi_daily:
+            pytest.skip("no data")
+        for row in kospi_daily:
+            assert 1000 <= row.close_price <= 10000, f"KOSPI close out of range: {row.close_price}"
+            assert row.low_price <= row.high_price
+            assert row.volume >= 0
+
+    def test_kosdaq_ohlcv_range(self, kosdaq_daily):
+        if not kosdaq_daily:
+            pytest.skip("no data")
+        for row in kosdaq_daily:
+            assert 300 <= row.close_price <= 2000, f"KOSDAQ close out of range: {row.close_price}"
+            assert row.low_price <= row.high_price
+            assert row.volume >= 0
+
+    def test_date_order_ascending(self, kospi_daily):
+        if len(kospi_daily) < 2:
+            pytest.skip("not enough data")
+        dates = [r.price_date for r in kospi_daily]
+        assert dates == sorted(dates), "Dates not in ascending order"
+
+    def test_index_code_set(self, kospi_daily):
+        if not kospi_daily:
+            pytest.skip("no data")
+        assert all(r.index_code == "KOSPI" for r in kospi_daily)
