@@ -110,7 +110,7 @@ def fetch_investor_flows(market: str, bizdate: str) -> InvestorFlows | None:
         for i, h in enumerate(headers):
             if "외국인" in h:
                 col_map["foreign"] = i
-            elif "기관" in h:
+            elif h == "기관계":
                 col_map["institutional"] = i
             elif "개인" in h:
                 col_map["retail"] = i

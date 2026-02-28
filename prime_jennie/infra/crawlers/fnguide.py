@@ -118,20 +118,20 @@ def _parse_fnguide_consensus_table(soup: BeautifulSoup, result: ConsensusData) -
             if not tds:
                 continue
 
-            # EPS(원) — 컨센서스 Forward EPS
-            if "EPS" in label and "원" in label:
+            # EPS(원) — 컨센서스 Forward EPS (first match wins)
+            if "EPS" in label and "원" in label and result.forward_eps is None:
                 val = _parse_number(tds[-1].get_text(strip=True))
                 if val is not None:
                     result.forward_eps = val
 
-            # PER(배) — 컨센서스 Forward PER
-            if "PER" in label and "배" in label:
+            # PER(배) — 컨센서스 Forward PER (first match wins)
+            if "PER" in label and "배" in label and result.forward_per is None:
                 val = _parse_number(tds[-1].get_text(strip=True))
                 if val is not None and val > 0:
                     result.forward_per = val
 
-            # ROE(%) — 컨센서스 Forward ROE
-            if "ROE" in label:
+            # ROE(%) — 컨센서스 Forward ROE (first match wins)
+            if "ROE" in label and result.forward_roe is None:
                 val = _parse_number(tds[-1].get_text(strip=True))
                 if val is not None:
                     result.forward_roe = val
@@ -243,6 +243,9 @@ def _parse_naver_consensus_page(soup: BeautifulSoup, result: ConsensusData) -> N
                 for td in reversed(tds):
                     val_text = td.get_text(strip=True)
                     if not val_text or val_text in ("-", "N/A", ""):
+                        continue
+                    # 수식/설명 텍스트 필터링 (한글, 괄호 등이 포함되면 숫자가 아님)
+                    if any(c in val_text for c in ("주주", "자본", "순이익", "당기")):
                         continue
                     val = _parse_number(val_text)
                     if val is None:
