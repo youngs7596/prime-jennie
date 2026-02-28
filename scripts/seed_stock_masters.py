@@ -1,6 +1,6 @@
 """Stock Master 초기 시딩 스크립트.
 
-pykrx로 KOSPI(또는 KOSDAQ) 전 종목의 코드/종목명/시가총액을 수집하고,
+네이버 금융 시가총액 순위 페이지에서 전 종목의 코드/종목명/시가총액을 수집하고,
 네이버 섹터 매핑으로 업종 분류를 추가하여 stock_masters 테이블을 시딩한다.
 
 신규 설치 시 DB 마이그레이션 직후 실행하여 Scout가 유니버스를 구성할 수 있게 한다.
@@ -19,7 +19,7 @@ Usage:
 import argparse
 import logging
 import sys
-from datetime import date, datetime
+from datetime import datetime
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
@@ -38,56 +38,35 @@ def seed_stock_masters(market: str = "KOSPI", dry_run: bool = False) -> dict:
     Returns:
         {"inserted": int, "updated": int, "total": int, "failed": int}
     """
-    from pykrx import stock as pykrx_stock
-
     from prime_jennie.domain.sector_taxonomy import get_sector_group
     from prime_jennie.infra.crawlers.naver import build_naver_sector_mapping
+    from prime_jennie.infra.crawlers.naver_market import fetch_market_stocks
 
-    # 1) pykrx로 종목 목록 수집
-    today_str = date.today().strftime("%Y%m%d")
-    logger.info("Fetching %s ticker list from pykrx...", market)
-    tickers = pykrx_stock.get_market_ticker_list(today_str, market=market)
-    logger.info("Found %d tickers", len(tickers))
+    # 1) 네이버 시가총액 순위에서 종목 목록 + 이름 + 시총 수집
+    logger.info("Fetching %s stock list from Naver...", market)
+    market_stocks = fetch_market_stocks(market=market)
+    logger.info("Found %d stocks", len(market_stocks))
 
-    if not tickers:
-        logger.error("No tickers found for market=%s", market)
+    if not market_stocks:
+        logger.error("No stocks found for market=%s", market)
         return {"inserted": 0, "updated": 0, "total": 0, "failed": 0}
 
-    # 2) 종목명 수집
-    ticker_names: dict[str, str] = {}
-    for ticker in tickers:
-        name = pykrx_stock.get_market_ticker_name(ticker)
-        ticker_names[ticker] = name
-
-    # 3) 시가총액 수집 (전체 시장 한 번에)
-    logger.info("Fetching market cap data...")
-    df_cap = pykrx_stock.get_market_cap_by_ticker(today_str, market=market)
-    market_caps: dict[str, int] = {}
-    if df_cap is not None and not df_cap.empty:
-        for code in df_cap.index:
-            cap = df_cap.loc[code, "시가총액"]
-            if cap and cap > 0:
-                # 백만원 단위로 저장 (기존 DB 컨벤션)
-                market_caps[code] = int(cap / 1_000_000)
-
-    # 4) 네이버 섹터 매핑
+    # 2) 네이버 섹터 매핑
     logger.info("Building Naver sector mapping (this takes ~30s)...")
     naver_sectors = build_naver_sector_mapping()
     logger.info("Naver sector mapping: %d stocks", len(naver_sectors))
 
-    # 5) DB 저장 (또는 dry-run)
+    # 3) DB 저장 (또는 dry-run)
     if dry_run:
         inserted = 0
-        for ticker in tickers:
-            name = ticker_names.get(ticker, "")
-            cap = market_caps.get(ticker)
-            sector = naver_sectors.get(ticker, "")
-            group = get_sector_group(sector, ticker).value if sector else "기타"
-            cap_str = f"{cap:>10,}" if cap else "N/A"
+        for s in market_stocks:
+            sector = naver_sectors.get(s.stock_code, "")
+            group = get_sector_group(sector, s.stock_code).value if sector else "기타"
+            cap_str = f"{s.market_cap:>10,}" if s.market_cap else "N/A"
             logger.info(
                 "  %s %-20s cap=%s sector=%s group=%s",
-                ticker,
-                name[:20],
+                s.stock_code,
+                s.stock_name[:20],
                 cap_str,
                 sector[:15] if sector else "N/A",
                 group,
@@ -111,22 +90,17 @@ def seed_stock_masters(market: str = "KOSPI", dry_run: bool = False) -> dict:
         existing = {s.stock_code: s for s in session.exec(select(StockMasterDB)).all()}
         logger.info("Existing stocks in DB: %d", len(existing))
 
-        for i, ticker in enumerate(tickers):
+        for i, s in enumerate(market_stocks):
             try:
-                name = ticker_names.get(ticker, "")
-                if not name:
-                    continue
+                sector = naver_sectors.get(s.stock_code, "")
+                group = get_sector_group(sector, s.stock_code).value if sector else "기타"
 
-                cap = market_caps.get(ticker)
-                sector = naver_sectors.get(ticker, "")
-                group = get_sector_group(sector, ticker).value if sector else "기타"
-
-                if ticker in existing:
+                if s.stock_code in existing:
                     # UPDATE: 시총, 섹터 갱신
-                    db_stock = existing[ticker]
-                    db_stock.stock_name = name
-                    if cap:
-                        db_stock.market_cap = cap
+                    db_stock = existing[s.stock_code]
+                    db_stock.stock_name = s.stock_name
+                    if s.market_cap:
+                        db_stock.market_cap = s.market_cap
                     if sector:
                         db_stock.sector_naver = sector
                         db_stock.sector_group = group
@@ -137,10 +111,10 @@ def seed_stock_masters(market: str = "KOSPI", dry_run: bool = False) -> dict:
                 else:
                     # INSERT
                     db_stock = StockMasterDB(
-                        stock_code=ticker,
-                        stock_name=name,
+                        stock_code=s.stock_code,
+                        stock_name=s.stock_name,
                         market=market,
-                        market_cap=cap,
+                        market_cap=s.market_cap,
                         sector_naver=sector if sector else None,
                         sector_group=group,
                         is_active=True,
@@ -152,10 +126,10 @@ def seed_stock_masters(market: str = "KOSPI", dry_run: bool = False) -> dict:
                 # 100건마다 커밋
                 if (i + 1) % 100 == 0:
                     session.commit()
-                    logger.info("Progress: %d/%d", i + 1, len(tickers))
+                    logger.info("Progress: %d/%d", i + 1, len(market_stocks))
 
             except Exception as e:
-                logger.warning("Failed to process %s: %s", ticker, e)
+                logger.warning("Failed to process %s: %s", s.stock_code, e)
                 failed += 1
 
         session.commit()

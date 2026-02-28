@@ -1,4 +1,4 @@
-"""네이버 금융 시장 데이터 크롤러 — KOSPI/KOSDAQ 지수 + 투자자 수급.
+"""네이버 금융 시장 데이터 크롤러 — KOSPI/KOSDAQ 지수 + 투자자 수급 + 종목 목록.
 
 pykrx (data.krx.co.kr) 장애 대체용.
 KRX Open API 키 도착 시 krx_market.py 로 재전환 예정.
@@ -6,9 +6,11 @@ KRX Open API 키 도착 시 krx_market.py 로 재전환 예정.
 Usage:
     idx = fetch_index_data("KOSPI")
     flows = fetch_investor_flows("kospi", "20260227")
+    stocks = fetch_market_stocks("KOSPI")
 """
 
 import logging
+import time
 from dataclasses import dataclass
 from datetime import date
 
@@ -174,3 +176,96 @@ def fetch_investor_flows(market: str, bizdate: str) -> InvestorFlows | None:
     except Exception as e:
         logger.warning("Naver investor flows fetch failed (%s): %s", market, e)
         return None
+
+
+@dataclass
+class MarketStock:
+    """시가총액 순위 페이지에서 파싱한 종목 정보."""
+
+    stock_code: str
+    stock_name: str
+    market_cap: int  # 백만원 단위 (DB 컨벤션)
+
+
+def fetch_market_stocks(market: str = "KOSPI") -> list[MarketStock]:
+    """네이버 시가총액 순위 페이지에서 전 종목 코드/이름/시총 크롤링.
+
+    Args:
+        market: "KOSPI" 또는 "KOSDAQ"
+
+    Returns:
+        MarketStock 리스트 (시총 내림차순)
+    """
+    # sosok: 0=코스피, 1=코스닥
+    sosok = "0" if market.upper() == "KOSPI" else "1"
+    url = "https://finance.naver.com/sise/sise_market_sum.naver"
+    stocks: list[MarketStock] = []
+    seen: set[str] = set()
+
+    for page in range(1, 100):  # 최대 100페이지 안전 장치
+        try:
+            resp = httpx.get(
+                url,
+                headers=NAVER_HEADERS,
+                params={"sosok": sosok, "page": str(page)},
+                timeout=10,
+            )
+            resp.encoding = "euc-kr"
+            soup = BeautifulSoup(resp.text, "html.parser")
+
+            table = soup.select_one("table.type_2")
+            if not table:
+                break
+
+            page_count = 0
+            for tr in table.select("tr"):
+                tds = tr.select("td")
+                if len(tds) < 7:
+                    continue
+
+                link = tr.select_one("a[href*='code=']")
+                if not link:
+                    continue
+
+                href = link.get("href", "")
+                code = href.split("code=")[-1].split("&")[0]
+                if len(code) != 6 or not code.isdigit():
+                    continue
+                if code in seen:
+                    continue
+
+                name = link.get_text(strip=True)
+                if not name:
+                    continue
+
+                # 시가총액: tds[6], 억원 단위 → 백만원 (×100)
+                cap_text = tds[6].get_text(strip=True).replace(",", "")
+                if not cap_text or cap_text == "-":
+                    continue
+                try:
+                    cap_eok = int(cap_text)
+                except ValueError:
+                    continue
+
+                seen.add(code)
+                stocks.append(
+                    MarketStock(
+                        stock_code=code,
+                        stock_name=name,
+                        market_cap=cap_eok * 100,  # 억원 → 백만원
+                    )
+                )
+                page_count += 1
+
+            if page_count == 0:
+                break  # 데이터 없는 페이지 → 마지막
+
+            if page < 99:
+                time.sleep(0.15)
+
+        except Exception as e:
+            logger.warning("Naver market stocks page %d failed: %s", page, e)
+            break
+
+    logger.info("Naver market stocks (%s): %d stocks fetched", market, len(stocks))
+    return stocks

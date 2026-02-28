@@ -1630,7 +1630,7 @@ def seed_stock_masters_endpoint(
     market: str = "KOSPI",
     session: Session = Depends(get_db_session),
 ) -> JobResult:
-    """stock_masters 테이블 초기 시딩 (pykrx + 네이버 섹터).
+    """stock_masters 테이블 초기 시딩 (네이버 시총 + 섹터).
 
     신규 설치 시 DB 마이그레이션 직후 호출하여 Scout 유니버스를 구성한다.
     """
