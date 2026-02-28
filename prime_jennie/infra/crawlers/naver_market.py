@@ -126,11 +126,8 @@ def fetch_investor_flows(market: str, bizdate: str) -> InvestorFlows | None:
         def _parse_val(tds: list, idx: int) -> float:
             if idx >= len(tds):
                 return 0.0
-            # td index는 헤더 기준 - 날짜 컬럼(0) 빼기
-            td_idx = idx - 1  # th 첫번째가 날짜, td 첫번째도 날짜
-            if td_idx < 0 or td_idx >= len(tds):
-                return 0.0
-            raw = tds[td_idx].get_text(strip=True).replace(",", "")
+            # th와 td 인덱스가 1:1 대응 (th[0]=날짜, td[0]=날짜)
+            raw = tds[idx].get_text(strip=True).replace(",", "")
             # 음수 부호 처리 (네이버는 마이너스를 다양한 방식으로 표기)
             raw = raw.replace("−", "-").replace("–", "-")
             if not raw or raw == "-":
