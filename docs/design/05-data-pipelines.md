@@ -248,7 +248,7 @@ record: TradeRecord = TradeRecord(...)  # DB 저장
 enhanced_macro_collection (07:00, 12:00, 18:00)
   │
   ▼
-GlobalSnapshot 수집 (pykrx, yfinance, Fed API)
+GlobalSnapshot 수집 (Naver Finance, yfinance, Fed API)
   Output: GlobalSnapshot → DB global_macro_snapshots + Redis
   │
   ▼ (macro_council DAG, 07:30/11:50)
