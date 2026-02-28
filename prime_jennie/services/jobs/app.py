@@ -262,16 +262,15 @@ def refresh_market_caps(session: Session = Depends(get_db_session)) -> JobResult
 
 @app.post("/jobs/collect-investor-trading")
 def collect_investor_trading(session: Session = Depends(get_db_session)) -> JobResult:
-    """수급 데이터 수집 (pykrx).
+    """수급 데이터 수집 (네이버 금융).
 
-    최근 7일 직전 거래일 기준, 시가총액 상위 300종목.
-    pykrx rate limit 방지: 종목당 0.5초 간격.
+    최근 7거래일 외국인/기관 순매매량 × 종가 = KRW 금액 변환.
+    시가총액 상위 300종목.
     """
     try:
-        from pykrx import stock as pykrx_stock
+        from prime_jennie.infra.crawlers.naver_stock import fetch_stock_frgn_data
 
-        today_str = date.today().strftime("%Y%m%d")
-        start_str = (date.today() - timedelta(days=7)).strftime("%Y%m%d")
+        cutoff = date.today() - timedelta(days=14)
         stocks = session.exec(
             select(StockMasterDB)
             .where(StockMasterDB.is_active)
@@ -284,15 +283,20 @@ def collect_investor_trading(session: Session = Depends(get_db_session)) -> JobR
         for i, s in enumerate(stocks):
             try:
                 if i > 0:
-                    time.sleep(0.5)  # pykrx rate limit 방지
-                df = pykrx_stock.get_market_trading_value_by_investor(start_str, today_str, s.stock_code)
-                if df.empty:
+                    time.sleep(0.3)
+                rows = fetch_stock_frgn_data(s.stock_code)
+                if not rows:
+                    failed += 1
                     continue
 
-                foreign_net = int(df.loc["외국인", "순매수"] if "외국인" in df.index else 0)
-                inst_net = int(df.loc["기관합계", "순매수"] if "기관합계" in df.index else 0)
+                # 최근 7거래일 필터 → 주 수 × 종가 = KRW 금액
+                recent = [r for r in rows if r.trade_date >= cutoff][:7]
+                if not recent:
+                    continue
 
-                # 중복 방지: 직전 거래일 기준
+                foreign_net = sum(r.frgn_net_volume * r.close_price for r in recent)
+                inst_net = sum(r.inst_net_volume * r.close_price for r in recent)
+
                 trade_date = date.today()
                 existing = session.exec(
                     select(StockInvestorTradingDB).where(
@@ -332,12 +336,10 @@ def collect_investor_trading(session: Session = Depends(get_db_session)) -> JobR
 
 @app.post("/jobs/collect-foreign-holding")
 def collect_foreign_holding(session: Session = Depends(get_db_session)) -> JobResult:
-    """외국인 지분율 수집 (pykrx). 시가총액 상위 300종목."""
+    """외국인 지분율 수집 (네이버 금융). 시가총액 상위 300종목."""
     try:
-        from pykrx import stock as pykrx_stock
+        from prime_jennie.infra.crawlers.naver_stock import fetch_stock_frgn_data
 
-        today_str = date.today().strftime("%Y%m%d")
-        start_str = (date.today() - timedelta(days=7)).strftime("%Y%m%d")
         stocks = session.exec(
             select(StockMasterDB)
             .where(StockMasterDB.is_active)
@@ -350,18 +352,17 @@ def collect_foreign_holding(session: Session = Depends(get_db_session)) -> JobRe
         for i, s in enumerate(stocks):
             try:
                 if i > 0:
-                    time.sleep(0.5)  # pykrx rate limit 방지
-                df = pykrx_stock.get_exhaustion_rates_of_foreign_investment_by_date(start_str, today_str, s.stock_code)
-                if df.empty:
+                    time.sleep(0.3)
+                rows = fetch_stock_frgn_data(s.stock_code)
+                if not rows:
+                    failed += 1
                     continue
 
-                # 최신 거래일 데이터
-                last_row = df.iloc[-1]
-                last_date = df.index[-1]
-                trade_date = last_date.date() if hasattr(last_date, "date") else last_date
-                ratio = float(last_row.get("지분율", 0))
+                # 최신 row의 실제 날짜와 보유율 사용
+                latest = rows[0]
+                trade_date = latest.trade_date
+                ratio = latest.frgn_holding_ratio
 
-                # 기존 investor_trading 레코드에 지분율 업데이트
                 existing = session.exec(
                     select(StockInvestorTradingDB).where(
                         StockInvestorTradingDB.stock_code == s.stock_code,
