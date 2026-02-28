@@ -2279,6 +2279,50 @@ def contract_smoke_test() -> JobResult:
     except Exception as e:
         failed.append(f"fnguide_consensus: exception — {e}")
 
+    # 6) fetch_investor_flows — cross-field sanity
+    try:
+        from prime_jennie.infra.crawlers.naver_market import fetch_investor_flows
+
+        test_flows = None
+        for d in range(7):
+            test_date = date.today() - timedelta(days=d)
+            bizdate = test_date.strftime("%Y%m%d")
+            test_flows = fetch_investor_flows("kospi", bizdate)
+            if test_flows is not None:
+                break
+
+        if test_flows is None:
+            failed.append("investor_flows: no data in last 7 days")
+        else:
+            # 외인+기관+개인 ≈ 0 (기타법인 미포함이므로 ±10,000억 허용)
+            total = test_flows.foreign_net + test_flows.institutional_net + test_flows.retail_net
+            if abs(total) > 10000:
+                failed.append(
+                    f"investor_flows: cross-check failed "
+                    f"(foreign={test_flows.foreign_net}, "
+                    f"inst={test_flows.institutional_net}, "
+                    f"retail={test_flows.retail_net}, total={total})"
+                )
+            else:
+                passed.append(
+                    f"investor_flows: foreign={test_flows.foreign_net}, "
+                    f"inst={test_flows.institutional_net}, "
+                    f"retail={test_flows.retail_net}"
+                )
+    except Exception as e:
+        failed.append(f"investor_flows: exception — {e}")
+
+    # 7) ROE cross-check — fundamentals vs crawl_naver_roe
+    try:
+        if fund is not None and fund.roe is not None and roe is not None:
+            roe_diff = abs(fund.roe - roe)
+            if roe_diff > 10:
+                failed.append(f"roe_cross_check: fundamentals ROE={fund.roe} vs crawl_roe={roe}, diff={roe_diff:.1f}pp")
+            else:
+                passed.append(f"roe_cross_check: diff={roe_diff:.1f}pp (OK)")
+    except Exception as e:
+        failed.append(f"roe_cross_check: exception — {e}")
+
     lines = [f"PASS ({len(passed)}):"] + [f"  ✓ {p}" for p in passed]
     if failed:
         lines += [f"FAIL ({len(failed)}):"] + [f"  ✗ {f}" for f in failed]
