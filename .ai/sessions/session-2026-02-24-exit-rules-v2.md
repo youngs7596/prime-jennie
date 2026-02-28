@@ -83,10 +83,10 @@ BUY/SELL 체결 시 DB positions 자동 갱신되지만, persist 실패·수동 
 0. Hard Stop (-10%) → 1. Profit Floor → 2. Profit Lock → 2.5 Breakeven Stop → 3. ATR Stop → 4. Fixed Stop → 5. Trailing TP → 6. Scale-Out → 7. RSI Overbought (**trailing 활성 시 스킵**) → 8. Target → 9. Death Cross (**BULL 비활성화**) → 10. Time Exit
 
 ## 다음 할 일 (Next Steps)
-- [ ] Exit rules v2 성과 모니터링 (RSI 스킵/Death Cross 스킵 건수 추적)
-- [ ] `.ai/sessions/session-2026-02-22-exit-rules-v2-cost-optimization.md` 남은 이터레이션 검토
-- [ ] TODO.md 미해결 과제 (ROE 정기 갱신 Job, 분기 재무제표 갱신 등)
-- [ ] sync-positions 실 환경 검증 (`/jobs/sync-positions?dry_run=true` 호출)
+- [x] Exit rules v2 성과 모니터링 (RSI 스킵/Death Cross 스킵 건수 추적) ✅
+- [x] `.ai/sessions/session-2026-02-22-exit-rules-v2-cost-optimization.md` 남은 이터레이션 검토 ✅
+- [x] TODO.md 미해결 과제 (ROE 정기 갱신 Job, 분기 재무제표 갱신 등) ✅
+- [x] sync-positions 실 환경 검증 (`/jobs/sync-positions?dry_run=true` 호출) ✅
 
 ## Context for Next Session
 다음 세션 시작 시 아래 파일들을 먼저 읽어주세요:

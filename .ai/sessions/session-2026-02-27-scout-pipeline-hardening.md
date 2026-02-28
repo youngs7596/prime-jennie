@@ -47,9 +47,9 @@
 - Airflow DAG 추가: `contract_smoke_test`, `collect_quarterly_financials`, `collect_consensus`
 
 ## 다음 할 일 (Next Steps)
-- [ ] **Scout 실전 모니터링**: 점수 평탄화 + 시총 필터 적용 후 WL 품질 관찰 (2~3일)
-- [ ] **Council sentiment_score 보정**: regime 경계값(55/70) 실적 대비 검증
-- [ ] **FnGuide target_price 파싱 실패 조사**: contract test에서 skip됨 — HTML 구조 확인 필요
+- [x] **Scout 실전 모니터링**: 점수 평탄화 + 시총 필터 적용 후 WL 품질 관찰 (2~3일) ✅
+- [x] **Council sentiment_score 보정**: regime 경계값(55/70) 실적 대비 검증 ✅
+- [x] **FnGuide target_price 파싱 실패 조사**: contract test에서 skip됨 — HTML 구조 확인 필요 ✅
 - [ ] **동시성 POC 결과 반영**: `poc_concurrency_test.py` 실행 후 본 코드 적용 여부 결정
 - [ ] **컨센서스 thin coverage 개선**: 3명 미만 필터로 빠지는 종목 비율 확인
 

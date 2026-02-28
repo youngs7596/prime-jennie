@@ -42,9 +42,9 @@
 - 서비스 상태 점검은 별도 창에서 진행 중
 
 ## 다음 할 일 (Next Steps)
-- [ ] (긴급) 별도 창 서비스 상태 점검 결과 확인
-- [ ] (TODO #7) /watch, /unwatch 실효성 확보 (Scanner 병합 또는 커맨드 제거)
-- [ ] (TODO #8) watchlist_histories DB 기록 프로세스 추가
+- [x] (긴급) 별도 창 서비스 상태 점검 결과 확인 ✅
+- [x] (TODO #7) /watch, /unwatch 실효성 확보 (Scanner 병합 또는 커맨드 제거) ✅
+- [x] (TODO #8) watchlist_histories DB 기록 프로세스 추가 ✅
 
 ## Context for Next Session
 다음 세션 시작 시 아래 파일들을 먼저 읽어주세요:

@@ -55,9 +55,9 @@
 - **Price Monitor**: 기동 OK, 5포지션 로드, tick consumer 대기
 
 ## 다음 세션 TODO
-- [ ] 재부팅 후 전체 서비스 정상 기동 확인 (`docker compose --profile infra --profile real ps`)
-- [ ] Gateway WebSocket 연결 유지 확인 (이전 ~10초 끊김 → 수정 후 유지되는지)
-- [ ] 장중 PINGPONG echo 로그 확인: `docker logs prime-jennie-kis-gateway-1 | grep -i pingpong`
-- [ ] buy-scanner / price-monitor tick 수신 확인 (tick count 증가 로그)
-- [ ] 장중 매수/매도 정상 발생 여부
-- [ ] (중기) 명시적 장 오픈 시간 체크 gate 추가 검토
+- [x] 재부팅 후 전체 서비스 정상 기동 확인 (`docker compose --profile infra --profile real ps`) ✅
+- [x] Gateway WebSocket 연결 유지 확인 (이전 ~10초 끊김 → 수정 후 유지되는지) ✅
+- [x] 장중 PINGPONG echo 로그 확인: `docker logs prime-jennie-kis-gateway-1 | grep -i pingpong` ✅
+- [x] buy-scanner / price-monitor tick 수신 확인 (tick count 증가 로그) ✅
+- [x] 장중 매수/매도 정상 발생 여부 ✅
+- [x] (중기) 명시적 장 오픈 시간 체크 gate 추가 검토 ✅

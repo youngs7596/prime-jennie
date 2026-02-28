@@ -57,7 +57,7 @@ KRX 개편(2026-02-27)으로 실패한 pykrx 기반 종목별 Job 2개를 네이
 
 - [ ] 월요일(3/2) 장 마감 후 Airflow DAG 자동 실행 확인 (18:30 investor-trading, 19:00 foreign-holding)
 - [ ] KRX Open API 키 도착 시 `krx_market.py` 전환 검토 (현재 네이버 안정 운영 중이므로 급하지 않음)
-- [ ] 이전 세션 `session-2026-02-27-pykrx-naver-migration.md`의 TODO 항목은 이번 세션에서 전부 완료
+- [x] 이전 세션 `session-2026-02-27-pykrx-naver-migration.md`의 TODO 항목은 이번 세션에서 전부 완료 ✅
 
 ## Context for Next Session
 다음 세션 시작 시 아래 파일들을 먼저 읽어주세요:

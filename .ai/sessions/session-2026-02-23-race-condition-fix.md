@@ -36,8 +36,8 @@
 - **재부팅 예정** → 다음 세션에서 시스템 동작 확인 필요
 
 ## 다음 세션 TODO
-- [ ] 재부팅 후 전체 서비스 정상 기동 확인 (docker compose ps)
-- [ ] Monitor/Scanner tick consumer Redis 연결 정상 확인
-- [ ] Airflow DAG `/start`, `/stop` 정상 호출 확인
-- [ ] Loki 로그 공백 없이 정상 수집 확인 (Grafana)
-- [ ] 장중 매매 정상 발생 여부 확인
+- [x] 재부팅 후 전체 서비스 정상 기동 확인 (docker compose ps) ✅
+- [x] Monitor/Scanner tick consumer Redis 연결 정상 확인 ✅
+- [x] Airflow DAG `/start`, `/stop` 정상 호출 확인 ✅
+- [x] Loki 로그 공백 없이 정상 수집 확인 (Grafana) ✅
+- [x] 장중 매매 정상 발생 여부 확인 ✅

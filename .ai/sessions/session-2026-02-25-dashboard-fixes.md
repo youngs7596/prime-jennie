@@ -55,11 +55,11 @@ Scout 페이지의 Watchlist History (DB) 섹션이 비어있는 문제 수정.
 - `/api/portfolio/history`: P&L 데이터 정상 표시
 
 ## 다음 할 일 (Next Steps)
-- [ ] Scout 실행 후 RAG 뉴스 프롬프트 주입 효과 확인 (LLM 분석 quality 변화)
-- [ ] LLM Usage 대시보드 정상 집계 확인 (다음 Scout 실행 후)
-- [ ] Qdrant payload index 추가 (`metadata.created_at_utc`, `metadata.stock_code`)
-- [ ] 월간 ROE 갱신 Job 구현 (TODO #1)
-- [ ] 방산 대형주 스코어링 개선 (TODO #3)
+- [x] Scout 실행 후 RAG 뉴스 프롬프트 주입 효과 확인 (LLM 분석 quality 변화) ✅
+- [x] LLM Usage 대시보드 정상 집계 확인 (다음 Scout 실행 후) ✅
+- [x] Qdrant payload index 추가 (`metadata.created_at_utc`, `metadata.stock_code`) ✅
+- [x] 월간 ROE 갱신 Job 구현 (TODO #1) ✅
+- [x] 방산 대형주 스코어링 개선 (TODO #3) ✅
 
 ## Context for Next Session
 - `.ai/sessions/session-2026-02-25-dashboard-fixes.md` — 이 핸드오프 파일

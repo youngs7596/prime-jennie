@@ -34,7 +34,7 @@
 - 전체 테스트 546개 통과, ruff clean, 프론트엔드 빌드 성공
 
 ## 다음 할 일 (Next Steps)
-- [ ] TODO.md 기존 항목 계속 진행 (ROE 갱신 Job, 분기 재무 갱신 등)
+- [x] TODO.md 기존 항목 계속 진행 (ROE 갱신 Job, 분기 재무 갱신 등) ✅
 - [ ] Workflows 탭: paused DAG 토글 기능 추가 고려
 - [ ] Logs 탭: 로그 검색/필터링, 자동 스크롤 개선 고려
 

@@ -23,11 +23,11 @@
 - ruff format 클린
 
 ## 다음 할 일 (Next Steps)
-- [ ] **git push** (15:30 이후) → GitHub Actions 배포
-- [ ] **배포 후 Alembic migration 수동 실행**: `docker exec <container> alembic upgrade head`
-- [ ] 기존 실패 테스트 `test_sellall_with_confirmation` 원인 조사/수정
-- [ ] 월간 ROE 갱신 Job 구현 (TODO #1)
-- [ ] 방산 대형주 스코어링 개선 (TODO #3)
+- [x] **git push** (15:30 이후) → GitHub Actions 배포 ✅
+- [x] **배포 후 Alembic migration 수동 실행**: `docker exec <container> alembic upgrade head` ✅
+- [x] 기존 실패 테스트 `test_sellall_with_confirmation` 원인 조사/수정 ✅
+- [x] 월간 ROE 갱신 Job 구현 (TODO #1) ✅
+- [x] 방산 대형주 스코어링 개선 (TODO #3) ✅
 
 ## Context for Next Session
 다음 세션 시작 시 아래 파일들을 먼저 읽어주세요:

@@ -31,7 +31,7 @@
 ## 다음 할 일 (Next Steps)
 - [ ] ORB 활성화 후 장중 시그널 모니터링 (docker-compose에서 `"true"` 전환)
 - [ ] DIP_BUY / MOMENTUM 파라미터 튜닝 (1-2주 운영 데이터 기반, TODO #9)
-- [ ] FINANCIAL_METRICS_QUARTERLY 정기 갱신 Job (TODO #2)
+- [x] FINANCIAL_METRICS_QUARTERLY 정기 갱신 Job (TODO #2) ✅
 
 ## Context for Next Session
 다음 세션 시작 시 아래 파일들을 먼저 읽어주세요:

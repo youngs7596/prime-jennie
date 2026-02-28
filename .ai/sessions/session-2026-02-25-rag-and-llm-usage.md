@@ -61,11 +61,11 @@ Phase 5-8       → Selection, Save
 - Qdrant: 36,553 points, `stock_name` + `created_at_utc` 메타데이터 정상 저장 확인
 
 ## 다음 할 일 (Next Steps)
-- [ ] Scout 실행 후 RAG 뉴스 프롬프트 주입 효과 확인 (LLM 분석 quality 변화)
-- [ ] LLM Usage 대시보드 정상 집계 확인 (다음 Scout 실행 후)
-- [ ] Qdrant `metadata.created_at_utc`, `metadata.stock_code`에 payload index 추가 (필터 성능 개선)
-- [ ] 월간 ROE 갱신 Job 구현 (TODO #1)
-- [ ] 방산 대형주 스코어링 개선 (TODO #3)
+- [x] Scout 실행 후 RAG 뉴스 프롬프트 주입 효과 확인 (LLM 분석 quality 변화) ✅
+- [x] LLM Usage 대시보드 정상 집계 확인 (다음 Scout 실행 후) ✅
+- [x] Qdrant `metadata.created_at_utc`, `metadata.stock_code`에 payload index 추가 (필터 성능 개선) ✅
+- [x] 월간 ROE 갱신 Job 구현 (TODO #1) ✅
+- [x] 방산 대형주 스코어링 개선 (TODO #3) ✅
 
 ## Context for Next Session
 - `.ai/sessions/session-2026-02-25-rag-and-llm-usage.md` — 이 핸드오프 파일

@@ -47,10 +47,10 @@
 3. prime_jennie/ 변경 시: CI lint+test O, Deploy backend만 확인
 
 ## 다음 할 일 (Next Steps)
-- [ ] Scout 실행 후 RAG 뉴스 프롬프트 주입 효과 확인
-- [ ] LLM Usage 대시보드 정상 집계 확인
-- [ ] Qdrant payload index 추가
-- [ ] 월간 ROE 갱신 Job 구현
+- [x] Scout 실행 후 RAG 뉴스 프롬프트 주입 효과 확인 ✅
+- [x] LLM Usage 대시보드 정상 집계 확인 ✅
+- [x] Qdrant payload index 추가 ✅
+- [x] 월간 ROE 갱신 Job 구현 ✅
 
 ## Context for Next Session
 - `.github/workflows/ci.yml` — CI 경로 필터 + 조건부 job

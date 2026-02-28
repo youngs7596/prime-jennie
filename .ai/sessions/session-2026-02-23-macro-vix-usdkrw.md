@@ -79,11 +79,11 @@ Favor: 반도체/IT / Avoid: 금융
 - 위 내용 참조
 
 ## 다음 할 일 (Next Steps)
-- [ ] TODO.md #1: ROE 정기 갱신 Job (월간, 네이버 금융 크롤링)
-- [ ] TODO.md #2: 분기 재무제표 정기 갱신 Job
-- [ ] TODO.md #6: 명시적 장 오픈 시간 체크 추가
-- [ ] TODO.md #7: /watch, /unwatch 커맨드 실효성 확보
-- [ ] TODO.md #8: watchlist_histories DB 기록 프로세스 추가
+- [x] TODO.md #1: ROE 정기 갱신 Job (월간, 네이버 금융 크롤링) ✅
+- [x] TODO.md #2: 분기 재무제표 정기 갱신 Job ✅
+- [x] TODO.md #6: 명시적 장 오픈 시간 체크 추가 ✅
+- [x] TODO.md #7: /watch, /unwatch 커맨드 실효성 확보 ✅
+- [x] TODO.md #8: watchlist_histories DB 기록 프로세스 추가 ✅
 - [ ] 매크로 수집 추가 지표 고려: DXY, Fed Rate, Treasury 10Y, BOK Rate 등
 
 ## Context for Next Session
