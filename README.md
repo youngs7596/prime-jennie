@@ -83,7 +83,7 @@ bash scripts/install.sh
 3. Docker 인프라 시작 (MariaDB, Redis, Qdrant 등)
 4. GPU 감지 → vLLM 자동 시작 제안 (없으면 Cloud 모드 안내)
 5. DB 마이그레이션 (Alembic)
-6. **stock_masters 시딩** — pykrx로 KOSPI 전 종목 자동 수집
+6. **stock_masters 시딩** — 네이버 금융에서 KOSPI 전 종목 자동 수집
 
 ### Step 2. API 키 설정
 
@@ -379,8 +379,7 @@ Hard Stop(-10%) → Profit Floor → Profit Lock(ATR) → Breakeven Stop(+3%→+
 ### 데이터
 - **MariaDB** — 영구 저장소 (SQLModel ORM, Alembic 마이그레이션)
 - **Redis** — 캐시, 실시간 상태, 스트림 메시징
-- **Naver Finance / FnGuide** — 재무 데이터, 컨센서스 크롤링
-- **pykrx** — KRX 시세, 시가총액, 수급 데이터
+- **Naver Finance / FnGuide** — 시세, 시가총액, 수급, 재무 데이터, 컨센서스 크롤링
 
 ### 프론트엔드
 - **React 18 + TypeScript** — Dashboard UI
