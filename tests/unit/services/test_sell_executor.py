@@ -116,6 +116,24 @@ class TestSellExecutor:
 
         assert result.status == "success"
 
+    def test_forced_liquidation_bypasses_emergency(self):
+        """FORCED_LIQUIDATION 매도는 emergency stop 통과."""
+        executor = _mock_executor()
+        executor._redis.get.return_value = "1"  # emergency active
+        order = _make_sell_order(sell_reason=SellReason.FORCED_LIQUIDATION)
+        result = executor.process_signal(order)
+
+        assert result.status == "success"
+
+    def test_forced_liquidation_bypasses_market_hours(self):
+        """FORCED_LIQUIDATION은 장시간 체크 bypass."""
+        executor = _mock_executor()
+        order = _make_sell_order(sell_reason=SellReason.FORCED_LIQUIDATION)
+        with patch("prime_jennie.services.seller.executor._is_market_hours", return_value=False):
+            result = executor.process_signal(order)
+
+        assert result.status == "success"
+
     def test_lock_failure_skipped(self):
         """분산 락 실패."""
         executor = _mock_executor()

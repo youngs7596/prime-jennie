@@ -56,6 +56,7 @@ class SellReason(StrEnum):
     DEATH_CROSS = "DEATH_CROSS"
     RISK_OFF = "RISK_OFF"
     MANUAL = "MANUAL"
+    FORCED_LIQUIDATION = "FORCED_LIQUIDATION"
 
 
 class SectorTier(StrEnum):

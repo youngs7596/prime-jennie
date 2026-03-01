@@ -119,7 +119,7 @@ class SellExecutor:
         """
         code = order.stock_code
         name = order.stock_name
-        is_manual = order.sell_reason == SellReason.MANUAL
+        is_manual = order.sell_reason in (SellReason.MANUAL, SellReason.FORCED_LIQUIDATION)
 
         # 0. Market hours check (MANUAL은 통과)
         if not is_manual and not _is_market_hours():
