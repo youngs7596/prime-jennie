@@ -214,6 +214,76 @@ class TestCaches:
         assert "005930" in monitor._indicator_cache
 
 
+class TestForcedLiquidation:
+    def test_armed_and_target_triggers_sell(self):
+        """ARM ON + 대상 종목 → 강제 청산 시그널 발행."""
+        pos = _make_position(stock_code="015760", stock_name="한국전력", quantity=510)
+        monitor = _make_monitor([pos])
+        monitor.refresh_positions()
+
+        # ARM=ON, 대상 종목 등록 상태
+        monitor._redis.get.return_value = "1"  # FORCED_LIQUIDATION_ARMED
+        monitor._redis.sismember.return_value = True
+        monitor._redis.scard.return_value = 0  # SET이 비게 됨
+
+        monitor.process_tick("015760", 45000)
+
+        monitor._publisher.publish.assert_called_once()
+        order = monitor._publisher.publish.call_args[0][0]
+        assert order.stock_code == "015760"
+        assert order.sell_reason == SellReason.FORCED_LIQUIDATION
+        assert order.quantity == 510
+        # 인메모리 캐시 제거
+        assert "015760" not in monitor._positions
+
+    def test_armed_but_not_target_proceeds_normally(self):
+        """ARM ON + 대상이 아닌 종목 → 정상 exit rule 평가."""
+        pos = _make_position(stock_code="005930", stock_name="삼성전자")
+        monitor = _make_monitor([pos])
+        monitor.refresh_positions()
+
+        # ARM=ON이지만 005930은 대상이 아님
+        def mock_get(key):
+            if key == "forced_liquidation:armed":
+                return "1"
+            return None
+
+        monitor._redis.get.side_effect = mock_get
+        monitor._redis.sismember.return_value = False
+
+        monitor.process_tick("005930", 71000)
+
+        # 강제 청산이 아닌 정상 평가 (이 가격은 매도 조건 안 됨)
+        monitor._publisher.publish.assert_not_called()
+
+    def test_not_armed_skips_forced_liquidation(self):
+        """ARM OFF → 강제 청산 체크 건너뜀."""
+        pos = _make_position(stock_code="015760", stock_name="한국전력")
+        monitor = _make_monitor([pos])
+        monitor.refresh_positions()
+
+        monitor._redis.get.return_value = None  # ARM OFF
+
+        monitor.process_tick("015760", 45000)
+
+        # sismember는 호출되지 않아야 함 (ARM이 꺼져있으므로)
+        monitor._redis.sismember.assert_not_called()
+
+    def test_auto_disarm_when_set_empty(self):
+        """마지막 종목 매도 후 SET 비면 ARM 자동 해제."""
+        pos = _make_position(stock_code="015760", stock_name="한국전력")
+        monitor = _make_monitor([pos])
+        monitor.refresh_positions()
+
+        monitor._redis.get.return_value = "1"
+        monitor._redis.sismember.return_value = True
+        monitor._redis.scard.return_value = 0  # 마지막 종목
+
+        monitor.process_tick("015760", 45000)
+
+        monitor._redis.delete.assert_any_call("forced_liquidation:armed")
+
+
 class TestProfitFloor:
     def test_profit_floor_redis_operations(self):
         """profit_floor Redis get/set/delete."""

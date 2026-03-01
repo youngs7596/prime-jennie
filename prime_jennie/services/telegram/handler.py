@@ -29,6 +29,8 @@ KEY_MUTE_UNTIL = "notification:mute_until"
 KEY_ALERTS = "price_alerts"
 RATE_LIMIT_PREFIX = "telegram:rl:"
 MANUAL_TRADE_PREFIX = "telegram:manual_trades:"
+FORCED_LIQUIDATION_KEY = "forced_liquidation:stocks"
+FORCED_LIQUIDATION_ARMED = "forced_liquidation:armed"
 
 COMMAND_MIN_INTERVAL = 5  # seconds
 MANUAL_TRADE_DAILY_LIMIT = 20
@@ -67,6 +69,15 @@ HELP_TEXT = """*Prime Jennie 명령어*
 *설정*
 /config — 현재 설정 조회
 /maxbuy 횟수 — 일일 최대 매수 변경
+
+*강제 청산*
+/liquidate add 종목명 — 대상 종목 추가
+/liquidate remove 종목명 — 대상 종목 제거
+/liquidate list — 등록된 대상 목록
+/liquidate arm — 실행 스위치 ON
+/liquidate disarm — 실행 스위치 OFF
+/liquidate clear — 전체 초기화
+/liquidate status — 상태 조회
 
 *진단*
 /diagnose — 시스템 진단
@@ -114,6 +125,7 @@ class CommandHandler:
             "/maxbuy": self._handle_maxbuy,
             "/diagnose": self._handle_diagnose,
             "/report": self._handle_diagnose,  # alias
+            "/liquidate": self._handle_liquidate,
         }
 
     def process_command(self, command: str, args: str, chat_id: str | int, username: str = "") -> str:
@@ -594,6 +606,109 @@ class CommandHandler:
             return f"일일 최대 매수: {val}회로 변경"
         except (ValueError, TypeError):
             return "사용법: `/maxbuy 횟수` (0~20)"
+
+    # ─── Handlers: Forced Liquidation ────────────
+
+    def _handle_liquidate(self, args: str, **kwargs) -> str:
+        parts = args.strip().split(maxsplit=1)
+        sub = parts[0].lower() if parts else ""
+        sub_arg = parts[1].strip() if len(parts) > 1 else ""
+
+        if sub == "add":
+            return self._liquidate_add(sub_arg)
+        elif sub == "remove":
+            return self._liquidate_remove(sub_arg)
+        elif sub == "list":
+            return self._liquidate_list()
+        elif sub == "arm":
+            return self._liquidate_arm()
+        elif sub == "disarm":
+            return self._liquidate_disarm()
+        elif sub == "clear":
+            return self._liquidate_clear()
+        elif sub == "status":
+            return self._liquidate_status()
+        else:
+            return (
+                "사용법:\n"
+                "`/liquidate add 종목명` — 대상 추가\n"
+                "`/liquidate remove 종목명` — 대상 제거\n"
+                "`/liquidate list` — 대상 목록\n"
+                "`/liquidate arm` — 스위치 ON\n"
+                "`/liquidate disarm` — 스위치 OFF\n"
+                "`/liquidate clear` — 전체 초기화\n"
+                "`/liquidate status` — 상태 조회"
+            )
+
+    def _liquidate_add(self, name_or_code: str) -> str:
+        if not name_or_code:
+            return "사용법: `/liquidate add 종목명|코드`"
+        stock = self._resolve_stock(name_or_code)
+        if not stock:
+            return f"종목을 찾을 수 없습니다: {name_or_code}"
+        code, name = stock
+        self._redis.sadd(FORCED_LIQUIDATION_KEY, code)
+        count = self._redis.scard(FORCED_LIQUIDATION_KEY)
+        return f"강제 청산 대상 추가: {name}({code})\n등록 종목: {count}개"
+
+    def _liquidate_remove(self, name_or_code: str) -> str:
+        if not name_or_code:
+            return "사용법: `/liquidate remove 종목명|코드`"
+        stock = self._resolve_stock(name_or_code)
+        if not stock:
+            return f"종목을 찾을 수 없습니다: {name_or_code}"
+        code, name = stock
+        removed = self._redis.srem(FORCED_LIQUIDATION_KEY, code)
+        if not removed:
+            return f"대상 목록에 없습니다: {name}({code})"
+        count = self._redis.scard(FORCED_LIQUIDATION_KEY)
+        return f"강제 청산 대상 제거: {name}({code})\n등록 종목: {count}개"
+
+    def _liquidate_list(self) -> str:
+        members = self._redis.smembers(FORCED_LIQUIDATION_KEY)
+        if not members:
+            return "강제 청산 대상이 없습니다."
+        lines = ["*강제 청산 대상 목록*\n"]
+        for code in sorted(members):
+            stock = self._resolve_stock(code)
+            name = stock[1] if stock else code
+            lines.append(f"  {name}({code})")
+        return "\n".join(lines)
+
+    def _liquidate_arm(self) -> str:
+        members = self._redis.smembers(FORCED_LIQUIDATION_KEY)
+        if not members:
+            return "대상 종목이 없습니다. 먼저 `/liquidate add` 로 종목을 등록하세요."
+        self._redis.set(FORCED_LIQUIDATION_ARMED, "1")
+        names = []
+        for code in sorted(members):
+            stock = self._resolve_stock(code)
+            names.append(f"{stock[1]}({code})" if stock else code)
+        return f"강제 청산 스위치: ON\n다음 틱에서 매도 실행됩니다.\n\n대상: {', '.join(names)}"
+
+    def _liquidate_disarm(self) -> str:
+        self._redis.delete(FORCED_LIQUIDATION_ARMED)
+        return "강제 청산 스위치: OFF"
+
+    def _liquidate_clear(self) -> str:
+        self._redis.delete(FORCED_LIQUIDATION_KEY)
+        self._redis.delete(FORCED_LIQUIDATION_ARMED)
+        return "강제 청산 대상 전체 초기화 + 스위치 OFF"
+
+    def _liquidate_status(self) -> str:
+        armed = bool(self._redis.get(FORCED_LIQUIDATION_ARMED))
+        members = self._redis.smembers(FORCED_LIQUIDATION_KEY)
+
+        status = "ON" if armed else "OFF"
+        if not members:
+            return f"*강제 청산 상태*\n스위치: {status}\n대상: 없음"
+
+        lines = [f"*강제 청산 상태*\n스위치: {status}\n대상 ({len(members)}종목):"]
+        for code in sorted(members):
+            stock = self._resolve_stock(code)
+            name = stock[1] if stock else code
+            lines.append(f"  {name}({code})")
+        return "\n".join(lines)
 
     # ─── Handlers: Diagnostics ───────────────────
 

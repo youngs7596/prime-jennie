@@ -50,6 +50,10 @@ PROFIT_FLOOR_PREFIX = "profit_floor:"
 MONITOR_STATUS_KEY = "monitoring:price_monitor"
 LIVE_POSITIONS_KEY = "monitoring:live_positions"
 
+# Forced Liquidation
+FORCED_LIQUIDATION_KEY = "forced_liquidation:stocks"
+FORCED_LIQUIDATION_ARMED = "forced_liquidation:armed"
+
 # Streams
 SELL_SIGNAL_STREAM = "stream:sell-orders"
 PRICE_STREAM = "kis:prices"
@@ -145,6 +149,10 @@ class PriceMonitor:
         # 현재가 갱신 (인메모리)
         pos = pos.model_copy(update={"current_price": int(price)})
         self._positions[stock_code] = pos
+
+        # Forced liquidation: ARM 스위치 ON + 대상 종목이면 즉시 청산
+        if self._check_forced_liquidation(pos):
+            return
 
         context = self._get_trading_context()
         regime = context.market_regime if context else MarketRegime.SIDEWAYS
@@ -289,6 +297,69 @@ class PriceMonitor:
             self._rsi_cache.pop(pos.stock_code, None)
             self._atr_cache.pop(pos.stock_code, None)
             self._indicator_cache.pop(pos.stock_code, None)
+
+    # --- Forced Liquidation ---
+
+    def _check_forced_liquidation(self, pos: Position) -> bool:
+        """ARM 스위치 ON + 대상 종목이면 즉시 청산. 처리했으면 True."""
+        try:
+            if not self._redis.get(FORCED_LIQUIDATION_ARMED):
+                return False
+            if not self._redis.sismember(FORCED_LIQUIDATION_KEY, pos.stock_code):
+                return False
+        except Exception:
+            return False
+
+        self._emit_forced_liquidation(pos)
+        return True
+
+    def _emit_forced_liquidation(self, pos: Position) -> None:
+        """강제 청산 SellOrder 발행 + Redis 정리."""
+        holding_days = None
+        if pos.bought_at:
+            holding_days = (datetime.now(UTC) - pos.bought_at).days
+
+        order = SellOrder(
+            stock_code=pos.stock_code,
+            stock_name=pos.stock_name,
+            sell_reason=SellReason.FORCED_LIQUIDATION,
+            current_price=pos.current_price or pos.average_buy_price,
+            quantity=pos.quantity,
+            timestamp=datetime.now(UTC),
+            buy_price=pos.average_buy_price,
+            profit_pct=round(
+                (float(pos.current_price or 0) - float(pos.average_buy_price)) / float(pos.average_buy_price) * 100,
+                2,
+            )
+            if pos.average_buy_price > 0
+            else None,
+            holding_days=holding_days,
+        )
+
+        self._publisher.publish(order)
+        logger.info(
+            "[FORCED_LIQUIDATION] %s %s %d주 매도 시그널 발행",
+            pos.stock_code,
+            pos.stock_name,
+            pos.quantity,
+        )
+
+        # 대상 SET에서 제거
+        try:
+            self._redis.srem(FORCED_LIQUIDATION_KEY, pos.stock_code)
+            # SET이 비면 ARM 스위치 자동 해제
+            if self._redis.scard(FORCED_LIQUIDATION_KEY) == 0:
+                self._redis.delete(FORCED_LIQUIDATION_ARMED)
+                logger.info("[FORCED_LIQUIDATION] 대상 목록 소진 → 스위치 자동 OFF")
+        except Exception:
+            pass
+
+        # 인메모리 캐시 정리
+        self._cleanup_position_state(pos.stock_code)
+        self._positions.pop(pos.stock_code, None)
+        self._rsi_cache.pop(pos.stock_code, None)
+        self._atr_cache.pop(pos.stock_code, None)
+        self._indicator_cache.pop(pos.stock_code, None)
 
     # --- Trading Context ---
 
