@@ -1227,9 +1227,21 @@ async def council_trigger(
     # 지수 기술 지표 텍스트 생성
     index_technical_text = _build_index_technical_text()
 
+    # 네이버 경제/세계 섹션 매크로·지정학 헤드라인 수집
+    political_news: list[str] = []
+    try:
+        from prime_jennie.infra.crawlers.naver_news import fetch_macro_headlines
+
+        political_news = fetch_macro_headlines()
+        if political_news:
+            logger.info("Political/macro headlines: %d건 수집", len(political_news))
+    except Exception:
+        logger.warning("Macro headline collection failed, continuing without it", exc_info=True)
+
     input_data = CouncilInput(
         briefing_text=combined_briefing,
         global_snapshot=global_snapshot,
+        political_news=political_news,
         index_technical_text=index_technical_text,
         target_date=resolved_date,
     )
