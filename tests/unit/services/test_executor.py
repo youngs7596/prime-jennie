@@ -196,6 +196,38 @@ class TestBuyExecutor:
 
         assert result.status == "error"
 
+    def test_not_filled_then_cancel_then_recheck_success(self):
+        """미체결 → 취소 → 재확인에서 체결 확인 → 성공."""
+        executor = _mock_executor()
+        executor._kis.confirm_order.return_value = None  # 폴링 미체결
+        executor._kis.cancel_order.return_value = False  # 취소 실패 (이미 체결)
+        executor._kis.check_order_status.return_value = {
+            "filled": True,
+            "filled_qty": 10,
+            "avg_price": 71500.0,
+        }
+        signal = _make_signal()
+        result = executor.process_signal(signal)
+
+        assert result.status == "success"
+        assert result.price == 71500
+
+    def test_not_filled_then_cancel_then_recheck_failure(self):
+        """미체결 → 취소 → 재확인에서도 미체결 → 에러."""
+        executor = _mock_executor()
+        executor._kis.confirm_order.return_value = None
+        executor._kis.cancel_order.return_value = True
+        executor._kis.check_order_status.return_value = {
+            "filled": False,
+            "filled_qty": 0,
+            "avg_price": 0,
+        }
+        signal = _make_signal()
+        result = executor.process_signal(signal)
+
+        assert result.status == "error"
+        assert "not filled" in result.reason.lower()
+
 
 class TestExecutionResult:
     def test_to_dict(self):

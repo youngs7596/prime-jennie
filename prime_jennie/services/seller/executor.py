@@ -216,25 +216,43 @@ class SellExecutor:
                 reason=f"Order rejected: {result.message}",
             )
 
-        # 체결 확인 (3회, 2초 간격)
+        # 체결 확인 (강제 청산 시 확장 폴링)
         order_no = result.order_no or ""
         sell_price = current_price
         if order_no and order_no != "DRYRUN-0000":
-            fill = self._kis.confirm_order(order_no)
+            confirm_kwargs = {}
+            if order.sell_reason == SellReason.FORCED_LIQUIDATION:
+                confirm_kwargs = {"max_retries": 10, "interval": 5.0}
+            fill = self._kis.confirm_order(order_no, **confirm_kwargs)
             if fill:
                 if fill["avg_price"] > 0:
                     sell_price = int(fill["avg_price"])
+                sell_qty = fill["filled_qty"]
                 logger.info("[%s] Sell confirmed: qty=%d, avg_price=%d", code, fill["filled_qty"], sell_price)
             else:
-                # 매도 미체결 → 취소 시도 + 경고
+                # 매도 미체결 → 취소 시도 후 재확인
                 logger.error("[%s] SELL order %s NOT FILLED — attempting cancel", code, order_no)
                 self._kis.cancel_order(order_no)
-                return SellResult(
-                    "error",
-                    code,
-                    name,
-                    reason=f"Sell not filled, cancelled: {order_no}",
-                )
+                # 취소 후 재확인: 이미 체결되었을 수 있음
+                recheck = self._kis.check_order_status(order_no)
+                if recheck and recheck.get("filled_qty", 0) > 0:
+                    sell_qty = recheck["filled_qty"]
+                    if recheck.get("avg_price", 0) > 0:
+                        sell_price = int(recheck["avg_price"])
+                    logger.warning(
+                        "[%s] SELL order %s was actually filled after cancel: qty=%d, price=%d",
+                        code,
+                        order_no,
+                        sell_qty,
+                        sell_price,
+                    )
+                else:
+                    return SellResult(
+                        "error",
+                        code,
+                        name,
+                        reason=f"Sell not filled, cancelled: {order_no}",
+                    )
 
         # 체결가로 수익률 재계산
         if buy_price > 0 and sell_price != current_price:

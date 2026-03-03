@@ -273,24 +273,40 @@ class BuyExecutor:
                 reason=f"Order failed: {order_result.message}",
             )
 
-        # 체결 확인 (3회, 2초 간격)
+        # 체결 확인
         actual_price = current_price
+        actual_qty = sizing.quantity
         order_no = order_result.order_no or ""
         if order_no and order_no != "DRYRUN-0000":
             fill = self._kis.confirm_order(order_no)
             if fill:
                 actual_price = int(fill["avg_price"]) if fill["avg_price"] > 0 else current_price
+                actual_qty = fill["filled_qty"]
                 logger.info("[%s] Order confirmed: qty=%d, avg_price=%d", code, fill["filled_qty"], actual_price)
             else:
-                # 미체결 → 취소 시도
+                # 미체결 → 취소 시도 후 재확인
                 logger.warning("[%s] Order %s not filled, cancelling", code, order_no)
                 self._kis.cancel_order(order_no)
-                return ExecutionResult(
-                    "error",
-                    code,
-                    name,
-                    reason=f"Order not filled, cancelled: {order_no}",
-                )
+                # 취소 후 재확인: 이미 체결되었을 수 있음
+                recheck = self._kis.check_order_status(order_no)
+                if recheck and recheck.get("filled_qty", 0) > 0:
+                    actual_qty = recheck["filled_qty"]
+                    if recheck.get("avg_price", 0) > 0:
+                        actual_price = int(recheck["avg_price"])
+                    logger.warning(
+                        "[%s] Order %s was actually filled after cancel: qty=%d, price=%d",
+                        code,
+                        order_no,
+                        actual_qty,
+                        actual_price,
+                    )
+                else:
+                    return ExecutionResult(
+                        "error",
+                        code,
+                        name,
+                        reason=f"Order not filled, cancelled: {order_no}",
+                    )
 
         self._increment_buy_count()
         self._cleanup_position_state(code)
@@ -298,7 +314,7 @@ class BuyExecutor:
         logger.info(
             "[%s] BUY %d shares at %d (signal=%s, tier=%s, hybrid=%.1f)",
             code,
-            sizing.quantity,
+            actual_qty,
             actual_price,
             signal.signal_type,
             signal.trade_tier,
@@ -310,7 +326,7 @@ class BuyExecutor:
             code,
             name,
             order_no=order_no,
-            quantity=sizing.quantity,
+            quantity=actual_qty,
             price=actual_price,
         )
 

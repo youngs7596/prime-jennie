@@ -89,25 +89,42 @@ class KISClient:
             logger.error("check_order_status failed: %s", e)
             return None
 
-    def confirm_order(self, order_no: str, *, max_retries: int = 3, interval: float = 2.0) -> dict | None:
+    def confirm_order(self, order_no: str, *, max_retries: int = 5, interval: float = 3.0) -> dict | None:
         """주문 체결 확인 (폴링).
 
         max_retries회 반복하며 전량 체결 여부 확인.
+        전량 미체결이라도 부분 체결(filled_qty > 0)이면 성공 반환.
 
         Returns:
             {"filled_qty": int, "avg_price": float} 체결 시, None 미체결/실패 시
         """
+        last_status: dict | None = None
         for attempt in range(max_retries):
             status = self.check_order_status(order_no)
-            if status and status.get("filled"):
-                return {
-                    "filled_qty": status["filled_qty"],
-                    "avg_price": status["avg_price"],
-                }
+            if status:
+                last_status = status
+                if status.get("filled"):
+                    return {
+                        "filled_qty": status["filled_qty"],
+                        "avg_price": status["avg_price"],
+                    }
             if attempt < max_retries - 1:
                 time.sleep(interval)
 
-        logger.warning("Order %s not fully filled after %d retries", order_no, max_retries)
+        # 전량 미체결이지만 부분 체결된 경우 성공 처리
+        if last_status and last_status.get("filled_qty", 0) > 0:
+            logger.warning(
+                "Order %s partially filled: qty=%d, avg_price=%s",
+                order_no,
+                last_status["filled_qty"],
+                last_status.get("avg_price"),
+            )
+            return {
+                "filled_qty": last_status["filled_qty"],
+                "avg_price": last_status.get("avg_price", 0),
+            }
+
+        logger.warning("Order %s not filled after %d retries", order_no, max_retries)
         return None
 
     def get_balance(self) -> dict:

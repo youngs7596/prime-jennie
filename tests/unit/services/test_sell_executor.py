@@ -147,6 +147,7 @@ class TestSellExecutor:
     def test_quantity_capped_to_holding(self):
         """매도 수량이 보유 수량 초과 시 보유량으로 제한."""
         executor = _mock_executor()
+        executor._kis.confirm_order.return_value = {"filled_qty": 100, "avg_price": 77000.0}
         order = _make_sell_order(quantity=200)  # 보유 100주
         result = executor.process_signal(order)
 
@@ -181,12 +182,55 @@ class TestSellExecutor:
     def test_full_sell_cleanup(self):
         """전량 매도 시 Redis 정리."""
         executor = _mock_executor()
+        executor._kis.confirm_order.return_value = {"filled_qty": 100, "avg_price": 77000.0}
         order = _make_sell_order(quantity=100)  # 보유량과 동일
         result = executor.process_signal(order)
 
         assert result.status == "success"
         # Verify cleanup pipeline was called
         executor._redis.pipeline.assert_called()
+
+    def test_not_filled_then_cancel_then_recheck_success(self):
+        """미체결 → 취소 → 재확인에서 체결 확인 → 성공."""
+        executor = _mock_executor()
+        executor._kis.confirm_order.return_value = None  # 폴링 미체결
+        executor._kis.cancel_order.return_value = False  # 취소 실패 (이미 체결)
+        executor._kis.check_order_status.return_value = {
+            "filled": True,
+            "filled_qty": 50,
+            "avg_price": 76500.0,
+        }
+        order = _make_sell_order()
+        result = executor.process_signal(order)
+
+        assert result.status == "success"
+        assert result.quantity == 50
+        assert result.price == 76500
+
+    def test_not_filled_then_cancel_then_recheck_failure(self):
+        """미체결 → 취소 → 재확인에서도 미체결 → 에러."""
+        executor = _mock_executor()
+        executor._kis.confirm_order.return_value = None
+        executor._kis.cancel_order.return_value = True
+        executor._kis.check_order_status.return_value = {
+            "filled": False,
+            "filled_qty": 0,
+            "avg_price": 0,
+        }
+        order = _make_sell_order()
+        result = executor.process_signal(order)
+
+        assert result.status == "error"
+        assert "not filled" in result.reason.lower()
+
+    def test_forced_liquidation_uses_extended_polling(self):
+        """FORCED_LIQUIDATION은 확장 폴링 파라미터 사용."""
+        executor = _mock_executor()
+        order = _make_sell_order(sell_reason=SellReason.FORCED_LIQUIDATION)
+        executor.process_signal(order)
+
+        # confirm_order가 확장 파라미터로 호출되었는지 확인
+        executor._kis.confirm_order.assert_called_once_with("S001234", max_retries=10, interval=5.0)
 
 
 class TestSellResult:
