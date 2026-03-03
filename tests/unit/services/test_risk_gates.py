@@ -21,8 +21,8 @@ from prime_jennie.services.scanner.risk_gates import (
     check_no_trade_window,
     check_rsi_guard,
     check_sell_cooldown,
-    check_strategy_alignment,
     check_stoploss_cooldown,
+    check_strategy_alignment,
     check_trade_tier,
 )
 

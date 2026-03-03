@@ -1,11 +1,10 @@
 """TradingContext regime 매핑 경계값 테스트."""
 
 from datetime import date
-from unittest.mock import MagicMock, patch
 
 import pytest
 
-from prime_jennie.domain.enums import MarketRegime, Sentiment, VixRegime
+from prime_jennie.domain.enums import MarketRegime, Sentiment
 from prime_jennie.domain.macro import MacroInsight
 
 
