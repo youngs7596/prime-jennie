@@ -237,6 +237,19 @@ def check_micro_timing(bars: list[Bar]) -> GateResult:
     return GateResult(True, "micro_timing")
 
 
+def check_strategy_alignment(signal_type: str, context: TradingContext) -> GateResult:
+    """전략 정합성 체크 — Council이 회피 권고한 전략 차단."""
+    if not context.strategies_to_avoid:
+        return GateResult(True, "strategy_alignment")
+    if signal_type in context.strategies_to_avoid:
+        return GateResult(
+            False,
+            "strategy_alignment",
+            f"Strategy {signal_type} in council avoid list",
+        )
+    return GateResult(True, "strategy_alignment")
+
+
 def run_all_gates(
     stock_code: str,
     bars: list[Bar],

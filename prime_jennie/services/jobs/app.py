@@ -1258,7 +1258,7 @@ async def council_trigger(
         )
 
         # TradingContext 업데이트
-        _update_trading_context(result.insight)
+        _update_trading_context(result.insight, result)
 
         # DB 영구 저장 (Dashboard 표시용)
         _persist_insight_to_db(result.insight, result, global_snapshot)
@@ -1366,7 +1366,10 @@ def _load_legacy_insight_as_briefing(r: redis_lib.Redis, target_date: date) -> s
         return ""
 
 
-def _update_trading_context(insight: MacroInsight) -> None:
+def _update_trading_context(
+    insight: MacroInsight,
+    result: CouncilResult | None = None,
+) -> None:
     """MacroInsight → TradingContext 변환 및 저장."""
     try:
         from prime_jennie.domain.enums import MarketRegime
@@ -1375,7 +1378,7 @@ def _update_trading_context(insight: MacroInsight) -> None:
         score = insight.sentiment_score
         if score >= 70:
             regime = MarketRegime.STRONG_BULL
-        elif score >= 55:
+        elif score >= 60:
             regime = MarketRegime.BULL
         elif score >= 40:
             regime = MarketRegime.SIDEWAYS
@@ -1391,6 +1394,8 @@ def _update_trading_context(insight: MacroInsight) -> None:
             regime.value,
         )
 
+        strategies_to_avoid = result.strategies_to_avoid if result else []
+
         context = TradingContext(
             date=insight.insight_date,
             market_regime=regime,
@@ -1400,6 +1405,7 @@ def _update_trading_context(insight: MacroInsight) -> None:
             risk_off_level=_calc_risk_off(insight),
             favor_sectors=insight.sectors_to_favor,
             avoid_sectors=insight.sectors_to_avoid,
+            strategies_to_avoid=strategies_to_avoid,
             is_high_volatility=insight.vix_regime in ("elevated", "crisis"),
         )
 

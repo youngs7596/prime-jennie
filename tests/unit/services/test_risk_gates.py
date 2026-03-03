@@ -21,6 +21,7 @@ from prime_jennie.services.scanner.risk_gates import (
     check_no_trade_window,
     check_rsi_guard,
     check_sell_cooldown,
+    check_strategy_alignment,
     check_stoploss_cooldown,
     check_trade_tier,
 )
@@ -268,3 +269,37 @@ class TestMicroTiming:
     def test_insufficient_bars_passes(self):
         result = check_micro_timing([_make_bar()])
         assert result.passed
+
+
+class TestStrategyAlignment:
+    def test_avoid_strategy_blocked(self):
+        """회피 전략은 차단."""
+        ctx = _make_context(strategies_to_avoid=["MOMENTUM"])
+        result = check_strategy_alignment("MOMENTUM", ctx)
+        assert not result.passed
+        assert "MOMENTUM" in result.reason
+
+    def test_non_avoid_strategy_passes(self):
+        """회피 목록에 없는 전략은 통과."""
+        ctx = _make_context(strategies_to_avoid=["MOMENTUM"])
+        result = check_strategy_alignment("GOLDEN_CROSS", ctx)
+        assert result.passed
+
+    def test_empty_avoid_list_passes(self):
+        """빈 회피 목록은 모든 전략 통과."""
+        ctx = _make_context(strategies_to_avoid=[])
+        result = check_strategy_alignment("MOMENTUM", ctx)
+        assert result.passed
+
+    def test_default_context_passes(self):
+        """기본 TradingContext (strategies_to_avoid 미지정)는 통과."""
+        ctx = _make_context()
+        result = check_strategy_alignment("MOMENTUM_CONTINUATION", ctx)
+        assert result.passed
+
+    def test_multiple_avoid_strategies(self):
+        """여러 전략이 회피 목록에 있을 때."""
+        ctx = _make_context(strategies_to_avoid=["MOMENTUM", "MOMENTUM_CONTINUATION", "DIP_BUY"])
+        assert not check_strategy_alignment("MOMENTUM", ctx).passed
+        assert not check_strategy_alignment("DIP_BUY", ctx).passed
+        assert check_strategy_alignment("GOLDEN_CROSS", ctx).passed

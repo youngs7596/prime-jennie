@@ -70,6 +70,7 @@ class TradingContext(BaseModel):
     risk_off_level: int = Field(ge=0, le=10, default=0)
     favor_sectors: list[SectorGroup] = []
     avoid_sectors: list[SectorGroup] = []
+    strategies_to_avoid: list[str] = []
     is_high_volatility: bool = False
 
     @classmethod

@@ -346,8 +346,20 @@ class BuyScanner:
         rsi: float | None,
         volume_ratio: float,
         vwap: float,
-    ) -> BuySignal:
+    ) -> BuySignal | None:
         """BuySignal 생성 및 Redis Stream 발행."""
+        from .risk_gates import check_strategy_alignment
+
+        alignment = check_strategy_alignment(signal_type, self._context)
+        if not alignment:
+            logger.info(
+                "[%s] Signal blocked by strategy alignment: %s — %s",
+                stock_code,
+                signal_type,
+                alignment.reason,
+            )
+            return None
+
         signal = BuySignal(
             stock_code=stock_code,
             stock_name=entry.stock_name,
