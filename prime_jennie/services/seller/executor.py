@@ -25,7 +25,7 @@ logger = logging.getLogger(__name__)
 
 # Redis Keys
 LOCK_PREFIX = "lock:sell:"
-EMERGENCY_STOP_KEY = "trading:stopped"
+EMERGENCY_STOP_KEY = "trading_flags:stop"
 COOLDOWN_PREFIX = "stoploss_cooldown:"
 DRYRUN_KEY = "trading_flags:dryrun"
 COOLDOWN_REASONS = {SellReason.STOP_LOSS, SellReason.DEATH_CROSS, SellReason.BREAKEVEN_STOP}

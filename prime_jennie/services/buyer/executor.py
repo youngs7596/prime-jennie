@@ -36,8 +36,8 @@ logger = logging.getLogger(__name__)
 
 # Redis 키
 LOCK_PREFIX = "lock:buy:"
-EMERGENCY_STOP_KEY = "trading:stopped"
-TRADING_PAUSED_KEY = "trading:paused"
+EMERGENCY_STOP_KEY = "trading_flags:stop"
+TRADING_PAUSED_KEY = "trading_flags:pause"
 DRYRUN_KEY = "trading_flags:dryrun"
 
 _KST = zoneinfo.ZoneInfo("Asia/Seoul")
