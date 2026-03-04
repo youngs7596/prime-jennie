@@ -35,15 +35,23 @@ class TestClassifyNewsletter:
     def test_whats_news_body_fallback(self):
         """What's News는 subject에 prefix 없이 발송 — 본문 기반 분류."""
         body = "This is an edition of the What's News newsletter"
-        assert _classify_newsletter(
-            "Iran Attacks U.S. Embassies", body=body,
-        ) == "whats-news"
+        assert (
+            _classify_newsletter(
+                "Iran Attacks U.S. Embassies",
+                body=body,
+            )
+            == "whats-news"
+        )
 
     def test_body_fallback_ignored_when_subject_matches(self):
         """Subject prefix가 있으면 본문 확인 불필요."""
-        assert _classify_newsletter(
-            "Markets A.M.: Test", body="marketspm content",
-        ) == "markets-am"
+        assert (
+            _classify_newsletter(
+                "Markets A.M.: Test",
+                body="marketspm content",
+            )
+            == "markets-am"
+        )
 
 
 class TestCleanBody:

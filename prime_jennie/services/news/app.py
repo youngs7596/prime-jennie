@@ -59,11 +59,7 @@ ARCHIVE_EVERY_N = 3  # 3회 수집마다 아카이브 1회
 def _load_universe(session: Session) -> dict[str, str]:
     """활성 종목 유니버스 로드 (code→name). 우선주(K/L/G suffix) 제외."""
     stocks = session.exec(select(StockMasterDB).where(StockMasterDB.is_active)).all()
-    return {
-        s.stock_code: s.stock_name
-        for s in stocks
-        if len(s.stock_code) == 6 and s.stock_code.isdigit()
-    }
+    return {s.stock_code: s.stock_name for s in stocks if len(s.stock_code) == 6 and s.stock_code.isdigit()}
 
 
 def _create_session():

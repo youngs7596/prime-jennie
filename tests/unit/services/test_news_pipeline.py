@@ -245,9 +245,7 @@ class TestNewsAnalyzerLLM:
         mock_redis.xgroup_create.side_effect = Exception("BUSYGROUP")
 
         mock_llm = MagicMock()
-        mock_llm.generate_json = AsyncMock(
-            return_value={"score": 72, "reason": "긍정적 실적 전망"}
-        )
+        mock_llm.generate_json = AsyncMock(return_value={"score": 72, "reason": "긍정적 실적 전망"})
 
         analyzer = NewsAnalyzer(mock_redis, mock_llm)
         result = analyzer._analyze_sentiment("삼성전자 실적 호조", "005930")
