@@ -210,12 +210,17 @@ def _fetch_and_parse_gmail(service, msg_id: str) -> WSJNewsletter | None:
     subject = headers.get("Subject", "")
     email_date = headers.get("Date", "")
 
-    nl_type = _classify_newsletter(subject)
-    if not nl_type:
-        return None
-
     body_text = _extract_gmail_body(msg["payload"])
     if not body_text:
+        return None
+
+    # Welcome 메일 스킵
+    if subject.startswith("Welcome to "):
+        return None
+
+    # Subject + 본문 기반 분류 (Markets P.M., What's News는 prefix 없음)
+    nl_type = _classify_newsletter(subject, body_text)
+    if not nl_type:
         return None
 
     body_text = _clean_body(body_text)
@@ -266,11 +271,24 @@ def _extract_gmail_body(payload: dict) -> str:
 # ─── Shared helpers ────────────────────────────────────────────
 
 
-def _classify_newsletter(subject: str) -> str | None:
-    """Subject에서 뉴스레터 타입 식별."""
+def _classify_newsletter(subject: str, body: str = "") -> str | None:
+    """Subject 또는 본문에서 뉴스레터 타입 식별.
+
+    Markets P.M.과 What's News는 subject에 prefix 없이 발송되므로
+    본문의 URL/텍스트 패턴으로 fallback 분류한다.
+    """
     for prefix, nl_type in _NEWSLETTER_TYPES:
         if prefix in subject:
             return nl_type
+
+    # Subject에 prefix 없는 경우 — 본문 기반 fallback
+    if body:
+        body_lower = body[:1000].lower()
+        if "marketspm" in body_lower or "what happened in markets tod" in body_lower:
+            return "markets-pm"
+        if "this is an edition of the what's n" in body_lower or "what's news" in body_lower:
+            return "whats-news"
+
     return None
 
 
