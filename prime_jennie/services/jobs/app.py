@@ -1309,8 +1309,20 @@ async def council_trigger(
     except Exception:
         logger.warning("Telegram collection failed, continuing without it", exc_info=True)
 
-    # 브리핑 텍스트 병합: 텔레그램 + 레거시 인사이트 + 외부 briefing
-    combined_briefing = "\n\n".join(filter(None, [telegram_briefing, legacy_briefing, briefing_text]))
+    # WSJ 뉴스레터 수집 (Gmail API OAuth2)
+    wsj_briefing = ""
+    try:
+        from prime_jennie.infra.crawlers.wsj_gmail import fetch_wsj_briefing
+
+        wsj_result = fetch_wsj_briefing()
+        wsj_briefing = wsj_result.to_text()
+        if wsj_briefing:
+            logger.info("WSJ briefing collected: %d chars", len(wsj_briefing))
+    except Exception:
+        logger.warning("WSJ Gmail collection failed, continuing without it", exc_info=True)
+
+    # 브리핑 텍스트 병합: 텔레그램 + WSJ + 레거시 인사이트 + 외부 briefing
+    combined_briefing = "\n\n".join(filter(None, [telegram_briefing, wsj_briefing, legacy_briefing, briefing_text]))
 
     # 지수 기술 지표 텍스트 생성
     index_technical_text = _build_index_technical_text()

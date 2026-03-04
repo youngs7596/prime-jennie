@@ -24,6 +24,8 @@ venv/
 .env.local
 .env.*.local
 secrets.json
+credentials.json
+token.json
 .telegram_sessions/
 
 # Testing
@@ -49,3 +51,4 @@ docker_data/
 # OS
 .DS_Store
 Thumbs.db
+*:Zone.Identifier
