@@ -148,8 +148,8 @@ class TestProcessTick:
 
         monitor._publisher.publish.assert_not_called()
 
-    def test_full_sell_removes_position(self):
-        """전량 매도 시 인메모리 포지션 제거."""
+    def test_full_sell_moves_to_pending(self):
+        """전량 매도 시 _pending_sell로 이동 (즉시 pop 아님)."""
         pos = _make_position(
             current_price=70000,
             average_buy_price=70000,
@@ -161,10 +161,9 @@ class TestProcessTick:
         # Hard stop → 전량 매도
         monitor.process_tick("005930", 62000)
 
-        assert "005930" not in monitor._positions
-        assert "005930" not in monitor._rsi_cache
-        assert "005930" not in monitor._atr_cache
-        assert "005930" not in monitor._indicator_cache
+        # pending_sell에 추가되고, positions에는 남아 있음
+        assert "005930" in monitor._pending_sell
+        assert "005930" in monitor._positions
 
     def test_evaluation_exception_is_caught(self):
         """_evaluate_position 예외 시 크래시하지 않음."""
@@ -233,8 +232,9 @@ class TestForcedLiquidation:
         assert order.stock_code == "015760"
         assert order.sell_reason == SellReason.FORCED_LIQUIDATION
         assert order.quantity == 510
-        # 인메모리 캐시 제거
-        assert "015760" not in monitor._positions
+        # pending_sell에 추가 (즉시 pop 아님)
+        assert "015760" in monitor._pending_sell
+        assert "015760" in monitor._positions
 
     def test_armed_but_not_target_proceeds_normally(self):
         """ARM ON + 대상이 아닌 종목 → 정상 exit rule 평가."""
