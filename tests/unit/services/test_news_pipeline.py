@@ -3,6 +3,8 @@
 from datetime import UTC, datetime
 from unittest.mock import AsyncMock, MagicMock, patch
 
+import redis
+
 from prime_jennie.domain.news import NewsArticle
 
 # ─── NewsDeduplicator ────────────────────────────────────────
@@ -149,7 +151,7 @@ class TestNewsAnalyzer:
         from prime_jennie.services.news.analyzer import NewsAnalyzer
 
         mock_redis = MagicMock()
-        mock_redis.xgroup_create.side_effect = Exception("BUSYGROUP")
+        mock_redis.xgroup_create.side_effect = redis.ResponseError("BUSYGROUP")
 
         analyzer = NewsAnalyzer.__new__(NewsAnalyzer)
         analyzer._redis = mock_redis
@@ -242,7 +244,7 @@ class TestNewsAnalyzerLLM:
         from prime_jennie.services.news.analyzer import NewsAnalyzer
 
         mock_redis = MagicMock()
-        mock_redis.xgroup_create.side_effect = Exception("BUSYGROUP")
+        mock_redis.xgroup_create.side_effect = redis.ResponseError("BUSYGROUP")
 
         mock_llm = MagicMock()
         mock_llm.generate_json = AsyncMock(return_value={"score": 72, "reason": "긍정적 실적 전망"})
@@ -263,7 +265,7 @@ class TestNewsAnalyzerLLM:
         from prime_jennie.services.news.analyzer import NewsAnalyzer
 
         mock_redis = MagicMock()
-        mock_redis.xgroup_create.side_effect = Exception("BUSYGROUP")
+        mock_redis.xgroup_create.side_effect = redis.ResponseError("BUSYGROUP")
 
         mock_llm = MagicMock()
         mock_llm.generate_json = AsyncMock(side_effect=Exception("LLM down"))
