@@ -102,6 +102,7 @@ class PriceMonitor:
         self._rsi_cache: dict[str, float | None] = {}
         self._atr_cache: dict[str, float] = {}
         self._indicator_cache: dict[str, IndicatorCache] = {}
+        self._pending_sell: set[str] = set()  # 매도 시그널 발행 후 체결 대기 중
 
     # --- Public API ---
 
@@ -127,6 +128,9 @@ class PriceMonitor:
             self._atr_cache.pop(code, None)
             self._indicator_cache.pop(code, None)
 
+        # KIS에서 확인되면 pending_sell 해제 (체결 안 됨 = 아직 보유 중)
+        self._pending_sell -= new_codes
+
         # _positions 갱신
         self._positions = {p.stock_code: p for p in positions}
 
@@ -149,6 +153,10 @@ class PriceMonitor:
         # 현재가 갱신 (인메모리)
         pos = pos.model_copy(update={"current_price": int(price)})
         self._positions[stock_code] = pos
+
+        # 이미 매도 시그널 발행된 종목은 다음 refresh까지 스킵
+        if stock_code in self._pending_sell:
+            return
 
         # Forced liquidation: ARM 스위치 ON + 대상 종목이면 즉시 청산
         if self._check_forced_liquidation(pos):
@@ -290,13 +298,10 @@ class PriceMonitor:
         if signal.reason == SellReason.RSI_OVERBOUGHT:
             self._set_rsi_sold(pos.stock_code)
 
-        # 전량 매도 시 Redis 상태 정리 + 인메모리 제거
+        # 전량 매도 시그널: 즉시 pop하지 않고 pending 플래그만 설정.
+        # 다음 refresh_positions()에서 KIS 잔고 확인 후 자연 제거됨.
         if signal.quantity_pct >= 100:
-            self._cleanup_position_state(pos.stock_code)
-            self._positions.pop(pos.stock_code, None)
-            self._rsi_cache.pop(pos.stock_code, None)
-            self._atr_cache.pop(pos.stock_code, None)
-            self._indicator_cache.pop(pos.stock_code, None)
+            self._pending_sell.add(pos.stock_code)
 
     # --- Forced Liquidation ---
 
@@ -354,12 +359,8 @@ class PriceMonitor:
         except Exception:
             pass
 
-        # 인메모리 캐시 정리
-        self._cleanup_position_state(pos.stock_code)
-        self._positions.pop(pos.stock_code, None)
-        self._rsi_cache.pop(pos.stock_code, None)
-        self._atr_cache.pop(pos.stock_code, None)
-        self._indicator_cache.pop(pos.stock_code, None)
+        # 즉시 pop하지 않고 pending 플래그 설정 (체결 확인은 refresh에서)
+        self._pending_sell.add(pos.stock_code)
 
     # --- Trading Context ---
 
