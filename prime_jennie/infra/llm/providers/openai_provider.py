@@ -157,7 +157,10 @@ class OpenAILLMProvider(BaseLLMProvider):
         if not content.strip():
             reasoning = getattr(msg, "reasoning_content", None) or ""
             if reasoning.strip():
-                logger.warning("Reasoning model returned empty content in generate_json, using reasoning_content as fallback")
+                logger.warning(
+                    "Reasoning model returned empty content in generate_json,"
+                    " using reasoning_content as fallback"
+                )
                 content = reasoning
         if not content.strip():
             raise ValueError("LLM returned empty content")
