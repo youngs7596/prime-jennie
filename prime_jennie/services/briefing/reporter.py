@@ -361,7 +361,7 @@ class DailyReporter:
             response = await provider.generate(
                 prompt=context,
                 system=JENNIE_SYSTEM_PROMPT,
-                max_tokens=3000,
+                max_tokens=2000,
                 service="briefing",
             )
             if response and response.content:

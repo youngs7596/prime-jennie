@@ -1,7 +1,7 @@
 """뉴스 파이프라인 단위 테스트."""
 
 from datetime import UTC, datetime
-from unittest.mock import MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 from prime_jennie.domain.news import NewsArticle
 
@@ -231,3 +231,80 @@ class TestNaverCrawler:
         assert _is_noise_title("오전 시황 코스피 상승") is True
         assert _is_noise_title("[이슈종합] 삼성전자") is True
         assert _is_noise_title("삼성전자 AI 에이전트 발표") is False
+
+
+# ─── Analyzer LLM call ────────────────────────────────────────
+
+
+class TestNewsAnalyzerLLM:
+    def test_analyze_sentiment_calls_generate_json(self):
+        """model=None 버그 수정 후 generate_json이 정상 호출되는지 확인."""
+        from prime_jennie.services.news.analyzer import NewsAnalyzer
+
+        mock_redis = MagicMock()
+        mock_redis.xgroup_create.side_effect = Exception("BUSYGROUP")
+
+        mock_llm = MagicMock()
+        mock_llm.generate_json = AsyncMock(
+            return_value={"score": 72, "reason": "긍정적 실적 전망"}
+        )
+
+        analyzer = NewsAnalyzer(mock_redis, mock_llm)
+        result = analyzer._analyze_sentiment("삼성전자 실적 호조", "005930")
+
+        assert result is not None
+        assert result["score"] == 72
+        assert result["reason"] == "긍정적 실적 전망"
+        mock_llm.generate_json.assert_called_once()
+        # model= 파라미터가 전달되지 않아야 함
+        call_kwargs = mock_llm.generate_json.call_args
+        assert "model" not in call_kwargs.kwargs
+
+    def test_analyze_sentiment_fallback_on_error(self):
+        """LLM 실패 시 기본 score=50 반환."""
+        from prime_jennie.services.news.analyzer import NewsAnalyzer
+
+        mock_redis = MagicMock()
+        mock_redis.xgroup_create.side_effect = Exception("BUSYGROUP")
+
+        mock_llm = MagicMock()
+        mock_llm.generate_json = AsyncMock(side_effect=Exception("LLM down"))
+
+        analyzer = NewsAnalyzer(mock_redis, mock_llm)
+        result = analyzer._analyze_sentiment("테스트 헤드라인", "005930")
+
+        assert result["score"] == 50
+
+
+# ─── Universe filter ──────────────────────────────────────────
+
+
+class TestUniverseFilter:
+    def test_load_universe_filters_preferred_stocks(self):
+        """우선주 코드(K/L/G suffix)가 필터링되는지 확인."""
+        from prime_jennie.services.news.app import _load_universe
+
+        mock_session = MagicMock()
+
+        class FakeStock:
+            def __init__(self, code, name):
+                self.stock_code = code
+                self.stock_name = name
+                self.is_active = True
+
+        mock_session.exec.return_value.all.return_value = [
+            FakeStock("005930", "삼성전자"),
+            FakeStock("00593K", "삼성전자우"),
+            FakeStock("33626L", "SK하이닉스2우B"),
+            FakeStock("000660", "SK하이닉스"),
+            FakeStock("0051G0", "잘못된코드"),
+        ]
+
+        result = _load_universe(mock_session)
+
+        assert "005930" in result
+        assert "000660" in result
+        assert "00593K" not in result
+        assert "33626L" not in result
+        assert "0051G0" not in result
+        assert len(result) == 2

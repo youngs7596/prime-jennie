@@ -94,10 +94,44 @@ class TestOllamaProvider:
 
         p = OllamaLLMProvider()
         # 긴 프롬프트 → 토큰 클램핑
-        long_prompt = "가" * 8000  # ~4000 tokens
+        long_prompt = "가" * 8000
         result = p._clamp_max_tokens(long_prompt, 2048)
         assert result <= 2048
         assert result >= 256
+
+    @patch("prime_jennie.infra.llm.providers.ollama.OllamaLLMProvider._load_config")
+    def test_clamp_includes_system_prompt(self, mock_config):
+        """system prompt 포함 시 available 토큰이 줄어야 함."""
+        mock_config.return_value = {
+            "llm_url": "http://localhost:8001/v1",
+            "embed_url": "http://localhost:8002/v1",
+            "max_model_len": 4096,
+            "default_model": "test",
+        }
+        from prime_jennie.infra.llm.providers.ollama import OllamaLLMProvider
+
+        p = OllamaLLMProvider()
+        short = "질문"
+        long_sys = "시스템 프롬프트 " * 200
+        result_short = p._clamp_max_tokens(short, 2048)
+        result_with_sys = p._clamp_max_tokens(long_sys + short, 2048)
+        assert result_with_sys <= result_short
+
+    @patch("prime_jennie.infra.llm.providers.ollama.OllamaLLMProvider._load_config")
+    def test_clamp_returns_min_256(self, mock_config):
+        """프롬프트가 max_model_len 초과해도 최소 256 보장."""
+        mock_config.return_value = {
+            "llm_url": "http://localhost:8001/v1",
+            "embed_url": "http://localhost:8002/v1",
+            "max_model_len": 4096,
+            "default_model": "test",
+        }
+        from prime_jennie.infra.llm.providers.ollama import OllamaLLMProvider
+
+        p = OllamaLLMProvider()
+        huge_prompt = "x" * 10000
+        result = p._clamp_max_tokens(huge_prompt, 2048)
+        assert result == 256
 
     @patch("prime_jennie.infra.llm.providers.ollama.OllamaLLMProvider._load_config")
     def test_provider_name(self, mock_config):

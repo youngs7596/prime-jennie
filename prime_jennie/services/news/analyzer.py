@@ -155,6 +155,7 @@ class NewsAnalyzer:
 
         # DB 중복 체크 (이미 분석된 URL)
         if self._session_factory and self._is_url_exists(article_url):
+            logger.debug("Skipping already-analyzed URL: %s", article_url[:80])
             return
 
         # LLM 감성 분석
@@ -195,7 +196,6 @@ class NewsAnalyzer:
                 self._llm.generate_json(
                     prompt=prompt,
                     schema=SENTIMENT_SCHEMA,
-                    model=None,
                     service="news_analysis",
                 )
             )
@@ -205,7 +205,7 @@ class NewsAnalyzer:
                 score = max(0, min(100, int(result["score"])))
                 return {"score": score, "reason": result.get("reason", "")}
         except Exception:
-            logger.debug("[%s] Sentiment LLM failed, using default", stock_code)
+            logger.warning("[%s] Sentiment LLM failed, using default", stock_code, exc_info=True)
 
         # 기본값: 중립
         return {"score": 50, "reason": "분석 불가 — 기본 중립"}

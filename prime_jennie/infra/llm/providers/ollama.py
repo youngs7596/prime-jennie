@@ -84,8 +84,8 @@ class OllamaLLMProvider(BaseLLMProvider):
 
     def _clamp_max_tokens(self, prompt: str, requested: int) -> int:
         """vLLM max_model_len 초과 방지."""
-        estimated_input = max(len(prompt) // 2, 100)  # 한국어 ~2 char/token
-        available = self._max_model_len - estimated_input - 64
+        estimated_input = max(len(prompt), 100)  # 보수적 1:1 추정
+        available = self._max_model_len - estimated_input - 128
         safe_max = max(available, 256)
         return min(requested, safe_max)
 
@@ -103,7 +103,8 @@ class OllamaLLMProvider(BaseLLMProvider):
         service: str | None = None,
     ) -> LLMResponse:
         model = self._resolve_model()
-        clamped = self._clamp_max_tokens(prompt, max_tokens)
+        full_prompt = (system or "") + prompt
+        clamped = self._clamp_max_tokens(full_prompt, max_tokens)
 
         messages = []
         if system:
