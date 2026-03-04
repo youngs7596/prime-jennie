@@ -84,7 +84,14 @@ class OpenAILLMProvider(BaseLLMProvider):
 
         response = await self._client.chat.completions.create(**kwargs)
 
-        content = response.choices[0].message.content or ""
+        msg = response.choices[0].message
+        content = msg.content or ""
+        # Reasoning 모델이 content는 비고 reasoning_content만 반환하는 경우 fallback
+        if not content.strip():
+            reasoning = getattr(msg, "reasoning_content", None) or ""
+            if reasoning.strip():
+                logger.warning("Reasoning model returned empty content, using reasoning_content as fallback")
+                content = reasoning
         usage = response.usage
         tokens_in = usage.prompt_tokens if usage else 0
         tokens_out = usage.completion_tokens if usage else 0
@@ -144,7 +151,14 @@ class OpenAILLMProvider(BaseLLMProvider):
 
         raw = await self._client.chat.completions.create(**kwargs)
 
-        content = raw.choices[0].message.content or ""
+        msg = raw.choices[0].message
+        content = msg.content or ""
+        # Reasoning 모델이 content는 비고 reasoning_content만 반환하는 경우 fallback
+        if not content.strip():
+            reasoning = getattr(msg, "reasoning_content", None) or ""
+            if reasoning.strip():
+                logger.warning("Reasoning model returned empty content in generate_json, using reasoning_content as fallback")
+                content = reasoning
         if not content.strip():
             raise ValueError("LLM returned empty content")
 
