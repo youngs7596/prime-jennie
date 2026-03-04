@@ -21,14 +21,20 @@ from .models import DailyOHLCV, MacroDay, PriceCache, WatchlistEntry
 
 logger = logging.getLogger(__name__)
 
-# Sentiment → MarketRegime (council/app.py:208 재사용)
-SENTIMENT_TO_REGIME: dict[str, MarketRegime] = {
-    "bullish": MarketRegime.STRONG_BULL,
-    "neutral_to_bullish": MarketRegime.BULL,
-    "neutral": MarketRegime.SIDEWAYS,
-    "neutral_to_bearish": MarketRegime.BEAR,
-    "bearish": MarketRegime.STRONG_BEAR,
-}
+
+def _score_to_regime(score: int | None) -> MarketRegime:
+    """Sentiment score → MarketRegime (jobs/app.py _update_trading_context와 동일)."""
+    if score is None:
+        return MarketRegime.SIDEWAYS
+    if score >= 70:
+        return MarketRegime.STRONG_BULL
+    if score >= 60:
+        return MarketRegime.BULL
+    if score >= 40:
+        return MarketRegime.SIDEWAYS
+    if score >= 25:
+        return MarketRegime.BEAR
+    return MarketRegime.STRONG_BEAR
 
 
 def load_prices(
@@ -143,7 +149,7 @@ def load_macro_days(
 
     result: dict[date, MacroDay] = {}
     for row in rows:
-        regime = SENTIMENT_TO_REGIME.get(row.sentiment, MarketRegime.SIDEWAYS)
+        regime = _score_to_regime(row.sentiment_score)
         result[row.insight_date] = MacroDay(
             insight_date=row.insight_date,
             sentiment=row.sentiment,

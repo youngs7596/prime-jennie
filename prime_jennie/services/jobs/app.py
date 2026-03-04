@@ -18,6 +18,7 @@ from pydantic import BaseModel
 from sqlmodel import Session, col, select, text
 
 from prime_jennie.domain.config import get_config
+from prime_jennie.domain.enums import MarketRegime
 from prime_jennie.domain.macro import GlobalSnapshot, MacroInsight, TradingContext
 from prime_jennie.infra.database.models import (
     DailyAssetSnapshotDB,
@@ -1062,8 +1063,95 @@ def macro_validate_store() -> JobResult:
 
 @app.post("/jobs/macro-quick")
 def macro_quick() -> JobResult:
-    """장중 매크로 빠른 업데이트."""
-    return macro_collect_global()
+    """장중 매크로 빠른 업데이트 + circuit breaker."""
+    result = macro_collect_global()
+    if result.success:
+        _check_circuit_breaker()
+    return result
+
+
+# ─── Circuit Breaker (장중 자동 Regime 하향) ─────────────────
+
+
+# KOSPI 일중 하락률 임계값 → 강제 regime downgrade
+_CB_KOSPI_DROP_BEAR = -2.0  # ≤ -2% → BEAR 이하로 강제
+_CB_KOSPI_DROP_STRONG_BEAR = -4.0  # ≤ -4% → STRONG_BEAR 강제
+_CB_VIX_CRISIS = 35.0  # VIX ≥ 35 → BEAR 이하로 강제
+
+# Regime 심각도 (높을수록 나쁨)
+_REGIME_SEVERITY = {
+    MarketRegime.STRONG_BULL: 0,
+    MarketRegime.BULL: 1,
+    MarketRegime.SIDEWAYS: 2,
+    MarketRegime.BEAR: 3,
+    MarketRegime.STRONG_BEAR: 4,
+}
+
+
+def _check_circuit_breaker() -> None:
+    """장중 KOSPI 급락/VIX 급등 시 TradingContext regime을 자동 하향.
+
+    - downgrade only (상향은 council pipeline만 가능)
+    - 기존 context의 다른 필드(position_multiplier 등)는 보존
+    - council 실행 시 원래 로직으로 복원됨
+    """
+    try:
+        r = get_redis()
+        trading_date = date.today().isoformat()
+        snap_raw = r.get(f"macro:data:snapshot:{trading_date}")
+        if not snap_raw:
+            return
+
+        snap = json.loads(snap_raw)
+        kospi_chg = snap.get("kospi_change_pct")
+        vix = snap.get("vix")
+
+        # 현재 context 로드
+        context_cache: TypedCache = app.state.context_cache
+        ctx = context_cache.get()
+        if not ctx:
+            return
+
+        current_severity = _REGIME_SEVERITY.get(ctx.market_regime, 2)
+
+        # Circuit breaker 판정
+        target_regime: MarketRegime | None = None
+
+        bear_sev = _REGIME_SEVERITY[MarketRegime.BEAR]
+
+        if kospi_chg is not None and kospi_chg <= _CB_KOSPI_DROP_STRONG_BEAR:
+            target_regime = MarketRegime.STRONG_BEAR
+        elif kospi_chg is not None and kospi_chg <= _CB_KOSPI_DROP_BEAR and current_severity < bear_sev:
+            target_regime = MarketRegime.BEAR
+        if vix is not None and vix >= _CB_VIX_CRISIS and current_severity < bear_sev:
+            target_regime = MarketRegime.BEAR
+
+        if target_regime is None:
+            return
+
+        target_severity = _REGIME_SEVERITY[target_regime]
+        if target_severity <= current_severity:
+            return  # 이미 같거나 더 나쁜 regime — 건드리지 않음
+
+        # Downgrade: 기존 context 필드 보존, regime + 관련 필드만 변경
+        downgraded = ctx.model_copy(
+            update={
+                "market_regime": target_regime,
+                "position_multiplier": min(ctx.position_multiplier, 0.6),
+                "is_high_volatility": True,
+            }
+        )
+        context_cache.set(downgraded)
+
+        logger.warning(
+            "CIRCUIT BREAKER: regime downgraded %s → %s (KOSPI=%.2f%%, VIX=%s)",
+            ctx.market_regime.value,
+            target_regime.value,
+            kospi_chg or 0,
+            vix,
+        )
+    except Exception:
+        logger.exception("Circuit breaker check failed")
 
 
 # ─── Council (macro-council 통합) ─────────────────────────────
@@ -1372,8 +1460,6 @@ def _update_trading_context(
 ) -> None:
     """MacroInsight → TradingContext 변환 및 저장."""
     try:
-        from prime_jennie.domain.enums import MarketRegime
-
         # Sentiment score → Regime 매핑 (label 대신 점수 기반)
         score = insight.sentiment_score
         if score >= 70:

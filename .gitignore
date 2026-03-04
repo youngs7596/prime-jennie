@@ -20,6 +20,7 @@ venv/
 
 # Environment & Secrets
 .env
+.env.dev
 .env.local
 .env.*.local
 secrets.json

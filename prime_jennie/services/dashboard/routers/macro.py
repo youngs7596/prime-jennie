@@ -57,15 +57,18 @@ def get_regime(session: Session = Depends(get_db_session)) -> RegimeResponse:
             is_high_volatility=ctx.is_high_volatility,
         )
 
-    # Sentiment → Regime 매핑
-    regime_map = {
-        "bullish": MarketRegime.STRONG_BULL,
-        "neutral_to_bullish": MarketRegime.BULL,
-        "neutral": MarketRegime.SIDEWAYS,
-        "neutral_to_bearish": MarketRegime.BEAR,
-        "bearish": MarketRegime.STRONG_BEAR,
-    }
-    regime = regime_map.get(row.sentiment, MarketRegime.SIDEWAYS)
+    # Sentiment score → Regime 매핑 (jobs/app.py _update_trading_context와 동일)
+    score = row.sentiment_score or 50
+    if score >= 70:
+        regime = MarketRegime.STRONG_BULL
+    elif score >= 60:
+        regime = MarketRegime.BULL
+    elif score >= 40:
+        regime = MarketRegime.SIDEWAYS
+    elif score >= 25:
+        regime = MarketRegime.BEAR
+    else:
+        regime = MarketRegime.STRONG_BEAR
     is_high_vol = row.vix_regime in ("elevated", "crisis") if row.vix_regime else False
 
     return RegimeResponse(
