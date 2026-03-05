@@ -40,6 +40,7 @@ from prime_jennie.services.base import create_app
 from prime_jennie.services.deps import get_db_session
 
 from .kis_api import KISApi, KISApiError
+from .poller import KISRestPoller
 from .streamer import KISWebSocketStreamer
 
 logger = logging.getLogger(__name__)
@@ -70,7 +71,7 @@ _request_history: deque = deque(maxlen=100)
 # ─── KIS API Client ─────────────────────────────────────────────
 
 _kis_api: KISApi | None = None
-_streamer: KISWebSocketStreamer | None = None
+_streamer: KISWebSocketStreamer | KISRestPoller | None = None
 
 
 def _get_kis_api() -> KISApi:
@@ -128,15 +129,24 @@ async def lifespan(app) -> AsyncIterator[None]:
     except Exception as e:
         logger.warning("KIS pre-auth failed (will retry on first request): %s", e)
 
-    # WebSocket Streamer 초기화
+    # Streamer 초기화 (WebSocket 또는 REST Polling)
     from prime_jennie.infra.redis.client import get_redis
 
-    _streamer = KISWebSocketStreamer(
-        redis_client=get_redis(),
-        app_key=config.kis.app_key,
-        app_secret=config.kis.app_secret,
-        is_paper=config.kis.is_paper,
-    )
+    if config.kis.streamer_mode == "polling":
+        _streamer = KISRestPoller(
+            redis_client=get_redis(),
+            kis_api=_get_kis_api(),
+            polling_interval=config.kis.polling_interval_sec,
+        )
+        logger.info("Streamer mode: REST polling (interval=%.1fs)", config.kis.polling_interval_sec)
+    else:
+        _streamer = KISWebSocketStreamer(
+            redis_client=get_redis(),
+            app_key=config.kis.app_key,
+            app_secret=config.kis.app_secret,
+            is_paper=config.kis.is_paper,
+        )
+        logger.info("Streamer mode: WebSocket")
 
     yield
 
@@ -459,6 +469,20 @@ async def realtime_subscribe(body: SubscribeRequest) -> dict:
 
     return {
         "added": new_codes,
+        "total_subscriptions": _streamer.subscription_count,
+        "is_running": _streamer.is_running,
+    }
+
+
+@app.post("/api/realtime/unsubscribe")
+async def realtime_unsubscribe(body: SubscribeRequest) -> dict:
+    """실시간 구독 종목 해제."""
+    if _streamer is None:
+        raise HTTPException(503, "Streamer not initialized")
+
+    removed = _streamer.remove_subscriptions(body.codes)
+    return {
+        "removed": removed,
         "total_subscriptions": _streamer.subscription_count,
         "is_running": _streamer.is_running,
     }

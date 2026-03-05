@@ -64,6 +64,8 @@ class KISConfig(BaseSettings):
     is_paper: bool = False
     token_file_path: str = "/app/config/kis_token.json"
     gateway_url: str = "http://kis-gateway:8080"
+    streamer_mode: str = "websocket"  # "websocket" | "polling"
+    polling_interval_sec: float = 3.0
 
     model_config = {"env_prefix": "KIS_"}
 
