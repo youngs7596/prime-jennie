@@ -1,17 +1,16 @@
 """KIS REST Poller 단위 테스트."""
 
 import threading
-import time
 from unittest.mock import MagicMock, patch
 
 import pytest
 
 from prime_jennie.domain.stock import StockSnapshot
 from prime_jennie.services.gateway.poller import (
+    _OFF_HOURS_SLEEP,
     PRICE_STREAM,
     PRICE_STREAM_MAXLEN,
     KISRestPoller,
-    _OFF_HOURS_SLEEP,
 )
 
 
@@ -91,11 +90,7 @@ class TestPollLoopMarketHours:
         poller.add_subscriptions(["005930"])
         poller._is_running = True
 
-        call_count = [0]
-        original_sleep = time.sleep
-
         def stop_after_one_cycle(secs):
-            call_count[0] += 1
             poller._is_running = False
 
         with patch("time.sleep", side_effect=stop_after_one_cycle):

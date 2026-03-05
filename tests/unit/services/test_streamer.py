@@ -2,16 +2,15 @@
 
 import json
 import threading
-import time
 from unittest.mock import MagicMock, patch
 
 import pytest
 
 from prime_jennie.services.gateway.streamer import (
-    KISWebSocketStreamer,
     _BACKOFF_INITIAL,
     _BACKOFF_MAX,
     _STABLE_CONNECTION_SECS,
+    KISWebSocketStreamer,
     _is_streaming_hours,
 )
 
@@ -37,7 +36,7 @@ def streamer(redis_mock):
 class TestIsStreamingHours:
     def test_weekday_in_hours(self):
         # 월요일 10:00 KST
-        from datetime import datetime, timezone, timedelta
+        from datetime import datetime, timedelta, timezone
 
         kst = timezone(timedelta(hours=9))
         dt = datetime(2026, 3, 2, 10, 0, tzinfo=kst)  # Monday
@@ -46,7 +45,7 @@ class TestIsStreamingHours:
             assert _is_streaming_hours() is True
 
     def test_weekday_before_hours(self):
-        from datetime import datetime, timezone, timedelta
+        from datetime import datetime, timedelta, timezone
 
         kst = timezone(timedelta(hours=9))
         dt = datetime(2026, 3, 2, 7, 0, tzinfo=kst)  # Monday 07:00
@@ -55,7 +54,7 @@ class TestIsStreamingHours:
             assert _is_streaming_hours() is False
 
     def test_weekday_after_hours(self):
-        from datetime import datetime, timezone, timedelta
+        from datetime import datetime, timedelta, timezone
 
         kst = timezone(timedelta(hours=9))
         dt = datetime(2026, 3, 2, 16, 0, tzinfo=kst)  # Monday 16:00
@@ -64,7 +63,7 @@ class TestIsStreamingHours:
             assert _is_streaming_hours() is False
 
     def test_weekend(self):
-        from datetime import datetime, timezone, timedelta
+        from datetime import datetime, timedelta, timezone
 
         kst = timezone(timedelta(hours=9))
         dt = datetime(2026, 3, 7, 10, 0, tzinfo=kst)  # Saturday
@@ -73,7 +72,7 @@ class TestIsStreamingHours:
             assert _is_streaming_hours() is False
 
     def test_edge_start(self):
-        from datetime import datetime, timezone, timedelta
+        from datetime import datetime, timedelta, timezone
 
         kst = timezone(timedelta(hours=9))
         dt = datetime(2026, 3, 2, 8, 50, tzinfo=kst)  # Monday 08:50
@@ -82,7 +81,7 @@ class TestIsStreamingHours:
             assert _is_streaming_hours() is True
 
     def test_edge_end(self):
-        from datetime import datetime, timezone, timedelta
+        from datetime import datetime, timedelta, timezone
 
         kst = timezone(timedelta(hours=9))
         dt = datetime(2026, 3, 2, 15, 35, tzinfo=kst)  # Monday 15:35
@@ -91,7 +90,7 @@ class TestIsStreamingHours:
             assert _is_streaming_hours() is True
 
     def test_just_after_end(self):
-        from datetime import datetime, timezone, timedelta
+        from datetime import datetime, timedelta, timezone
 
         kst = timezone(timedelta(hours=9))
         dt = datetime(2026, 3, 2, 15, 36, tzinfo=kst)  # Monday 15:36
@@ -286,8 +285,6 @@ class TestExponentialBackoff:
         def mock_run_forever(self_ws):
             nonlocal call_count
             call_count += 1
-
-        original_sleep = time.sleep
 
         def mock_sleep(secs):
             sleep_values.append(secs)
