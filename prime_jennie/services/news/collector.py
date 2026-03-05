@@ -17,7 +17,7 @@ from .dedup import NewsDeduplicator
 logger = logging.getLogger(__name__)
 
 NEWS_STREAM = "stream:news:raw"
-NEWS_STREAM_MAXLEN = 100_000
+NEWS_STREAM_MAXLEN = 10_000
 
 
 class NewsCollector:
