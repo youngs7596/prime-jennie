@@ -26,6 +26,7 @@ from prime_jennie.infra.redis.cache import TypedCache
 from prime_jennie.infra.redis.client import get_redis
 from prime_jennie.infra.redis.streams import TypedStreamPublisher
 from prime_jennie.services.base import create_app
+from prime_jennie.services.signal_logger import log_buy_signal
 
 from .bar_engine import Bar, BarEngine
 from .risk_gates import run_all_gates
@@ -37,6 +38,8 @@ logger = logging.getLogger(__name__)
 STREAM_BUY_SIGNALS = "stream:buy-signals"
 CACHE_WATCHLIST = "watchlist:active"
 CACHE_TRADING_CONTEXT = "macro:trading_context"
+EMERGENCY_STOP_KEY = "trading_flags:stop"
+PAUSE_KEY = "trading_flags:pause"
 
 
 class BuyScanner:
@@ -337,6 +340,18 @@ class BuyScanner:
 
         return None
 
+    def _is_trading_suppressed(self) -> str | None:
+        """Trading 정지 상태 확인. 정지 사유 반환, 정상이면 None."""
+        try:
+            if self._redis.get(EMERGENCY_STOP_KEY):
+                return "emergency_stop"
+            pause = self._redis.get(PAUSE_KEY)
+            if pause:
+                return f"pause:{pause}"
+        except Exception:
+            pass
+        return None
+
     def _publish_signal(
         self,
         stock_code: str,
@@ -347,7 +362,7 @@ class BuyScanner:
         volume_ratio: float,
         vwap: float,
     ) -> BuySignal | None:
-        """BuySignal 생성 및 Redis Stream 발행."""
+        """BuySignal 생성 및 Redis Stream 발행 (stop 시 이력만 저장)."""
         from .risk_gates import check_strategy_alignment
 
         alignment = check_strategy_alignment(signal_type, self._context)
@@ -380,7 +395,22 @@ class BuyScanner:
             position_multiplier=self._context.position_multiplier,
         )
 
+        # Stop/Pause 상태면 Stream 발행 차단, DB 이력만 남김
+        suppressed = self._is_trading_suppressed()
+        if suppressed:
+            log_buy_signal(signal, status="suppressed", suppressed_reason=suppressed)
+            logger.info(
+                "[%s] Signal suppressed (%s): %s at %d (hybrid=%.1f)",
+                stock_code,
+                suppressed,
+                signal_type,
+                price,
+                entry.hybrid_score,
+            )
+            return None
+
         self._publisher.publish(signal)
+        log_buy_signal(signal, status="published")
         self._last_signal_times[stock_code] = time.time()
 
         logger.info(

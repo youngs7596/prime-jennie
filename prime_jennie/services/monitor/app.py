@@ -36,6 +36,7 @@ from prime_jennie.infra.redis.cache import TypedCache
 from prime_jennie.infra.redis.client import get_redis
 from prime_jennie.infra.redis.streams import TypedStreamPublisher
 from prime_jennie.services.base import create_app
+from prime_jennie.services.signal_logger import log_sell_signal
 
 from .exit_rules import ExitSignal, PositionContext, evaluate_exit
 
@@ -53,6 +54,10 @@ LIVE_POSITIONS_KEY = "monitoring:live_positions"
 # Forced Liquidation
 FORCED_LIQUIDATION_KEY = "forced_liquidation:stocks"
 FORCED_LIQUIDATION_ARMED = "forced_liquidation:armed"
+
+# Trading flags
+EMERGENCY_STOP_KEY = "trading_flags:stop"
+PAUSE_KEY = "trading_flags:pause"
 
 # Streams
 SELL_SIGNAL_STREAM = "stream:sell-orders"
@@ -255,8 +260,20 @@ class PriceMonitor:
 
         return evaluate_exit(ctx, regime, macro_stop_mult)
 
+    def _is_trading_suppressed(self) -> str | None:
+        """Trading 정지 상태 확인. 정지 사유 반환, 정상이면 None."""
+        try:
+            if self._redis.get(EMERGENCY_STOP_KEY):
+                return "emergency_stop"
+            pause = self._redis.get(PAUSE_KEY)
+            if pause:
+                return f"pause:{pause}"
+        except Exception:
+            pass
+        return None
+
     def _emit_sell_order(self, pos: Position, signal: ExitSignal) -> None:
-        """매도 시그널 Redis Stream 발행."""
+        """매도 시그널 Redis Stream 발행 (stop 시 이력만 저장)."""
         sell_qty = max(1, int(pos.quantity * signal.quantity_pct / 100))
 
         # Holding days 계산
@@ -281,7 +298,22 @@ class PriceMonitor:
             holding_days=holding_days,
         )
 
+        # Stop/Pause 상태면 Stream 발행 차단, DB 이력만 남김
+        suppressed = self._is_trading_suppressed()
+        if suppressed:
+            log_sell_signal(order, status="suppressed", suppressed_reason=suppressed)
+            logger.info(
+                "[%s] SELL signal suppressed (%s): %s qty=%d (%s)",
+                pos.stock_code,
+                suppressed,
+                signal.reason,
+                sell_qty,
+                signal.description,
+            )
+            return
+
         self._publisher.publish(order)
+        log_sell_signal(order, status="published")
         logger.info(
             "[%s] SELL signal: %s qty=%d (%s)",
             pos.stock_code,

@@ -371,3 +371,35 @@ class WatchlistHistoryDB(SQLModel, table=True):
     is_active: bool = Field(default=True)
 
     __table_args__ = (Index("ix_watchlist_active", "snapshot_date", "is_active"),)
+
+
+# ─── Signal Logs ─────────────────────────────────────────────────
+
+
+class SignalLogDB(SQLModel, table=True):
+    """매수/매도 시그널 이력 (stop 상태 포함, 백테스트용)."""
+
+    __tablename__ = "signal_logs"
+
+    id: int | None = Field(default=None, primary_key=True)
+    signal_type: str = Field(max_length=10)  # BUY / SELL
+    stock_code: str = Field(foreign_key="stock_masters.stock_code", max_length=10)
+    stock_name: str = Field(max_length=100)
+    strategy: str | None = Field(default=None, max_length=50)
+    price: int
+    quantity: int | None = None
+    hybrid_score: float | None = None
+    rsi_value: float | None = None
+    volume_ratio: float | None = None
+    market_regime: str | None = Field(default=None, max_length=20)
+    position_multiplier: float | None = None
+    profit_pct: float | None = None
+    holding_days: int | None = None
+    status: str = Field(max_length=20)  # suppressed / published
+    suppressed_reason: str | None = Field(default=None, max_length=100)
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+
+    __table_args__ = (
+        Index("ix_signal_logs_type_time", "signal_type", "created_at"),
+        Index("ix_signal_logs_code", "stock_code", "created_at"),
+    )

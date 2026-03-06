@@ -212,10 +212,11 @@ class KISWebSocketStreamer:
         backoff = _BACKOFF_INITIAL
 
         while self._is_running:
-            # 장외 시간이면 60초 sleep 후 재확인
+            # 장외 시간이면 60초 sleep 후 재확인 (backoff도 리셋)
             if not _is_streaming_hours():
                 logger.debug("Outside streaming hours, waiting 60s...")
                 time.sleep(60)
+                backoff = _BACKOFF_INITIAL
                 continue
 
             current_key = approval_key
