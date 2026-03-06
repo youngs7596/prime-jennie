@@ -56,14 +56,6 @@ class CloudFailoverProvider(BaseLLMProvider):
             )
             self._providers.append(("openrouter", provider))
 
-        # 3. Local vLLM fallback
-        try:
-            from .ollama import OllamaLLMProvider
-
-            self._providers.append(("local-vllm", OllamaLLMProvider()))
-        except Exception:
-            pass  # vLLM 미실행 시 스킵
-
     @property
     def provider_name(self) -> str:
         return "deepseek_cloud"

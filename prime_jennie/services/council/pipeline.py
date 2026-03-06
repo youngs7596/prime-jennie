@@ -178,6 +178,7 @@ class MacroCouncilPipeline:
             prompt=context,
             schema=MACRO_STRATEGIST_SCHEMA,
             system=system,
+            max_tokens=8192,
             service="macro_council",
         )
 
@@ -198,6 +199,7 @@ class MacroCouncilPipeline:
             prompt=prompt,
             schema=MACRO_RISK_ANALYST_SCHEMA,
             system=system,
+            max_tokens=8192,
             service="macro_council",
         )
 
@@ -226,6 +228,7 @@ class MacroCouncilPipeline:
             prompt=prompt,
             schema=MACRO_CHIEF_JUDGE_SCHEMA,
             system=system,
+            max_tokens=8192,
             service="macro_council",
         )
 
