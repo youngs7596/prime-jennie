@@ -132,10 +132,16 @@ class KISApi:
         params: dict[str, Any] | None = None,
         json_data: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
-        """KIS API 공통 요청. 인증 오류 시 토큰 재발급 후 1회 재시도."""
+        """KIS API 공통 요청. 연결 오류 시 1회 재시도, 인증 오류 시 토큰 재발급 후 재시도."""
         headers = self._headers(tr_id)
 
-        resp = self._client.request(method, path, headers=headers, params=params, json=json_data)
+        try:
+            resp = self._client.request(method, path, headers=headers, params=params, json=json_data)
+        except (httpx.RemoteProtocolError, httpx.ConnectError, httpx.ReadError) as e:
+            # KIS 서버 간헐적 연결 끊김 → 1회 재시도
+            logger.warning("KIS %s %s connection error: %s, retrying", method, path, e)
+            time.sleep(0.5)
+            resp = self._client.request(method, path, headers=headers, params=params, json=json_data)
 
         # 인증 오류 의심 → 토큰 재발급 후 재시도 (1회)
         if resp.status_code in (401, 403, 500):
