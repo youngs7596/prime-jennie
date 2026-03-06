@@ -231,6 +231,8 @@ services:
       KIS_APP_SECRET: "${KIS_APP_SECRET}"
       KIS_ACCOUNT_NO: "${KIS_ACCOUNT_NO}"
       APP_TRADING_MODE: REAL
+      KIS_STREAMER_MODE: "${KIS_STREAMER_MODE:-websocket}"
+      KIS_POLLING_INTERVAL_SEC: "${KIS_POLLING_INTERVAL_SEC:-3}"
     volumes:
       - ${DOCKER_DATA_DIR:-/docker_data}/kis_token:/app/config
     command: ["uvicorn", "prime_jennie.services.gateway.app:app", "--host", "0.0.0.0", "--port", "8080"]
@@ -393,7 +395,9 @@ services:
       PORT: "8095"
       LLM_TIER_FAST_PROVIDER: ollama
       LLM_TIER_REASONING_PROVIDER: deepseek_cloud
-      LLM_TIER_THINKING_PROVIDER: deepseek_cloud
+      LLM_TIER_THINKING_PROVIDER: "${LLM_TIER_THINKING_PROVIDER:-claude}"
+      LLM_CLAUDE_MODEL: "${LLM_CLAUDE_MODEL:-claude-opus-4-6}"
+      ANTHROPIC_API_KEY: "${ANTHROPIC_API_KEY}"
       LLM_VLLM_LLM_URL: http://127.0.0.1:8001/v1
       INFRA_QDRANT_URL: http://127.0.0.1:6333
       TELEGRAM_API_ID: "${TELEGRAM_API_ID}"

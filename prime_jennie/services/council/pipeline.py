@@ -324,6 +324,9 @@ class MacroCouncilPipeline:
         chief_judge: dict[str, Any],
     ) -> MacroInsight:
         """3개 출력을 MacroInsight로 변환."""
+        # LLM이 다른 필드명을 쓸 수 있으므로 대체 키 지원
+        chief_judge = _normalize_chief_judge(chief_judge)
+
         # Sentiment
         sentiment_str = chief_judge.get("final_sentiment", "neutral")
         try:
@@ -396,6 +399,39 @@ class MacroCouncilPipeline:
             kospi_index=input_data.global_snapshot.kospi_index if input_data.global_snapshot else None,
             kosdaq_index=input_data.global_snapshot.kosdaq_index if input_data.global_snapshot else None,
         )
+
+
+def _normalize_chief_judge(d: dict[str, Any]) -> dict[str, Any]:
+    """Chief Judge 출력의 대체 필드명을 정규화."""
+    alt_keys = {
+        "final_sentiment_score": ["final_score", "sentiment_score", "score"],
+        "final_regime_hint": ["regime", "regime_hint", "market_regime"],
+        "final_position_size_pct": ["position_size_pct", "position_pct"],
+        "final_stop_loss_adjust_pct": ["stop_loss_adjust_pct", "stop_loss_pct"],
+        "strategies_to_favor": ["strategies_to_use", "preferred_strategies"],
+        "sectors_to_favor": ["sectors_overweight", "overweight"],
+        "sectors_to_avoid": ["sectors_underweight", "underweight"],
+        "council_consensus": ["consensus"],
+    }
+    result = dict(d)
+    for canonical, alts in alt_keys.items():
+        if canonical not in result or result[canonical] is None:
+            for alt in alts:
+                if alt in result and result[alt] is not None:
+                    result[canonical] = result[alt]
+                    break
+    # sector_preferences.overweight/underweight 지원
+    prefs = result.get("sector_preferences", {})
+    if isinstance(prefs, dict):
+        if "sectors_to_favor" not in result or not result["sectors_to_favor"]:
+            result["sectors_to_favor"] = prefs.get("overweight", [])
+        if "sectors_to_avoid" not in result or not result["sectors_to_avoid"]:
+            result["sectors_to_avoid"] = prefs.get("underweight", [])
+    # key_reasoning → trading_reasoning
+    if not result.get("trading_reasoning") and result.get("key_reasoning"):
+        reasoning = result["key_reasoning"]
+        result["trading_reasoning"] = " ".join(reasoning) if isinstance(reasoning, list) else str(reasoning)
+    return result
 
 
 def _parse_sector_groups(names: list[str]) -> list[SectorGroup]:

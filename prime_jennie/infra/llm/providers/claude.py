@@ -75,7 +75,12 @@ class ClaudeLLMProvider(BaseLLMProvider):
         max_tokens: int = 4096,
         service: str | None = None,
     ) -> dict[str, Any]:
-        sys_msg = system or "You are a helpful assistant. Always respond with valid JSON only, no markdown formatting."
+        schema_hint = f"\n\nExpected JSON schema:\n{json.dumps(schema, ensure_ascii=False)}" if schema else ""
+        sys_msg = (system or "You are a helpful assistant.") + (
+            "\n\nIMPORTANT: Respond with ONLY a valid JSON object. "
+            "No explanation, no markdown, no code blocks. Just raw JSON."
+            f"{schema_hint}"
+        )
 
         response = await self.generate(
             prompt,
@@ -86,11 +91,20 @@ class ClaudeLLMProvider(BaseLLMProvider):
         )
 
         content = response.content.strip()
+        logger.debug("Claude raw response (first 500 chars): %s", content[:500])
 
         # Markdown 블록 제거
         m = re.search(r"```(?:json)?\s*(.*?)```", content, re.DOTALL)
         if m:
             content = m.group(1).strip()
+
+        # JSON 객체 직접 추출 시도
+        if not content or content[0] not in "{[":
+            json_match = re.search(r"(\{.*\})", content, re.DOTALL)
+            if json_match:
+                content = json_match.group(1)
+            else:
+                logger.error("Claude response is not JSON: %s", content[:300])
 
         return json.loads(content)
 
