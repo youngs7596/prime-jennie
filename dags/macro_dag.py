@@ -2,7 +2,7 @@
 
 enhanced_macro_collection: 07:40, 11:40 KST 월-금
 macro_council: 07:50, 11:50 KST 월-금 (수집 10분 후)
-enhanced_macro_quick: 09:30-14:30 KST 매시 (장중 빠른 업데이트)
+enhanced_macro_quick: 09:00-15:55 KST 5분 간격 (장중 intraday risk throttle)
 """
 
 from datetime import timedelta
@@ -85,10 +85,11 @@ with DAG(
 with DAG(
     dag_id="enhanced_macro_quick",
     default_args=get_default_args(retries=2, retry_delay=timedelta(minutes=2)),
-    description="장중 매크로 빠른 업데이트 (naver)",
-    schedule="30 9-14 * * 1-5",
+    description="장중 매크로 + intraday risk throttle (5분 간격)",
+    schedule="*/5 9-15 * * 1-5",
     start_date=pendulum.datetime(2026, 1, 1, tz=local_tz),
     catchup=False,
+    max_active_runs=1,
     tags=["macro", "intraday"],
 ) as dag_quick:
     macro_quick = HttpOperator(

@@ -5,6 +5,7 @@ daily-briefing + macro-council 기능 통합 (2026-02-28).
 Airflow http_conn_id="job_worker" → port 8095.
 """
 
+import contextlib
 import json
 import logging
 import os
@@ -1063,20 +1064,15 @@ def macro_validate_store() -> JobResult:
 
 @app.post("/jobs/macro-quick")
 def macro_quick() -> JobResult:
-    """장중 매크로 빠른 업데이트 + circuit breaker."""
+    """장중 매크로 빠른 업데이트 + intraday risk throttle."""
     result = macro_collect_global()
     if result.success:
-        _check_circuit_breaker()
+        _check_intraday_risk()
     return result
 
 
-# ─── Circuit Breaker (장중 자동 Regime 하향) ─────────────────
+# ─── Intraday Risk Throttle (장중 5단계 리스크 관리) ──────────
 
-
-# KOSPI 일중 하락률 임계값 → 강제 regime downgrade
-_CB_KOSPI_DROP_BEAR = -2.0  # ≤ -2% → BEAR 이하로 강제
-_CB_KOSPI_DROP_STRONG_BEAR = -4.0  # ≤ -4% → STRONG_BEAR 강제
-_CB_VIX_CRISIS = 35.0  # VIX ≥ 35 → BEAR 이하로 강제
 
 # Regime 심각도 (높을수록 나쁨)
 _REGIME_SEVERITY = {
@@ -1087,13 +1083,159 @@ _REGIME_SEVERITY = {
     MarketRegime.STRONG_BEAR: 4,
 }
 
+# 리스크 레벨 → multiplier 매핑
+_LEVEL_MULTIPLIER = {
+    "NORMAL": 1.0,
+    "CAUTION": 0.8,
+    "WARNING": 0.6,
+    "DANGER": 0.3,
+    "CRITICAL": 0.0,
+}
 
-def _check_circuit_breaker() -> None:
-    """장중 KOSPI 급락/VIX 급등 시 TradingContext regime을 자동 하향.
+# 리스크 레벨 심각도 (높을수록 나쁨)
+_RISK_LEVEL_SEVERITY = {
+    "NORMAL": 0,
+    "CAUTION": 1,
+    "WARNING": 2,
+    "DANGER": 3,
+    "CRITICAL": 4,
+}
 
-    - downgrade only (상향은 council pipeline만 가능)
-    - 기존 context의 다른 필드(position_multiplier 등)는 보존
-    - council 실행 시 원래 로직으로 복원됨
+# 회복 시 필요 사이클 수 (1사이클 = macro_quick 1회 = 5분)
+_RECOVERY_CYCLES = {
+    "CRITICAL": 6,  # 30분
+    "DANGER": 4,  # 20분
+    "WARNING": 2,  # 10분
+    "CAUTION": 1,  # 5분
+}
+
+# 리스크 레벨 → regime downgrade 매핑 (WARNING 이상만)
+_LEVEL_TO_REGIME = {
+    "WARNING": MarketRegime.BEAR,
+    "DANGER": MarketRegime.BEAR,
+    "CRITICAL": MarketRegime.STRONG_BEAR,
+}
+
+_REDIS_RECOVERY_KEY = "intraday:risk:recovery_start"
+_RECOVERY_CYCLE_SEC = 300  # 5분
+
+
+def _calc_intraday_multiplier(kospi_change: float, vix: float) -> tuple[str, float]:
+    """KOSPI 일중 등락률과 VIX로 intraday risk level + multiplier 계산.
+
+    Returns:
+        (risk_level, intraday_multiplier)
+    """
+    if kospi_change <= -4.0:
+        return "CRITICAL", 0.0
+    if kospi_change <= -3.0 or vix >= 40:
+        return "DANGER", 0.3
+    if kospi_change <= -2.0 or vix >= 35:
+        return "WARNING", 0.6
+    if kospi_change <= -1.0 or vix >= 30:
+        return "CAUTION", 0.8
+    return "NORMAL", 1.0
+
+
+def _apply_recovery_logic(
+    r: redis_lib.Redis,
+    prev_level: str,
+    raw_level: str,
+    raw_multiplier: float,
+) -> tuple[str, float]:
+    """회복 지연 로직 — 악화는 즉시, 회복은 단계적.
+
+    Returns:
+        (effective_level, effective_multiplier)
+    """
+    prev_sev = _RISK_LEVEL_SEVERITY.get(prev_level, 0)
+    raw_sev = _RISK_LEVEL_SEVERITY[raw_level]
+
+    if raw_sev >= prev_sev:
+        # 악화 또는 동일 — 즉시 적용, 회복 타이머 초기화
+        r.delete(_REDIS_RECOVERY_KEY)
+        return raw_level, raw_multiplier
+
+    # 조건 개선 — 회복 모드
+    recovery_start_raw = r.get(_REDIS_RECOVERY_KEY)
+    now = time.time()
+
+    if recovery_start_raw is None:
+        # 회복 타이머 시작
+        r.set(_REDIS_RECOVERY_KEY, str(now), ex=86400)
+        return prev_level, _LEVEL_MULTIPLIER[prev_level]
+
+    recovery_start = float(recovery_start_raw)
+    elapsed = now - recovery_start
+
+    required_cycles = _RECOVERY_CYCLES.get(prev_level, 1)
+    required_sec = required_cycles * _RECOVERY_CYCLE_SEC
+
+    if elapsed >= required_sec:
+        # 한 단계 회복 (NORMAL까지는 불허 — Council에서만 완전 복원)
+        new_sev = max(prev_sev - 1, 1)  # 최소 CAUTION(1)
+        # severity → level 역매핑
+        new_level = next(k for k, v in _RISK_LEVEL_SEVERITY.items() if v == new_sev)
+        # 회복 타이머 리셋 (다음 단계 회복용)
+        r.set(_REDIS_RECOVERY_KEY, str(now), ex=86400)
+        return new_level, _LEVEL_MULTIPLIER[new_level]
+
+    # 아직 회복 시간 미충족 — 현재 레벨 유지
+    return prev_level, _LEVEL_MULTIPLIER[prev_level]
+
+
+def _send_risk_alert(
+    prev_level: str,
+    new_level: str,
+    kospi_chg: float,
+    vix: float | None,
+    council_mult: float,
+    final_mult: float,
+) -> None:
+    """Intraday Risk 레벨 변경 시 텔레그램 알림."""
+    try:
+        token = os.getenv("TELEGRAM_BOT_TOKEN")
+        chat_ids = os.getenv("TELEGRAM_CHAT_IDS", "")
+        if not token or not chat_ids:
+            return
+
+        import httpx
+
+        prev_sev = _RISK_LEVEL_SEVERITY.get(prev_level, 0)
+        new_sev = _RISK_LEVEL_SEVERITY.get(new_level, 0)
+        now_str = datetime.now().strftime("%Y-%m-%d %H:%M")
+        vix_str = f"{vix:.1f}" if vix else "N/A"
+
+        if new_sev > prev_sev:
+            header = f"\u26a0\ufe0f [Intraday Risk] {prev_level} \u2192 {new_level}"
+            mult_line = f"multiplier: {council_mult:.1f} \u2192 {final_mult:.1f} (min \uc801\uc6a9)"
+        else:
+            header = f"\u2705 [Intraday Risk] {prev_level} \u2192 {new_level}"
+            mult_line = f"multiplier \ubcf5\uc6d0: {final_mult:.1f}"
+
+        message = f"{header}\nKOSPI: {kospi_chg:+.2f}% / VIX: {vix_str}\n{mult_line}\n{now_str}"
+
+        for chat_id in chat_ids.split(","):
+            cid = chat_id.strip()
+            if cid:
+                httpx.post(
+                    f"https://api.telegram.org/bot{token}/sendMessage",
+                    json={"chat_id": cid, "text": message},
+                    timeout=10,
+                )
+    except Exception as e:
+        logger.warning("Failed to send risk alert: %s", e)
+
+
+def _check_intraday_risk() -> None:
+    """장중 Intraday Risk Throttle — KOSPI/VIX 기반 5단계 리스크 관리.
+
+    기존 circuit breaker를 대체.
+    - 5단계: NORMAL -> CAUTION -> WARNING -> DANGER -> CRITICAL
+    - position_multiplier = min(council_multiplier_raw, intraday_multiplier)
+    - WARNING 이상 시 regime downgrade (downgrade only)
+    - 레벨 변경 시 텔레그램 알림
+    - 회복은 단계적 (Council 배치에서만 완전 복원)
     """
     try:
         r = get_redis()
@@ -1106,52 +1248,80 @@ def _check_circuit_breaker() -> None:
         kospi_chg = snap.get("kospi_change_pct")
         vix = snap.get("vix")
 
+        if kospi_chg is None:
+            return
+
         # 현재 context 로드
         context_cache: TypedCache = app.state.context_cache
         ctx = context_cache.get()
         if not ctx:
             return
 
-        current_severity = _REGIME_SEVERITY.get(ctx.market_regime, 2)
+        # Raw intraday level 계산
+        raw_level, raw_multiplier = _calc_intraday_multiplier(kospi_chg, vix if vix is not None else 0.0)
 
-        # Circuit breaker 판정
-        target_regime: MarketRegime | None = None
+        prev_level = ctx.intraday_risk_level
 
-        bear_sev = _REGIME_SEVERITY[MarketRegime.BEAR]
+        # 회복 지연 적용
+        new_level, intraday_mult = _apply_recovery_logic(r, prev_level, raw_level, raw_multiplier)
 
-        if kospi_chg is not None and kospi_chg <= _CB_KOSPI_DROP_STRONG_BEAR:
-            target_regime = MarketRegime.STRONG_BEAR
-        elif kospi_chg is not None and kospi_chg <= _CB_KOSPI_DROP_BEAR and current_severity < bear_sev:
-            target_regime = MarketRegime.BEAR
-        if vix is not None and vix >= _CB_VIX_CRISIS and current_severity < bear_sev:
-            target_regime = MarketRegime.BEAR
+        # council_multiplier_raw 추론 (이전 버전 context 호환)
+        council_mult = ctx.council_multiplier_raw
+        if ctx.intraday_risk_level == "NORMAL" and ctx.intraday_multiplier_raw == 1.0:
+            council_mult = ctx.position_multiplier
 
-        if target_regime is None:
+        # 최종 multiplier = min(council, intraday) — 역전 방지
+        final_mult = min(council_mult, intraday_mult)
+
+        # 변경 필요 여부 확인
+        level_changed = new_level != prev_level
+        mult_changed = abs(final_mult - ctx.position_multiplier) > 0.01
+
+        if not level_changed and not mult_changed:
             return
 
-        target_severity = _REGIME_SEVERITY[target_regime]
-        if target_severity <= current_severity:
-            return  # 이미 같거나 더 나쁜 regime — 건드리지 않음
+        # Context 업데이트
+        update: dict = {
+            "intraday_risk_level": new_level,
+            "intraday_multiplier_raw": intraday_mult,
+            "council_multiplier_raw": council_mult,
+            "position_multiplier": final_mult,
+        }
 
-        # Downgrade: 기존 context 필드 보존, regime + 관련 필드만 변경
-        downgraded = ctx.model_copy(
-            update={
-                "market_regime": target_regime,
-                "position_multiplier": min(ctx.position_multiplier, 0.6),
-                "is_high_volatility": True,
-            }
-        )
-        context_cache.set(downgraded)
+        # WARNING 이상 → regime downgrade + high volatility
+        target_regime = _LEVEL_TO_REGIME.get(new_level)
+        if target_regime:
+            update["is_high_volatility"] = True
+            current_sev = _REGIME_SEVERITY.get(ctx.market_regime, 2)
+            target_sev = _REGIME_SEVERITY[target_regime]
+            if target_sev > current_sev:
+                update["market_regime"] = target_regime
+        elif new_level in ("NORMAL", "CAUTION"):
+            update["is_high_volatility"] = False
 
-        logger.warning(
-            "CIRCUIT BREAKER: regime downgraded %s → %s (KOSPI=%.2f%%, VIX=%s)",
-            ctx.market_regime.value,
-            target_regime.value,
-            kospi_chg or 0,
-            vix,
+        updated = ctx.model_copy(update=update)
+        context_cache.set(updated)
+
+        # 구조화 로깅
+        binding = "intraday" if intraday_mult <= council_mult else "council"
+        logger.info(
+            "INTRADAY_RISK: level=%s, KOSPI=%.2f%%, VIX=%.1f, "
+            "council_mult=%.2f, intraday_mult=%.2f, final=%.2f, binding=%s",
+            new_level,
+            kospi_chg,
+            vix or 0,
+            council_mult,
+            intraday_mult,
+            final_mult,
+            binding,
         )
+
+        # 텔레그램 알림 (레벨 변경 시에만)
+        if level_changed:
+            _send_risk_alert(prev_level, new_level, kospi_chg, vix, council_mult, final_mult)
+
     except Exception:
-        logger.exception("Circuit breaker check failed")
+        logger.exception("Intraday risk check failed")
 
 
 # ─── Council (macro-council 통합) ─────────────────────────────
@@ -1493,11 +1663,12 @@ def _update_trading_context(
         )
 
         strategies_to_avoid = result.strategies_to_avoid if result else []
+        council_mult = insight.position_size_pct / 100.0
 
         context = TradingContext(
             date=insight.insight_date,
             market_regime=regime,
-            position_multiplier=insight.position_size_pct / 100.0,
+            position_multiplier=council_mult,
             stop_loss_multiplier=insight.stop_loss_adjust_pct / 100.0,
             vix_regime=insight.vix_regime,
             risk_off_level=_calc_risk_off(insight),
@@ -1505,10 +1676,18 @@ def _update_trading_context(
             avoid_sectors=insight.sectors_to_avoid,
             strategies_to_avoid=strategies_to_avoid,
             is_high_volatility=insight.vix_regime in ("elevated", "crisis"),
+            # Council 실행 → intraday risk 상태 초기화
+            council_multiplier_raw=council_mult,
+            intraday_risk_level="NORMAL",
+            intraday_multiplier_raw=1.0,
         )
 
         context_cache: TypedCache = app.state.context_cache
         context_cache.set(context)
+
+        # Intraday risk 회복 타이머 클리어
+        with contextlib.suppress(Exception):
+            get_redis().delete(_REDIS_RECOVERY_KEY)
     except Exception:
         logger.exception("Failed to update trading context")
 

@@ -72,6 +72,10 @@ class TradingContext(BaseModel):
     avoid_sectors: list[SectorGroup] = []
     strategies_to_avoid: list[str] = []
     is_high_volatility: bool = False
+    # Intraday Risk Throttle (장중 리스크 조절)
+    intraday_risk_level: str = "NORMAL"  # NORMAL/CAUTION/WARNING/DANGER/CRITICAL
+    intraday_multiplier_raw: float = 1.0  # intraday 단독 multiplier (로깅용)
+    council_multiplier_raw: float = 1.0  # council 단독 multiplier (로깅용)
 
     @classmethod
     def default(cls) -> "TradingContext":
@@ -83,6 +87,7 @@ class TradingContext(BaseModel):
             market_regime=MarketRegime.SIDEWAYS,
             position_multiplier=0.8,
             stop_loss_multiplier=1.2,
+            council_multiplier_raw=0.8,
         )
 
 

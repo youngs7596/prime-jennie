@@ -139,7 +139,8 @@ class KISApi:
             resp = self._client.request(method, path, headers=headers, params=params, json=json_data)
         except (httpx.RemoteProtocolError, httpx.ConnectError, httpx.ReadError) as e:
             # KIS 서버 간헐적 연결 끊김 → 1회 재시도
-            logger.warning("KIS %s %s connection error: %s, retrying", method, path, e)
+            stock = (params or {}).get("FID_INPUT_ISCD", "")
+            logger.warning("KIS %s %s [%s] connection error: %s, retrying", method, path, stock, e)
             time.sleep(0.5)
             resp = self._client.request(method, path, headers=headers, params=params, json=json_data)
 
