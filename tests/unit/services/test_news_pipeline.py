@@ -331,14 +331,17 @@ class TestTelegramCollectorEOF:
         mock_telethon.TelegramClient = mock_client_cls
 
         async def _run():
-            with patch.dict(os.environ, {"TELEGRAM_API_ID": "123", "TELEGRAM_API_HASH": "abc"}), patch.dict(
-                sys.modules,
-                {
-                    "telethon": mock_telethon,
-                    "telethon.tl": MagicMock(),
-                    "telethon.tl.functions": MagicMock(),
-                    "telethon.tl.functions.messages": MagicMock(),
-                },
+            with (
+                patch.dict(os.environ, {"TELEGRAM_API_ID": "123", "TELEGRAM_API_HASH": "abc"}),
+                patch.dict(
+                    sys.modules,
+                    {
+                        "telethon": mock_telethon,
+                        "telethon.tl": MagicMock(),
+                        "telethon.tl.functions": MagicMock(),
+                        "telethon.tl.functions.messages": MagicMock(),
+                    },
+                ),
             ):
                 result = await tc.collect_hedgecat_briefing()
                 assert result == ""
