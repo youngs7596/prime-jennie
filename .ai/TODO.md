@@ -23,16 +23,13 @@
 - Phase 8 DB 저장 구현 (커밋 `08f68b7`) + 컬럼 보강 (quant_score, sector_group, market_regime)
 - Alembic migration 005 추가
 
-### 10. News Pipeline 구조 개선 (analyzer/archiver lag 해소)
-- **현상**: `stream:news:raw`에 10만건 누적, analyzer lag 10,162건 (3/3부터 밀림), archiver lag (2/27부터 밀림)
-- **원인**: collector → analyze → archive 순차 실행 구조. collector가 전체 유니버스 크롤링에 수십 분 소요 → analyzer 턴이 안 옴. analyzer 실패 시 warning만 찍고 넘어감
-- **해결안 후보**:
-  - (A) collector와 analyzer를 별도 스레드로 분리 (producer/consumer 병렬)
-  - (B) collector를 watchlist 종목만 수집하도록 범위 축소 (전체 유니버스 → 관심 종목)
-  - (C) analyzer를 별도 서비스로 분리 (독립 consumer group)
-  - (D) NEWS_STREAM_MAXLEN 100,000 → 10,000 축소 (코드 수정 완료, 배포 대기)
-- **임시 조치 완료**: consumer group last-delivered-id `$`로 리셋, 스트림 XTRIM 10,000건
-- **주의**: analyzer LLM 호출 실패 시 재시도/dead-letter 메커니즘 필요
+### ~~10. News Pipeline 구조 개선 (analyzer/archiver lag 해소)~~ ✅ 완료
+- 해결안 (A) 적용: 3개 독립 스레드 (collector / analyzer / archiver) 병렬 실행
+- collector: 기존 interval (장중 10분, 장외 30분) 유지
+- analyzer: Stream consumer로 연속 동작, 에러 시 30초 backoff + 자동 재생성
+- archiver: 동일하게 연속 동작
+- Heavy 리소스 (LLM provider, Qdrant client) lazy init + 에러 시 자동 재생성
+- version 2.0.0
 
 ## 중요 (성능 개선)
 

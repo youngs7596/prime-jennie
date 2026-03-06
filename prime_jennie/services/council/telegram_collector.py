@@ -10,6 +10,10 @@ from datetime import UTC, datetime, timedelta
 
 logger = logging.getLogger(__name__)
 
+# 세션 만료/손상 시 반복 에러 방지
+_telegram_disabled = False
+_telegram_disable_reason = ""
+
 # 수집 대상 채널
 CHANNEL_USERNAME = "hedgecat0301"
 CHANNEL_NAME = "키움증권 전략/시황 한지영"
@@ -111,6 +115,12 @@ async def collect_hedgecat_briefing(hours: int = 24, max_messages: int = 30) -> 
     Returns:
         포맷된 브리핑 텍스트. 실패 시 빈 문자열.
     """
+    global _telegram_disabled, _telegram_disable_reason
+
+    if _telegram_disabled:
+        logger.debug("Telegram collection disabled: %s", _telegram_disable_reason)
+        return ""
+
     api_id = os.getenv("TELEGRAM_API_ID")
     api_hash = os.getenv("TELEGRAM_API_HASH")
 
@@ -154,7 +164,6 @@ async def collect_hedgecat_briefing(hours: int = 24, max_messages: int = 30) -> 
                     continue
 
                 text = msg.message.strip()
-                # 너무 짧은 메시지 스킵
                 if len(text) < 20:
                     continue
 
@@ -167,6 +176,16 @@ async def collect_hedgecat_briefing(hours: int = 24, max_messages: int = 30) -> 
                 )
 
         logger.info("Telegram: collected %d messages from @%s", len(collected), CHANNEL_USERNAME)
+
+    except EOFError:
+        _telegram_disabled = True
+        _telegram_disable_reason = "session expired/corrupted (EOFError)"
+        logger.warning(
+            "Telegram session expired or corrupted (@%s). Re-create session file at %s to resume collection.",
+            CHANNEL_USERNAME,
+            session_path,
+        )
+        return ""
 
     except Exception:
         logger.exception("Telegram collection failed for @%s", CHANNEL_USERNAME)

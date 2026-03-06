@@ -276,6 +276,83 @@ class TestNewsAnalyzerLLM:
         assert result["score"] == 50
 
 
+# ─── Pipeline status / threads ──────────────────────────────────
+
+
+class TestPipelineStatus:
+    def test_status_has_thread_flags(self):
+        """v2.0 — 스레드별 running 플래그가 status에 포함."""
+        from prime_jennie.services.news.app import _pipeline_status
+
+        assert "collector_running" in _pipeline_status
+        assert "analyzer_running" in _pipeline_status
+        assert "archiver_running" in _pipeline_status
+        assert "collector_cycle" in _pipeline_status
+
+    def test_interruptible_sleep_exits_early(self):
+        import prime_jennie.services.news.app as news_app
+        from prime_jennie.services.news.app import _interruptible_sleep
+
+        original = news_app._loop_running
+        news_app._loop_running = False
+        import time
+
+        start = time.monotonic()
+        _interruptible_sleep(60)
+        elapsed = time.monotonic() - start
+        news_app._loop_running = original
+
+        assert elapsed < 3  # 즉시 종료
+
+
+# ─── Telegram EOFError ────────────────────────────────────────
+
+
+class TestTelegramCollectorEOF:
+    def test_eoferror_disables_future_calls(self):
+        """EOFError 발생 시 _telegram_disabled=True → 이후 호출 skip."""
+        import asyncio
+        import os
+        import sys
+
+        import prime_jennie.services.council.telegram_collector as tc
+
+        # 상태 초기화
+        tc._telegram_disabled = False
+        tc._telegram_disable_reason = ""
+
+        # telethon lazy import를 위한 mock 모듈
+        mock_telethon = MagicMock()
+        mock_client_cls = MagicMock()
+        mock_client_instance = AsyncMock()
+        mock_client_instance.__aenter__ = AsyncMock(side_effect=EOFError("corrupted"))
+        mock_client_instance.__aexit__ = AsyncMock(return_value=False)
+        mock_client_cls.return_value = mock_client_instance
+        mock_telethon.TelegramClient = mock_client_cls
+
+        async def _run():
+            with patch.dict(os.environ, {"TELEGRAM_API_ID": "123", "TELEGRAM_API_HASH": "abc"}), patch.dict(
+                sys.modules,
+                {
+                    "telethon": mock_telethon,
+                    "telethon.tl": MagicMock(),
+                    "telethon.tl.functions": MagicMock(),
+                    "telethon.tl.functions.messages": MagicMock(),
+                },
+            ):
+                result = await tc.collect_hedgecat_briefing()
+                assert result == ""
+                assert tc._telegram_disabled is True
+
+                # 두 번째 호출은 즉시 반환 (TelegramClient 호출 없이)
+                result2 = await tc.collect_hedgecat_briefing()
+                assert result2 == ""
+
+        asyncio.run(_run())
+        # 테스트 후 초기화
+        tc._telegram_disabled = False
+
+
 # ─── Universe filter ──────────────────────────────────────────
 
 

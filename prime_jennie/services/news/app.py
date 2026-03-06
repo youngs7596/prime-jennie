@@ -1,7 +1,10 @@
-"""News Pipeline 서비스 — 뉴스 수집 → 감성 분석 → 벡터 DB 저장.
+"""News Pipeline 서비스 — 뉴스 수집 / 감성 분석 / 벡터 DB 저장.
 
-수집 대상: Watchlist 종목 + 활성 보유 종목.
-상시 백그라운드 루프로 자동 수집 + HTTP POST /collect 으로 수동 트리거 가능.
+수집 대상: 활성 종목 유니버스.
+3개 독립 스레드가 병렬로 동작:
+  - Collector: 주기적 크롤링 → Redis Stream 발행
+  - Analyzer: Stream consumer → LLM 감성 분석 → DB 저장
+  - Archiver: Stream consumer → Qdrant 임베딩
 
 Data Flow:
   Naver Crawl → Redis stream:news:raw → Analyzer (LLM) → DB
@@ -38,19 +41,24 @@ _pipeline_status: dict = {
     "last_archive": None,
     "last_collect_count": 0,
     "last_analyze_count": 0,
-    "loop_cycle": 0,
+    "collector_cycle": 0,
     "running": False,
-    "daemon_running": False,
+    "collector_running": False,
+    "analyzer_running": False,
+    "archiver_running": False,
 }
 
 _loop_running = False
-_loop_thread: threading.Thread | None = None
+_threads: list[threading.Thread] = []
 
 # ─── Constants ──────────────────────────────────────────
 
 INTERVAL_MARKET_SEC = 10 * 60  # 장중 10분
 INTERVAL_OFF_SEC = 30 * 60  # 장외 30분
-ARCHIVE_EVERY_N = 3  # 3회 수집마다 아카이브 1회
+ANALYZER_BATCH = 50  # 분석기 1회 처리량
+ARCHIVER_IDLE_SEC = 10  # 아카이버 대기 시간
+ANALYZER_IDLE_SEC = 5  # 분석기 대기 시간
+ERROR_BACKOFF_SEC = 30  # 에러 시 대기
 
 
 # ─── Helpers ────────────────────────────────────────────
@@ -78,85 +86,126 @@ def _get_interval() -> int:
     return INTERVAL_MARKET_SEC if _is_market_hours() else INTERVAL_OFF_SEC
 
 
-# ─── Background Loop ──────────────────────────────────
+def _interruptible_sleep(seconds: int) -> None:
+    """_loop_running 체크하며 대기."""
+    for _ in range(seconds):
+        if not _loop_running:
+            break
+        time.sleep(1)
 
 
-def _news_loop() -> None:
-    """상시 수집 루프 — collect → analyze → (주기적) archive."""
-    global _loop_running
+# ─── Background Threads ──────────────────────────────────
+
+
+def _collector_loop() -> None:
+    """수집 스레드 — 주기적 크롤링 → Stream 발행."""
     cycle = 0
-    logger.info("News pipeline daemon started")
+    logger.info("[collector] Thread started")
+    _pipeline_status["collector_running"] = True
 
     while _loop_running:
         cycle += 1
-        _pipeline_status["loop_cycle"] = cycle
-        logger.info("[cycle %d] Starting", cycle)
+        _pipeline_status["collector_cycle"] = cycle
         try:
             session = _create_session()
             try:
                 r = get_redis()
                 universe = _load_universe(session)
-
-                # Phase 1: Collect
                 collector = NewsCollector(r, universe)
                 collected = collector.run_once()
                 _pipeline_status["last_collect_count"] = collected
                 _pipeline_status["last_collect"] = datetime.now().isoformat()
-                logger.info("[cycle %d] Collected %d articles", cycle, collected)
-
-                # Phase 2: Analyze
-                analyzed = 0
-                try:
-                    from prime_jennie.infra.llm.factory import LLMFactory
-
-                    get_config()
-                    llm = LLMFactory.get_provider("FAST")
-                    analyzer = NewsAnalyzer(r, llm, db_session_factory=_create_session)
-                    analyzed = analyzer.run_once(max_messages=collected + 50)
-                except Exception as e:
-                    logger.warning("[cycle %d] Analyzer failed: %s", cycle, e)
-
-                _pipeline_status["last_analyze_count"] = analyzed
-                _pipeline_status["last_analyze"] = datetime.now().isoformat()
-                logger.info("[cycle %d] Analyzed %d articles", cycle, analyzed)
-
-                # Phase 3: Archive (every N cycles)
-                if cycle % ARCHIVE_EVERY_N == 0:
-                    try:
-                        config = get_config()
-                        from .archiver import NewsArchiver
-
-                        archiver = NewsArchiver(
-                            r,
-                            qdrant_url=config.infra.qdrant_url,
-                            embed_url=config.llm.vllm_embed_url,
-                        )
-                        archived = archiver.run_once()
-                        _pipeline_status["last_archive"] = datetime.now().isoformat()
-                        logger.info("[cycle %d] Archived %d articles", cycle, archived)
-                    except Exception as e:
-                        logger.warning("[cycle %d] Archiver failed: %s", cycle, e)
-
+                logger.info("[collector cycle %d] %d articles", cycle, collected)
             finally:
                 session.close()
-
         except BaseException as e:
-            logger.error("[cycle %d] News loop error: %s", cycle, e, exc_info=True)
+            logger.error("[collector] Error: %s", e, exc_info=True)
             if not isinstance(e, Exception):
-                logger.critical("[cycle %d] Non-recoverable error, stopping daemon", cycle)
                 break
 
-        # Sleep with early exit check
         interval = _get_interval()
         market = "market" if _is_market_hours() else "off-hours"
-        logger.info("[cycle %d] Done. Sleeping %ds (%s)", cycle, interval, market)
-        for _ in range(interval):
-            if not _loop_running:
-                break
-            time.sleep(1)
+        logger.info("[collector cycle %d] Sleeping %ds (%s)", cycle, interval, market)
+        _interruptible_sleep(interval)
 
-    _pipeline_status["daemon_running"] = False
-    logger.info("News pipeline daemon stopped")
+    _pipeline_status["collector_running"] = False
+    logger.info("[collector] Thread stopped")
+
+
+def _analyzer_loop() -> None:
+    """분석 스레드 — Stream consumer → LLM 감성 분석 → DB 저장."""
+    logger.info("[analyzer] Thread started")
+    _pipeline_status["analyzer_running"] = True
+    analyzer = None
+
+    while _loop_running:
+        try:
+            # lazy init / 에러 복구 시 재생성
+            if analyzer is None:
+                r = get_redis()
+                get_config()
+                from prime_jennie.infra.llm.factory import LLMFactory
+
+                llm = LLMFactory.get_provider("FAST")
+                analyzer = NewsAnalyzer(r, llm, db_session_factory=_create_session)
+                logger.info("[analyzer] Initialized")
+
+            analyzed = analyzer.run_once(max_messages=ANALYZER_BATCH)
+            if analyzed > 0:
+                _pipeline_status["last_analyze_count"] = analyzed
+                _pipeline_status["last_analyze"] = datetime.now().isoformat()
+                logger.info("[analyzer] Processed %d articles", analyzed)
+            else:
+                # Stream에 메시지 없음 — BLOCK_MS(2s) 이미 대기했으므로 짧은 추가 대기
+                _interruptible_sleep(ANALYZER_IDLE_SEC)
+
+        except Exception as e:
+            logger.warning("[analyzer] Error: %s", e, exc_info=True)
+            analyzer = None  # 다음 루프에서 재생성
+            _interruptible_sleep(ERROR_BACKOFF_SEC)
+        except BaseException:
+            break
+
+    _pipeline_status["analyzer_running"] = False
+    logger.info("[analyzer] Thread stopped")
+
+
+def _archiver_loop() -> None:
+    """아카이빙 스레드 — Stream consumer → Qdrant 임베딩."""
+    logger.info("[archiver] Thread started")
+    _pipeline_status["archiver_running"] = True
+    archiver = None
+
+    while _loop_running:
+        try:
+            if archiver is None:
+                r = get_redis()
+                config = get_config()
+                from .archiver import NewsArchiver
+
+                archiver = NewsArchiver(
+                    r,
+                    qdrant_url=config.infra.qdrant_url,
+                    embed_url=config.llm.vllm_embed_url,
+                )
+                logger.info("[archiver] Initialized")
+
+            archived = archiver.run_once(max_messages=100)
+            if archived > 0:
+                _pipeline_status["last_archive"] = datetime.now().isoformat()
+                logger.info("[archiver] Processed %d articles", archived)
+            else:
+                _interruptible_sleep(ARCHIVER_IDLE_SEC)
+
+        except Exception as e:
+            logger.warning("[archiver] Error: %s", e, exc_info=True)
+            archiver = None
+            _interruptible_sleep(ERROR_BACKOFF_SEC)
+        except BaseException:
+            break
+
+    _pipeline_status["archiver_running"] = False
+    logger.info("[archiver] Thread stopped")
 
 
 # ─── FastAPI App ────────────────────────────────────────
@@ -164,23 +213,27 @@ def _news_loop() -> None:
 
 @asynccontextmanager
 async def lifespan(app):
-    global _loop_running, _loop_thread
+    global _loop_running, _threads
     _loop_running = True
-    _pipeline_status["daemon_running"] = True
-    _loop_thread = threading.Thread(target=_news_loop, name="news-pipeline-loop", daemon=True)
-    _loop_thread.start()
-    logger.info("News pipeline daemon thread started")
+    _threads = [
+        threading.Thread(target=_collector_loop, name="news-collector", daemon=True),
+        threading.Thread(target=_analyzer_loop, name="news-analyzer", daemon=True),
+        threading.Thread(target=_archiver_loop, name="news-archiver", daemon=True),
+    ]
+    for t in _threads:
+        t.start()
+    logger.info("News pipeline: 3 threads started (collector, analyzer, archiver)")
 
     yield
 
     _loop_running = False
-    _pipeline_status["daemon_running"] = False
-    if _loop_thread:
-        _loop_thread.join(timeout=10)
-    logger.info("News pipeline daemon thread stopped")
+    for t in _threads:
+        t.join(timeout=10)
+    _threads.clear()
+    logger.info("News pipeline: all threads stopped")
 
 
-app = create_app("news-pipeline", version="1.0.0", lifespan=lifespan, dependencies=["redis", "db"])
+app = create_app("news-pipeline", version="2.0.0", lifespan=lifespan, dependencies=["redis", "db"])
 
 
 class CollectResponse(BaseModel):
