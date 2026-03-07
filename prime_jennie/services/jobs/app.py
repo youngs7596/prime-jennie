@@ -1451,6 +1451,112 @@ def _build_index_technical_text() -> str:
         return ""
 
 
+# ─── WSJ 한글 요약 + 텔레그램 전송 ─────────────────────────────
+
+_WSJ_SUMMARY_SYSTEM = """당신은 한국 주식시장 투자자를 위한 매크로 뉴스 애널리스트입니다.
+WSJ 뉴스레터 원문을 분석하여 KOSPI 투자자 관점에서 핵심 내용을 한국어로 요약하세요.
+
+출력 형식 (반드시 준수):
+
+<b>[뉴스레터 종류]</b> — YYYY.MM.DD
+
+<b>핵심 요약</b>
+- 주요 포인트를 불릿으로 3~5줄
+
+<b>KOSPI 영향도</b>
+- 관련 섹터/종목에 미칠 영향 1~2줄
+
+<b>원문 키워드:</b> 영문 핵심 키워드 3~5개
+
+지시사항:
+- 한국어로 작성, HTML 태그만 사용 (<b>, <i> 허용, Markdown 금지)
+- KOSPI 투자자 관점에서 중요한 내용 우선
+- 광고/구독 권유 문구 완전 제거
+- 전체 길이 1500자 이내"""
+
+
+async def _summarize_and_send_wsj(newsletters: list, r: redis_lib.Redis) -> None:
+    """WSJ 뉴스레터 LLM 한글 요약 → 텔레그램 전송 (fire-and-forget)."""
+    import asyncio
+
+    from prime_jennie.infra.crawlers.wsj_gmail import _type_to_label
+
+    config = get_config()
+    bot_token = config.telegram.bot_token
+    chat_ids = [cid.strip() for cid in config.telegram.chat_ids.split(",") if cid.strip()]
+
+    if not bot_token or not chat_ids:
+        logger.debug("Telegram not configured, skipping WSJ summary")
+        return
+
+    try:
+        from prime_jennie.infra.llm.factory import LLMFactory
+
+        provider = LLMFactory.get_provider("fast")
+    except Exception:
+        logger.warning("LLM provider init failed, skipping WSJ summary", exc_info=True)
+        return
+
+    import httpx
+
+    for nl in newsletters:
+        # 중복 방지: newsletter_type + 날짜 기반 (하루 1회만 전송)
+        dedup_key = f"wsj:summary:sent:{nl.newsletter_type}:{date.today().isoformat()}"
+        if r.exists(dedup_key):
+            logger.debug("WSJ summary already sent: %s", nl.newsletter_type)
+            continue
+
+        label = _type_to_label(nl.newsletter_type)
+        prompt = f"뉴스레터 종류: {label}\n날짜: {nl.email_date}\n제목: {nl.subject}\n\n본문:\n{nl.body}"
+
+        try:
+            response = await provider.generate(
+                prompt=prompt,
+                system=_WSJ_SUMMARY_SYSTEM,
+                max_tokens=1500,
+                service="wsj_summary",
+            )
+            if not response or not response.content:
+                logger.warning("WSJ summary LLM returned empty for %s", nl.newsletter_type)
+                continue
+
+            summary_text = response.content.strip()
+
+            # 텔레그램 전송 (모든 chat_id)
+            sent = False
+            for chat_id in chat_ids:
+                for attempt in range(3):
+                    try:
+                        resp = httpx.post(
+                            f"https://api.telegram.org/bot{bot_token}/sendMessage",
+                            json={
+                                "chat_id": chat_id,
+                                "text": summary_text[:4096],
+                                "parse_mode": "HTML",
+                            },
+                            timeout=15,
+                        )
+                        if resp.status_code == 200:
+                            sent = True
+                            break
+                        logger.warning(
+                            "Telegram send %d (attempt %d): %s",
+                            resp.status_code,
+                            attempt + 1,
+                            resp.text[:200],
+                        )
+                    except Exception as e:
+                        logger.warning("Telegram send error (attempt %d): %s", attempt + 1, e)
+                    await asyncio.sleep(2**attempt)
+
+            if sent:
+                r.setex(dedup_key, 86400 * 3, "1")  # 3일 TTL
+                logger.info("WSJ summary sent: %s (%d chars)", nl.newsletter_type, len(summary_text))
+
+        except Exception:
+            logger.warning("WSJ summary failed for %s", nl.newsletter_type, exc_info=True)
+
+
 @app.post("/jobs/council-trigger")
 async def council_trigger(
     briefing_text: str = "",
@@ -1481,15 +1587,23 @@ async def council_trigger(
 
     # WSJ 뉴스레터 수집 (Gmail API OAuth2)
     wsj_briefing = ""
+    wsj_newsletters = []
     try:
         from prime_jennie.infra.crawlers.wsj_gmail import fetch_wsj_briefing
 
         wsj_result = fetch_wsj_briefing()
+        wsj_newsletters = wsj_result.newsletters
         wsj_briefing = wsj_result.to_text()
         if wsj_briefing:
             logger.info("WSJ briefing collected: %d chars", len(wsj_briefing))
     except Exception:
         logger.warning("WSJ Gmail collection failed, continuing without it", exc_info=True)
+
+    # [병렬 분기] WSJ 한글 요약 → 텔레그램 전송 (council 파이프라인에 영향 없음)
+    if wsj_newsletters:
+        import asyncio
+
+        asyncio.create_task(_summarize_and_send_wsj(wsj_newsletters, r))
 
     # 브리핑 텍스트 병합: 텔레그램 + WSJ + 레거시 인사이트 + 외부 briefing
     combined_briefing = "\n\n".join(filter(None, [telegram_briefing, wsj_briefing, legacy_briefing, briefing_text]))
