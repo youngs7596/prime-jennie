@@ -13,9 +13,11 @@ import json
 import logging
 import threading
 import time
-from datetime import datetime, timedelta, timezone
+from datetime import timedelta, timezone
 
 import redis
+
+from prime_jennie.infra.market_hours import MarketCalendar
 
 logger = logging.getLogger(__name__)
 
@@ -38,14 +40,19 @@ _BACKOFF_INITIAL = 60
 _BACKOFF_MAX = 600
 _STABLE_CONNECTION_SECS = 30
 
+# 모듈 레벨 MarketCalendar (Gateway lifespan에서 초기화)
+_market_calendar: MarketCalendar = MarketCalendar()
+
+
+def set_market_calendar(cal: MarketCalendar) -> None:
+    """Gateway lifespan에서 KIS API 연동 MarketCalendar를 주입."""
+    global _market_calendar
+    _market_calendar = cal
+
 
 def _is_streaming_hours() -> bool:
-    """장 시간 체크 (08:50~15:35 KST, 평일만)."""
-    now = datetime.now(_KST)
-    if now.weekday() >= 5:  # 토/일
-        return False
-    t = now.hour * 100 + now.minute
-    return 850 <= t <= 1535
+    """스트리밍 시간 체크 (08:50~15:35 KST, 거래일만)."""
+    return _market_calendar.is_streaming_hours()
 
 
 class KISWebSocketStreamer:

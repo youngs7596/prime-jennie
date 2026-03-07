@@ -36,12 +36,13 @@ from prime_jennie.domain.portfolio import PortfolioState, Position
 from prime_jennie.domain.stock import DailyPrice, MinutePrice, StockSnapshot
 from prime_jennie.domain.trading import OrderRequest, OrderResult, OrderType
 from prime_jennie.infra.database.repositories import StockRepository
+from prime_jennie.infra.market_hours import MarketCalendar
 from prime_jennie.services.base import create_app
 from prime_jennie.services.deps import get_db_session
 
 from .kis_api import KISApi, KISApiError
 from .poller import KISRestPoller
-from .streamer import KISWebSocketStreamer
+from .streamer import KISWebSocketStreamer, set_market_calendar
 
 logger = logging.getLogger(__name__)
 
@@ -72,6 +73,7 @@ _request_history: deque = deque(maxlen=100)
 
 _kis_api: KISApi | None = None
 _streamer: KISWebSocketStreamer | KISRestPoller | None = None
+_calendar: MarketCalendar | None = None
 
 
 def _get_kis_api() -> KISApi:
@@ -114,7 +116,7 @@ class TradingDayQuery(BaseModel):
 
 @asynccontextmanager
 async def lifespan(app) -> AsyncIterator[None]:
-    global _streamer
+    global _streamer, _calendar
     config = get_config()
     logger.info(
         "KIS Gateway starting — mode=%s, paper=%s",
@@ -128,6 +130,11 @@ async def lifespan(app) -> AsyncIterator[None]:
         logger.info("KIS token pre-authenticated")
     except Exception as e:
         logger.warning("KIS pre-auth failed (will retry on first request): %s", e)
+
+    # MarketCalendar 초기화 (KIS API로 거래일 확인, 일 단위 캐시)
+    _calendar = MarketCalendar(trading_day_checker=lambda d: _get_kis_api().is_trading_day(d))
+    set_market_calendar(_calendar)
+    logger.info("MarketCalendar initialized with KIS trading day checker")
 
     # Streamer 초기화 (WebSocket 또는 REST Polling)
     from prime_jennie.infra.redis.client import get_redis
@@ -258,29 +265,24 @@ async def is_trading_day(request: Request, date: str | None = None) -> dict:
 @app.get("/api/market/is-market-open")
 @_limiter.limit("5/second")
 async def is_market_open(request: Request) -> dict:
-    """장 운영 상태 확인."""
+    """장 운영 상태 확인 (거래일 + 시간대 통합)."""
+    if _calendar:
+        open_flag, session_str = _calendar.is_market_open()
+        return {"is_open": open_flag, "session": session_str}
+
+    # 폴백: MarketCalendar 미초기화 시 시간만 체크
     now = datetime.now(UTC).astimezone()
-    hour = now.hour
-    minute = now.minute
-    time_val = hour * 100 + minute
+    time_val = now.hour * 100 + now.minute
 
     if time_val < 900:
-        session_str = "pre_market"
-        is_open = False
-    elif time_val < 930:
-        session_str = "pre_opening"
-        is_open = True
-    elif time_val < 1530:
-        session_str = "regular"
-        is_open = True
-    elif time_val < 1600:
-        session_str = "closing"
-        is_open = True
-    else:
-        session_str = "after_hours"
-        is_open = False
-
-    return {"is_open": is_open, "session": session_str}
+        return {"is_open": False, "session": "pre_market"}
+    if time_val < 930:
+        return {"is_open": True, "session": "pre_opening"}
+    if time_val < 1530:
+        return {"is_open": True, "session": "regular"}
+    if time_val < 1600:
+        return {"is_open": True, "session": "closing"}
+    return {"is_open": False, "session": "after_hours"}
 
 
 # ─── Trading Endpoints ───────────────────────────────────────────

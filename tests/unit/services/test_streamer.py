@@ -40,7 +40,7 @@ class TestIsStreamingHours:
 
         kst = timezone(timedelta(hours=9))
         dt = datetime(2026, 3, 2, 10, 0, tzinfo=kst)  # Monday
-        with patch("prime_jennie.services.gateway.streamer.datetime") as mock_dt:
+        with patch("prime_jennie.infra.market_hours.datetime") as mock_dt:
             mock_dt.now.return_value = dt
             assert _is_streaming_hours() is True
 
@@ -49,7 +49,7 @@ class TestIsStreamingHours:
 
         kst = timezone(timedelta(hours=9))
         dt = datetime(2026, 3, 2, 7, 0, tzinfo=kst)  # Monday 07:00
-        with patch("prime_jennie.services.gateway.streamer.datetime") as mock_dt:
+        with patch("prime_jennie.infra.market_hours.datetime") as mock_dt:
             mock_dt.now.return_value = dt
             assert _is_streaming_hours() is False
 
@@ -58,7 +58,7 @@ class TestIsStreamingHours:
 
         kst = timezone(timedelta(hours=9))
         dt = datetime(2026, 3, 2, 16, 0, tzinfo=kst)  # Monday 16:00
-        with patch("prime_jennie.services.gateway.streamer.datetime") as mock_dt:
+        with patch("prime_jennie.infra.market_hours.datetime") as mock_dt:
             mock_dt.now.return_value = dt
             assert _is_streaming_hours() is False
 
@@ -67,7 +67,7 @@ class TestIsStreamingHours:
 
         kst = timezone(timedelta(hours=9))
         dt = datetime(2026, 3, 7, 10, 0, tzinfo=kst)  # Saturday
-        with patch("prime_jennie.services.gateway.streamer.datetime") as mock_dt:
+        with patch("prime_jennie.infra.market_hours.datetime") as mock_dt:
             mock_dt.now.return_value = dt
             assert _is_streaming_hours() is False
 
@@ -76,7 +76,7 @@ class TestIsStreamingHours:
 
         kst = timezone(timedelta(hours=9))
         dt = datetime(2026, 3, 2, 8, 50, tzinfo=kst)  # Monday 08:50
-        with patch("prime_jennie.services.gateway.streamer.datetime") as mock_dt:
+        with patch("prime_jennie.infra.market_hours.datetime") as mock_dt:
             mock_dt.now.return_value = dt
             assert _is_streaming_hours() is True
 
@@ -85,7 +85,7 @@ class TestIsStreamingHours:
 
         kst = timezone(timedelta(hours=9))
         dt = datetime(2026, 3, 2, 15, 35, tzinfo=kst)  # Monday 15:35
-        with patch("prime_jennie.services.gateway.streamer.datetime") as mock_dt:
+        with patch("prime_jennie.infra.market_hours.datetime") as mock_dt:
             mock_dt.now.return_value = dt
             assert _is_streaming_hours() is True
 
@@ -94,7 +94,7 @@ class TestIsStreamingHours:
 
         kst = timezone(timedelta(hours=9))
         dt = datetime(2026, 3, 2, 15, 36, tzinfo=kst)  # Monday 15:36
-        with patch("prime_jennie.services.gateway.streamer.datetime") as mock_dt:
+        with patch("prime_jennie.infra.market_hours.datetime") as mock_dt:
             mock_dt.now.return_value = dt
             assert _is_streaming_hours() is False
 

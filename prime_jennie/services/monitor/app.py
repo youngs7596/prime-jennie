@@ -32,6 +32,7 @@ from prime_jennie.domain.trading import SellOrder
 from prime_jennie.infra.database.engine import get_engine
 from prime_jennie.infra.database.repositories import PortfolioRepository
 from prime_jennie.infra.kis.client import KISClient
+from prime_jennie.infra.market_hours import MarketCalendar
 from prime_jennie.infra.redis.cache import TypedCache
 from prime_jennie.infra.redis.client import get_redis
 from prime_jennie.infra.redis.streams import TypedStreamPublisher
@@ -633,11 +634,29 @@ _tick_thread: threading.Thread | None = None
 _tick_running = False
 
 
+def _create_market_calendar() -> MarketCalendar:
+    """Gateway API 기반 MarketCalendar 생성."""
+    config = get_config()
+    gateway_url = config.kis.gateway_url
+
+    def _check_trading_day(d) -> bool:
+        resp = httpx.get(
+            f"{gateway_url}/api/market/is-trading-day",
+            params={"date": d.isoformat()},
+            timeout=5.0,
+        )
+        resp.raise_for_status()
+        return resp.json().get("is_trading_day", True)
+
+    return MarketCalendar(trading_day_checker=_check_trading_day)
+
+
 def _consume_ticks(r: redis.Redis, monitor: PriceMonitor) -> None:
     """kis:prices Redis Stream 소비 루프 (백그라운드 스레드).
 
     Gateway의 KISWebSocketStreamer가 XADD한 raw tick을 읽어
     monitor.process_tick()에 전달.
+    장 운영 시간(09:00~15:30, 거래일)에만 처리.
     5분마다 refresh_positions() + 신규 종목 gateway 구독.
     """
     global _tick_running
@@ -660,9 +679,28 @@ def _consume_ticks(r: redis.Redis, monitor: PriceMonitor) -> None:
     logger.info("Tick consumer started: stream=%s group=%s", PRICE_STREAM, PRICE_GROUP)
     last_refresh = time.time()
     tick_count = 0
+    market_cal = _create_market_calendar()
+    _was_open = False
 
     while _tick_running:
         try:
+            # 장 운영 시간 체크 — 장외 시간이면 60초 대기
+            is_open, session = market_cal.is_market_open()
+            if not is_open:
+                if _was_open:
+                    logger.info("Market closed (%s), monitor pausing", session)
+                    _was_open = False
+                time.sleep(60)
+                continue
+            if not _was_open:
+                logger.info("Market open (%s), monitor resuming", session)
+                _was_open = True
+                # 장 개시 시 포지션 즉시 갱신
+                codes = monitor.refresh_positions()
+                if codes:
+                    _subscribe_to_gateway(codes)
+                last_refresh = time.time()
+
             # 주기적 포지션 갱신 + RSI 재계산
             now = time.time()
             if now - last_refresh > POSITION_REFRESH_INTERVAL:

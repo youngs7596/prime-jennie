@@ -172,6 +172,27 @@ class KISClient:
         resp.raise_for_status()
         return StockSnapshot.model_validate(resp.json())
 
+    def is_market_open(self) -> dict:
+        """장 운영 상태 확인 (거래일 + 시간대 통합).
+
+        Returns:
+            {"is_open": bool, "session": str}
+        """
+        resp = self._client.get("/api/market/is-market-open")
+        resp.raise_for_status()
+        return resp.json()
+
+    def is_trading_day(self, date_str: str | None = None) -> bool:
+        """거래일 여부 확인.
+
+        Args:
+            date_str: "YYYY-MM-DD" 형식 날짜 (None이면 오늘)
+        """
+        params = {"date": date_str} if date_str else {}
+        resp = self._client.get("/api/market/is-trading-day", params=params)
+        resp.raise_for_status()
+        return resp.json().get("is_trading_day", True)
+
     def health(self) -> bool:
         """게이트웨이 헬스체크."""
         try:

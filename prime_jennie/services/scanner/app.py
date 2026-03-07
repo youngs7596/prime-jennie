@@ -22,6 +22,7 @@ import redis
 from prime_jennie.domain import BuySignal, HotWatchlist, TradingContext
 from prime_jennie.domain.config import get_config
 from prime_jennie.domain.enums import MOMENTUM_STRATEGIES, SignalType
+from prime_jennie.infra.market_hours import MarketCalendar
 from prime_jennie.infra.redis.cache import TypedCache
 from prime_jennie.infra.redis.client import get_redis
 from prime_jennie.infra.redis.streams import TypedStreamPublisher
@@ -445,11 +446,29 @@ _tick_thread: threading.Thread | None = None
 _tick_running = False
 
 
+def _create_market_calendar() -> MarketCalendar:
+    """Gateway API 기반 MarketCalendar 생성."""
+    config = get_config()
+    gateway_url = config.kis.gateway_url
+
+    def _check_trading_day(d) -> bool:
+        resp = httpx.get(
+            f"{gateway_url}/api/market/is-trading-day",
+            params={"date": d.isoformat()},
+            timeout=5.0,
+        )
+        resp.raise_for_status()
+        return resp.json().get("is_trading_day", True)
+
+    return MarketCalendar(trading_day_checker=_check_trading_day)
+
+
 def _consume_ticks(r: redis.Redis, scanner: BuyScanner) -> None:
     """kis:prices Redis Stream 소비 루프 (백그라운드 스레드).
 
     Gateway의 KISWebSocketStreamer가 XADD한 raw tick을 읽어
     scanner.process_tick()에 전달.
+    장 운영 시간(09:00~15:30, 거래일)에만 처리.
     """
     global _tick_running
 
@@ -471,9 +490,30 @@ def _consume_ticks(r: redis.Redis, scanner: BuyScanner) -> None:
     logger.info("Tick consumer started: stream=%s group=%s", PRICE_STREAM, PRICE_GROUP)
     last_reload = time.time()
     tick_count = 0
+    market_cal = _create_market_calendar()
+    _was_open = False
 
     while _tick_running:
         try:
+            # 장 운영 시간 체크 — 장외 시간이면 60초 대기
+            is_open, session = market_cal.is_market_open()
+            if not is_open:
+                if _was_open:
+                    logger.info("Market closed (%s), scanner pausing", session)
+                    _was_open = False
+                time.sleep(60)
+                continue
+            if not _was_open:
+                logger.info("Market open (%s), scanner resuming", session)
+                _was_open = True
+                # 장 개시 시 watchlist 즉시 리로드
+                scanner.load_watchlist()
+                scanner.load_context()
+                if scanner.watchlist:
+                    codes = [s.stock_code for s in scanner.watchlist.stocks]
+                    _subscribe_to_gateway(codes)
+                last_reload = time.time()
+
             # 주기적 watchlist 재로드
             now = time.time()
             if now - last_reload > WATCHLIST_RELOAD_INTERVAL:
