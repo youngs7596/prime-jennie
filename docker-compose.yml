@@ -404,6 +404,8 @@ services:
       TELEGRAM_API_HASH: "${TELEGRAM_API_HASH}"
     volumes:
       - ${DOCKER_DATA_DIR:-/docker_data}/telegram_sessions:/app/.telegram_sessions
+      - ./credentials.json:/app/credentials.json:ro
+      - ./token.json:/app/token.json
     command: ["uvicorn", "prime_jennie.services.jobs.app:app", "--host", "0.0.0.0", "--port", "8095"]
     labels:
       - app=job-worker
