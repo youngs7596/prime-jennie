@@ -6,7 +6,7 @@
 ![Python](https://img.shields.io/badge/python-3.12-green)
 ![Docker](https://img.shields.io/badge/docker-compose-2496ED)
 ![Airflow](https://img.shields.io/badge/airflow-2.10-017CEE)
-![Tests](https://img.shields.io/badge/tests-596%20passed-brightgreen)
+![Tests](https://img.shields.io/badge/tests-867%20passed-brightgreen)
 ![License](https://img.shields.io/badge/license-MIT-yellow)
 
 **멀티 LLM 기반 한국 주식 자율 트레이딩 시스템**
@@ -45,12 +45,15 @@
 | 기능 | 설명 |
 |------|------|
 | **하이브리드 스코어링** | Quant Scorer v2.3(정량 60%) + Unified Analyst(LLM 정성 40%), ±15pt 가드레일 + Forward 컨센서스 |
-| **Macro Council** | 전략가 → 리스크분석가 → 수석심판 (3인 구조화 JSON, sentiment_score 기반 국면 판정) |
+| **Macro Council** | 전략가(DeepSeek) → 리스크분석가(DeepSeek) → 수석심판(Claude Opus) 3단계 구조화 JSON |
+| **Intraday Risk Throttle** | 5단계 장중 리스크 관리 (NORMAL→CAUTION→WARNING→DANGER→CRITICAL), 5분 간격 |
 | **12단계 Exit Rules v2** | Hard Stop → Profit Lock → Breakeven Stop → ATR → Trailing TP → Scale-Out 등 우선순위 체인 |
-| **KIS WebSocket** | 실시간 체결가 → Redis Stream → Scanner tick consumer |
-| **텔레그램 알림** | 매수/매도 체결 실시간 알림 (Redis Stream 비동기 발송) |
+| **KIS WebSocket / REST Polling** | 실시간 체결가 → Redis Stream → Scanner tick consumer (WebSocket/Polling 전환 가능) |
+| **MarketCalendar** | 거래일+장시간 통합 체크 (공휴일 KIS API 연동), scanner/monitor 자동 활성화 |
+| **텔레그램 알림** | 매수/매도 체결 + WSJ 한글 요약 + 일일 브리핑 (Redis Stream 비동기 발송) |
 | **Portfolio Guard** | 동적 섹터 cap(30%) + 종목 cap(15%) + 국면별 현금 하한선 (BULL 10%, BEAR 25%) |
-| **리스크 관리** | Correlation check(0.85) + Cooldown(손절 3일/매도 24h) + 섹터 비중 제한 |
+| **리스크 관리** | Correlation check(0.85) + Cooldown(손절 3일/매도 24h) + 전략 정합성 게이트 |
+| **강제 청산** | 2단계 안전장치 (Add → Arm) 텔레그램 `/liquidate` 명령, emergency stop 우회 |
 | **국면 연동** | BULL/SIDEWAYS/BEAR 국면별 차등 전략 (스톱, 익절, 타임아웃, 매수 제한) |
 | **GPU-Free 지원** | GPU 없이도 Cloud LLM(DeepSeek)으로 전체 시스템 구동 가능 |
 
@@ -200,7 +203,7 @@ Cloud 모드에서는 뉴스 RAG가 비활성화되지만, Scout의 핵심 기�
 KOSPI Universe (~123종목, 시총 500억 이상)
        ↓
 [Phase 1] Quant Scoring v2.3 (잠재력 기반)
-   - 모멘텀20 + 품질20 + 가치20 + 기술10 + 뉴스10 + 수급14(외인6+기관8) + 섹터모멘텀10 = 100+
+   - 모멘텀20 + 품질20 + 가치20 + 기술10 + 뉴스10 + 수급20(외인6+기관8+외인비율6) + 섹터모멘텀10 = 110+
    - Forward 컨센서스: FnGuide PER/ROE → quality/value 서브팩터 가산
    - Chart Phase Filter: Stage 4(하락세) 원천 차단
    - Sector Penalty: "Falling Knife" 섹터(-10점)
@@ -224,7 +227,7 @@ Watchlist (최대 25개, 시총 타이브레이커)
 ### 2. 매수/매도 파이프라인
 
 ```
-[KIS WebSocket] → Redis kis:prices → [Scanner] → BuySignal (Redis Stream)
+[KIS WebSocket/Polling] → Redis kis:prices → [Scanner] → BuySignal (Redis Stream)
                                                         ↓
                                               [Buy Executor] → KIS Gateway → 주문
                                                         ↓
@@ -251,14 +254,16 @@ Hard Stop(-10%) → Profit Floor → Profit Lock(ATR) → Breakeven Stop(+3%→+
 ### 4. Macro Council (3인 전문가 회의)
 
 ```
-[매크로 데이터 수집] → [Strategist 전략가] → [Risk Analyst 리스크분석가] → [Judge 수석심판]
-                                                                              ↓
-                                                                 TradingContext (Redis)
-                                                                 - 시장 국면 (sentiment_score 기반)
-                                                                   >=70 STRONG_BULL, >=55 BULL,
-                                                                   >=40 SIDEWAYS, >=25 BEAR, <25 STRONG_BEAR
-                                                                 - 섹터 HOT/WARM/COOL
-                                                                 - 현금 비중 권고
+[매크로 데이터 수집 + WSJ 뉴스레터] → [Strategist 전략가 (DeepSeek)]
+                                        → [Risk Analyst 리스크분석가 (DeepSeek)]
+                                        → [Chief Judge 수석심판 (Claude Opus)]
+                                              ↓
+                                 TradingContext (Redis)
+                                 - 시장 국면 (sentiment_score 기반)
+                                   >=70 STRONG_BULL, >=60 BULL,
+                                   >=40 SIDEWAYS, >=25 BEAR, <25 STRONG_BEAR
+                                 - 섹터 HOT/WARM/COOL, 전략 회피 목록
+                                 - 현금 비중 권고, Intraday Risk Level
 ```
 
 ---
@@ -272,26 +277,26 @@ Hard Stop(-10%) → Profit Floor → Profit Lock(ATR) → Breakeven Stop(+3%→+
 │                                                                         │
 │  ┌───────────────┐    ┌───────────────┐    ┌───────────────┐           │
 │  │ News Pipeline │───>│    Qdrant     │<───│  Scout Job    │           │
-│  │ (Crawl+Analyze)    │   (RAG)       │    │ (Quant+LLM)  │           │
+│  │(3-thread 병렬) │    │   (RAG)       │    │ (Quant+LLM)  │           │
 │  └───────────────┘    └───────────────┘    └───────────────┘           │
 │         │                                          │                    │
 │         v                                          v                    │
 │  ┌───────────────┐    ┌───────────────┐    ┌───────────────┐           │
 │  │    Redis      │<───│  KIS Gateway  │───>│  Buy Scanner  │           │
-│  │(Cache+Stream) │    │ (REST+WS)     │    │ (Tick Consumer)│           │
+│  │(Cache+Stream) │    │(WS/Polling)   │    │(Tick+Strategy) │           │
 │  └───────────────┘    └───────────────┘    └───────────────┘           │
 │         │                    │                     │                    │
 │         v                    v                     v                    │
 │  ┌───────────────┐    ┌───────────────┐    ┌───────────────┐           │
 │  │   MariaDB     │<───│ Price Monitor │───>│ Buy Executor  │           │
-│  │  (SQLModel)   │    │ (Exit Rules)  │    │(Portfolio Guard)│          │
+│  │  (SQLModel)   │    │(Exit+Forced)  │    │(Portfolio Guard)│          │
 │  └───────────────┘    └───────────────┘    └───────────────┘           │
 │                              │                                          │
 │                              v                                          │
-│  ┌───────────────┐    ┌───────────────┐    ┌───────────────┐           │
-│  │  Job Worker   │    │ Sell Executor │    │ Macro Council │           │
-│  │(크롤러+정기작업)│    │(Scale-Out/Stop)│    │(3인 전문가)   │           │
-│  └───────────────┘    └───────────────┘    └───────────────┘           │
+│  ┌─────────────────────────────────────┐    ┌───────────────┐           │
+│  │           Job Worker               │    │ Sell Executor │           │
+│  │ Council + Briefing + WSJ + Risk    │    │(Scale-Out/Stop)│           │
+│  └─────────────────────────────────────┘    └───────────────┘           │
 │                                                                         │
 ├─────────────────────────────────────────────────────────────────────────┤
 │  Dashboard (React + FastAPI)  │  Grafana + Loki  │  Telegram Bot       │
@@ -306,18 +311,16 @@ Hard Stop(-10%) → Profit Floor → Profit Lock(ATR) → Breakeven Stop(+3%→+
 
 | 서비스 | 포트 | 설명 |
 |--------|------|------|
-| **kis-gateway** | 8080 | KIS Securities API 게이트웨이 + WebSocket streamer |
-| **buy-scanner** | 8081 | 실시간 매수 신호 탐지 (tick consumer, regime 연동) |
+| **kis-gateway** | 8080 | KIS Securities API 게이트웨이 + WebSocket/REST Polling streamer + MarketCalendar |
+| **buy-scanner** | 8081 | 실시간 매수 신호 탐지 (tick consumer, regime 연동, 전략 정합성 게이트) |
 | **buy-executor** | 8082 | 매수 주문 실행 + Portfolio Guard + Correlation check |
-| **sell-executor** | 8083 | 매도 주문 실행 (trailing stop, scale-out) |
-| **daily-briefing** | 8086 | 일간 리포트 생성 + Telegram 발송 |
+| **sell-executor** | 8083 | 매도 주문 실행 (trailing stop, scale-out, 강제 청산) |
 | **scout-job** | 8087 | AI 종목 발굴 (Quant v2.3 + Unified Analyst + MA smoothing) |
-| **price-monitor** | 8088 | 포지션 모니터링 + 12단계 Exit Rules v2 |
-| **macro-council** | 8089 | 3인 전문가 매크로 분석 (sentiment_score 기반 국면) |
+| **price-monitor** | 8088 | 포지션 모니터링 + 12단계 Exit Rules v2 + 강제 청산 감지 |
 | **dashboard** | 8090 | REST API (portfolio, watchlist, macro, trades, LLM stats) |
-| **telegram** | 8091 | Telegram 명령 핸들러 (polling) |
-| **news-pipeline** | 8092 | 뉴스 크롤 → LLM 감성 분석 → Qdrant 저장 |
-| **job-worker** | 8095 | 크롤러 + 정기 데이터 수집/정리 (Airflow DAG 연동) |
+| **telegram** | 8091 | Telegram 명령 핸들러 (/stop, /liquidate, /watch 등) |
+| **news-pipeline** | 8092 | 뉴스 크롤 → LLM 감성 분석 → Qdrant 저장 (3스레드 병렬) |
+| **job-worker** | 8095 | 크롤러 + Council + 일일 브리핑 + WSJ 요약 + Intraday Risk (Airflow DAG 연동) |
 | **dashboard-frontend** | 80 | React 대시보드 UI (Nginx reverse proxy) |
 
 ### Infrastructure Services (profile: infra)
@@ -348,7 +351,7 @@ Hard Stop(-10%) → Profit Floor → Profit Lock(ATR) → Breakeven Stop(+3%→+
 | **scout_pipeline** | 평일 08:30-14:30, 1시간 | AI 종목 발굴 |
 | **macro_collection** | 평일 07:40, 11:40 | 글로벌 매크로 수집 |
 | **macro_council** | 평일 07:50, 11:50 | 3인 매크로 분석 |
-| **macro_quick** | 평일 09:30-14:30, 1시간 | 장중 매크로 빠른 업데이트 |
+| **enhanced_macro_quick** | 평일 09:00-15:55, 5분 | 장중 매크로 + Intraday Risk Throttle |
 | **price_monitor_ops** | 평일 09:00/15:30 | 가격 모니터 시작/중지 |
 | **daily_briefing** | 평일 17:00 | 브리핑 Telegram 발송 |
 | **daily_asset_snapshot** | 평일 15:45 | 일일 자산 스냅샷 |
@@ -370,9 +373,10 @@ Hard Stop(-10%) → Profit Floor → Profit Lock(ATR) → Breakeven Stop(+3%→+
 - **Redis Streams** — 서비스 간 비동기 메시징
 
 ### AI / ML
-- **vLLM v0.15.1** — 로컬 LLM 추론 (EXAONE 4.0 32B AWQ) — GPU 모드
+- **vLLM v0.16.0-cu130** — 로컬 LLM 추론 (EXAONE 4.0 32B AWQ) — GPU 모드
 - **KURE-v1** — 한국어 임베딩 모델 — GPU 모드
-- **DeepSeek Cloud** — REASONING/THINKING 티어 (failover)
+- **Claude Opus** — THINKING 티어 (Council Chief Judge)
+- **DeepSeek Cloud** — REASONING 티어 (Council Strategist/Risk Analyst, failover)
 - **OpenAI Embeddings** — Cloud 모드 임베딩
 - **Qdrant** — 벡터 저장소 (뉴스 RAG)
 
@@ -388,7 +392,7 @@ Hard Stop(-10%) → Profit Floor → Profit Lock(ATR) → Breakeven Stop(+3%→+
 - **Recharts + TanStack Query** — 차트, 데이터 페칭
 
 ### 인프라
-- **Docker Compose** — 24개 서비스 (infra + gpu + real 프로파일)
+- **Docker Compose** — 22개 서비스 (infra + gpu + real 프로파일)
 - **Airflow** — 15+ DAG 기반 워크플로우 스케줄러
 - **GitHub Actions** — CI/CD (lint + test + GHCR publish + deploy)
 - **Grafana + Loki** — 모니터링 + 로그 집계
@@ -415,23 +419,23 @@ prime-jennie/
 │   │   ├── redis/       # TypedCache[T], TypedStreamPublisher/Consumer
 │   │   ├── llm/         # Provider factory (vLLM, DeepSeek, Claude, Gemini, OpenAI)
 │   │   ├── kis/         # KIS API client (Gateway proxy)
-│   │   ├── crawlers/    # Naver(재무/ROE/뉴스/섹터) + FnGuide(컨센서스)
+│   │   ├── crawlers/    # Naver(재무/ROE/뉴스/섹터) + FnGuide(컨센서스) + WSJ(Gmail)
+│   │   ├── market_hours.py # MarketCalendar (거래일+장시간 통합 체크)
 │   │   └── observability/ # Structured logging, LLM usage metrics
 │   └── services/         # 마이크로서비스 (FastAPI apps)
 │       ├── base.py      # App factory (create_app) + common /health
 │       ├── deps.py      # FastAPI Depends (Redis, DB session, KIS client)
-│       ├── gateway/     # KIS REST API proxy + WebSocket streamer
+│       ├── gateway/     # KIS REST API proxy + WebSocket/REST Polling streamer
 │       ├── scout/       # AI scoring pipeline (Quant v2.3 + MA smoothing)
 │       ├── scanner/     # Real-time buy signal (tick consumer + strategies)
 │       ├── buyer/       # Buy execution (Portfolio Guard, correlation check)
 │       ├── seller/      # Sell execution
 │       ├── monitor/     # Price monitoring + 12-rule Exit Rules v2
-│       ├── council/     # Macro council (3-expert, sentiment_score 기반)
+│       ├── council/     # Macro council (DeepSeek+Claude 3-expert)
 │       ├── news/        # News pipeline (crawl → analyze → archive)
 │       ├── dashboard/   # Dashboard REST API (6 routers)
-│       ├── briefing/    # Daily report + Telegram send
 │       ├── telegram/    # Telegram bot (polling + command handler)
-│       └── jobs/        # 크롤러 + 정기작업 (Airflow DAG 연동)
+│       └── jobs/        # 크롤러 + Council + 브리핑 + WSJ + Intraday Risk (Airflow DAG 연동)
 ├── frontend/             # React 18 + TypeScript + Vite + Tailwind
 ├── dags/                 # Airflow DAGs (scout, macro, utility, monitor)
 ├── scripts/              # 설치, 시딩, 유틸리티 스크립트
@@ -439,7 +443,7 @@ prime-jennie/
 │   └── seed_stock_masters.py  # 종목 마스터 초기 시딩
 ├── migrations/           # Alembic DB migrations (version_table: alembic_version_app)
 ├── infra/                # Loki/Grafana config
-├── tests/                # Unit + E2E + Contract (596 passed)
+├── tests/                # Unit + E2E + Contract (867 passed)
 ├── docker-compose.yml    # 메인 (infra + gpu + real 프로파일)
 ├── docker-compose.no-gpu.yml  # GPU-Free 오버라이드
 └── pyproject.toml        # Dependencies + tool config (uv)
@@ -456,7 +460,7 @@ prime-jennie/
                                                               ↓
                                               MA Smoothing + 히스테리시스 → Watchlist (Redis)
                                                                                 ↓
-[KIS WebSocket] → Redis kis:prices → [Scanner] → BuySignal (Redis Stream)
+[KIS WebSocket/Polling] → Redis kis:prices → [Scanner] → BuySignal (Redis Stream)
                                                         ↓
                                               [Buy Executor] → KIS Gateway → 주문
                                                         ↓
@@ -498,11 +502,14 @@ prime-jennie/
 
 | 기능 | 설명 |
 |------|------|
+| **Intraday Risk Throttle** | 5단계 장중 리스크 (KOSPI 등락률 + VIX), 5분 간격, 회복 지연 적용 |
 | **Correlation Check** | 보유 종목과 상관관계 0.85 이상 시 매수 차단 |
 | **Cooldown** | 손절/데드크로스/브레이크이븐 후 3일 + 모든 매도 후 24h 재매수 방지 (Redis 기반) |
 | **Portfolio Guard** | 섹터 금액 비중 30% (STRONG_BULL 50%) + 종목 금액 비중 15% (STRONG_BULL 25%) |
+| **전략 정합성** | Council strategies_to_avoid → Scanner 시그널 발행 전 전략 유형 체크 |
 | **현금 하한선** | BULL 10%, SIDEWAYS 15%, BEAR 25% |
 | **일일 매수 제한** | 국면별 최대 매수 건수 제한 |
+| **강제 청산** | 텔레그램 `/liquidate` 2단계 안전장치 (Add → Arm), emergency stop 우회 |
 | **Contract Smoke Test** | 외부 크롤러 5개 매일 21:00 검증, 실패 시 텔레그램 알림 |
 
 ---
@@ -551,7 +558,7 @@ docker compose --profile infra up -d
 ## 테스트
 
 ```bash
-# 전체 테스트 (596 passed)
+# 전체 테스트 (867 passed)
 uv run pytest tests/ -v --tb=short
 
 # Unit 테스트만
@@ -580,15 +587,22 @@ uv run ruff format
 - URL: `http://localhost:3300`
 - 기본 계정: admin / admin
 
-### 로그 조회 (Loki)
+### 로그 조회
 
 ```bash
 # 특정 서비스 로그
-docker compose logs price-monitor --tail 50
+docker logs prime-jennie-price-monitor-1 --tail 50
+
+# 시간 범위 + 필터
+docker logs prime-jennie-job-worker-1 --since 2h 2>&1 | grep -E 'council|error'
 
 # Grafana에서 Loki 쿼리
 {container_name="price-monitor"} |= "ERROR"
 ```
+
+### 운영/디버깅 상세 가이드
+
+DB 쿼리, Redis 조회, Airflow DAG 관리, 서비스 API 호출 등 상세 명령어는 `.ai/OPS.md`를 참조하세요.
 
 ---
 

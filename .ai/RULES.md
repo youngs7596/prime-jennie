@@ -2,6 +2,13 @@
 
 > **정본(Single Source of Truth)**: 이 파일 + 루트 `CLAUDE.md`
 > 모든 LLM은 세션 시작 시 이 파일을 먼저 읽고 따릅니다.
+>
+> **과제 관리**:
+> - `.ai/TODO.md` — 미해결 과제 정본 (체크리스트 / 분석 / 개발 / 개선)
+> - `.ai/DONE.md` — 완료 아카이브
+> - 세션 파일은 히스토리 기록용이며, 과제 추적은 TODO.md에서만 한다.
+>
+> **운영/디버깅**: `.ai/OPS.md` — DB/Redis/로그/Airflow 검증된 명령어 모음. 시스템 상태 확인 시 반드시 참조.
 
 ---
 
@@ -29,12 +36,12 @@
 
 ### 2. 컨텍스트 로딩
 - 세션 파일의 **"Context for Next Session"** 섹션에 명시된 파일들 확인
-- **"Next Steps"** 에서 이어서 작업할 내용 파악
+- `.ai/TODO.md`에서 미해결 과제 현황 파악
 
 ### 3. 사용자에게 브리핑
 ```
 이전 세션 (YYYY-MM-DD)에서 [작업 내용]까지 진행했습니다.
-다음 할 일: [목록]
+미해결 과제: TODO.md 참조 (체크리스트 N건, 개발 N건, ...)
 이어서 진행할까요?
 ```
 
@@ -66,9 +73,10 @@ git ls-files --others --exclude-standard  # 신규 파일 확인
 - 알려진 이슈나 버그
 
 ## 다음 할 일 (Next Steps)
-- [ ] 우선순위 높음
-- [ ] 중간
-- [ ] 나중에
+- 이 세션에서 **새로 발견된 이슈만** 간략히 기록
+- 새 이슈는 `.ai/TODO.md`에 번호 부여 후 추가 (예: "TODO #22 추가")
+- 기존 과제 추적은 TODO.md 참조. 세션 파일에 중복 기록하지 않는다
+- 완료된 TODO 항목이 있으면 TODO.md에서 DONE.md로 이동
 
 ## Context for Next Session
 다음 세션 시작 시 아래 파일들을 먼저 읽어주세요:
@@ -89,6 +97,9 @@ git ls-files --others --exclude-standard  # 신규 파일 확인
 | 경로 | 역할 |
 |------|------|
 | `CLAUDE.md` | Claude Code 시스템 지침 |
+| `.ai/TODO.md` | 미해결 과제 정본 (체크리스트/분석/개발/개선) |
+| `.ai/DONE.md` | 완료 과제 아카이브 |
+| `.ai/OPS.md` | 운영/디버깅 명령어 모음 (DB, Redis, 로그, Airflow) |
 | `docker-compose.yml` | 전체 서비스 구성 (infra/real 프로필) |
 | `prime_jennie/domain/` | 도메인 모델 (30+ Pydantic 모델) |
 | `prime_jennie/infra/` | 인프라 레이어 (DB, Redis, LLM, KIS) |

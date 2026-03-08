@@ -1,64 +1,81 @@
 # TODO — 미해결 과제
 
-## 긴급 (다음 세션 우선)
+> **정본**: 이 파일이 To-Do의 Single Source of Truth.
+> 세션 파일의 "Next Steps"는 발견 시점 기록용이며, 추적은 이 파일에서만 한다.
+> 완료된 항목은 `DONE.md`로 이동한다.
 
-### ~~0. 재부팅 후 전체 서비스 상태 점검~~ ✅ 완료
-- 2026-02-23 세션에서 점검 완료
+---
 
-### ~~1. ROE 정기 갱신 Job 추가~~ ✅ 완료
-- `crawl_naver_roe()` + `/jobs/collect-naver-roe` 엔드포인트 + 월간 DAG (`0 3 1 * *`)
+## 체크리스트 (확인 후 DONE 이동)
 
-### ~~2. FINANCIAL_METRICS_QUARTERLY 정기 갱신~~ ✅ 완료
-- `crawl_naver_fundamentals()` + `/jobs/collect-quarterly-financials` + 분기 DAG (`0 4 15 1,4,7,10 *`)
+- [ ] **#11** WSJ 자동 파이프라인 동작 확인 — 07:50 DAG, What's News fallback, 텔레그램 요약
+- [ ] **#12** MarketCalendar gating 확인 — 09:00 scanner/monitor 자동 활성화
+- [x] **#13** 감성 분석 실제 동작 확인 — 03-08 확인: 95%+ score≠50, 평균 57.8
+- [ ] **#14** trading_flags:stop 해제 판단 — buy-signals 밀린 시그널 확인 후 사용자 결정
+- [ ] **#15** macro_quick 5분 Naver API rate limit — 장중 에러 로그 확인
 
-### ~~6. 명시적 장 오픈 시간 체크 추가~~ ✅ 완료
-- buyer/seller executor `process_signal()`에 KST 09:00~15:30 체크 추가
-- MANUAL 매도는 시간 체크 우회
+---
 
-### ~~7. /watch, /unwatch 커맨드 실효성 확보~~ ✅ 완료
-- Scanner `load_watchlist()`에서 `watchlist:manual` Redis hash 병합
-- manual 종목은 최소 스코어(50)로 watchlist에 추가
+## 1회성 분석 (조사 후 DONE 이동)
 
-### ~~8. watchlist_histories DB 기록 프로세스 추가~~ ✅ 완료
-- Phase 8 DB 저장 구현 (커밋 `08f68b7`) + 컬럼 보강 (quant_score, sector_group, market_regime)
-- Alembic migration 005 추가
+### 16. score=50 레거시 데이터 처리
+- analyzer `model=None` 버그로 20,147건 전부 score=50 (잘못된 데이터)
+- **결정 필요**: 삭제 / 재분석 / 유지
+- _발견: 03-05_
 
-### ~~10. News Pipeline 구조 개선 (analyzer/archiver lag 해소)~~ ✅ 완료
-- 해결안 (A) 적용: 3개 독립 스레드 (collector / analyzer / archiver) 병렬 실행
-- collector: 기존 interval (장중 10분, 장외 30분) 유지
-- analyzer: Stream consumer로 연속 동작, 에러 시 30초 backoff + 자동 재생성
-- archiver: 동일하게 연속 동작
-- Heavy 리소스 (LLM provider, Qdrant client) lazy init + 에러 시 자동 재생성
-- version 2.0.0
+### 17. 폭락장(03-03) 사후분석
+- trade_log + positions DB로 실제 피해 규모 확인
+- 체결 확인 강화(Fix 1) 이전 매도 건 중 실체결 확인, 수동 보정 필요 여부
+- _발견: 03-03_
 
-## 중요 (성능 개선)
+---
+
+## 개발 과제
 
 ### 3. 방산 대형주 스코어링 개선
 - **현상**: 한화에어로(Q=62), 현대로템(Q=58), HD현대중공업(Q=57) — watchlist 미진입
-- **원인**: PBR 8-11, PER 25-82 → Quality+Value 합산 낮음 (ROE 높아도 한계)
+- **원인**: PBR 8-11, PER 25-82 → Quality+Value 합산 낮음
 - **해결안 후보**:
   - (A) 섹터별 PBR/PER 상대평가 (같은 섹터 내 백분위)
-  - (B) 조선/방산 등 테마 모멘텀 가산점 (뉴스 감성 + 섹터 모멘텀 연동)
-  - (C) 시가총액 상위 N개 종목 자동 포함 (universe guarantee)
-- **주의**: 한번에 너무 많이 바꾸지 않기 (효과 측정 분리)
+  - (B) 테마 모멘텀 가산점 (뉴스 감성 + 섹터 모멘텀 연동)
+  - (C) 시가총액 상위 N개 자동 포함 (universe guarantee)
+- **주의**: 한번에 너무 많이 바꾸지 않기
+- _발견: 02-25_
 
 ### 4. E2E Mock KIS Gateway 테스트 구축
-- 계획 완료: `.claude/plans/memoized-splashing-toucan.md`
-- Mock Gateway + BuyExecutor/SellExecutor E2E 테스트
-- fakeredis + SQLite in-memory 기반
-- 매수 8건 + 매도 8건 + 라운드트립 3건 = 총 19개 테스트
+- 계획: `.claude/plans/memoized-splashing-toucan.md`
+- Mock Gateway + BuyExecutor/SellExecutor E2E
+- fakeredis + SQLite in-memory, 총 19개 테스트
+- _발견: 02-25_
 
-### 9. 기존 전략 파라미터 퀀트 적합성 튜닝
-- **근거**: ORB 구현 시 기존 7개 전략 감사 결과 (2026-02-25)
-- **DIP_BUY (높음)**: BULL -0.5~-3%, BEAR -2~-5% 범위가 매우 타이트 → 작동 빈도 낮을 수 있음. 범위 확장 검토
-- **MOMENTUM (높음)**: 7% cap이 특정 시장에 과적합 가능 → 국면별 차등 cap 검토 (이미 config화)
-- **GOLDEN_CROSS (중간)**: MA5/20은 1분봉 context에서 합리적이나 일봉 기준 표준(50/200)과 상이
-- **MOMENTUM_CONT (중간)**: LLM 의존은 비전통적 — LLM 장애 시 fallback 전략 필요 여부 검토
-- **RSI_REBOUND, VOLUME_BREAKOUT (낮음)**: 전통 기법에 충실, 변경 불필요
-- **방법**: 1-2주 운영 데이터(시그널 발생/미발생 로그) 기반으로 한 항목씩 튜닝. 동시 변경 금지
+### 9. 전략 파라미터 퀀트 적합성 튜닝
+- DIP_BUY: 범위 타이트 → 확장 검토
+- MOMENTUM: 7% cap 과적합 → 국면별 차등
+- GOLDEN_CROSS / MOMENTUM_CONT: 중간 우선순위
+- **방법**: signal_logs 기반 한 항목씩. 동시 변경 금지
+- _발견: 02-25_
 
-## 개선 (여유 시 진행)
+### 18. WebSocket ↔ Polling 자동 전환
+- 현재: `KIS_STREAMER_MODE` env var 수동 토글
+- 개선: 연결 실패 시 자동 fallback, 또는 WebSocket 안정성 재테스트 후 고정
+- _발견: 03-06_
+
+---
+
+## 개선 (여유 시)
 
 ### 5. Quant Scorer Shadow Comparison 정리
-- shadow log가 v2.0 vs v2.1 비교만 함 (quality delta 미추적)
-- ROE 보정/PBR·PER 하한선 변경 등 v2.2 변경사항 shadow에 반영 또는 제거
+- v2.0 vs v2.1 비교 로깅 활성 중 — v2.2 반영 또는 제거
+- _발견: 02-25_
+
+### 19. 텔레그램 WSJ 요약 프롬프트 튜닝
+- 실제 요약 품질 피드백 반영
+- _발견: 03-07_
+
+### 20. VKOSPI 데이터 소스 확보
+- 무료 API 없음, US VIX로 대체 중
+- _발견: 03-06_
+
+### 21. dev 환경 서비스 로컬 실행 테스트
+- `.env.dev`로 scanner 등 개별 서비스 기동 확인
+- _발견: 03-04_
