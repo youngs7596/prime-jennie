@@ -136,11 +136,13 @@ def run_sweep(
             )
         )
 
-        print(f"  [{label}] return={metrics.total_return_pct:+.2f}%, "
-              f"MDD={metrics.max_drawdown_pct:.2f}%, "
-              f"sharpe={metrics.sharpe_ratio:.2f}, "
-              f"RSI_REB={rsi_count}건 "
-              f"(WR={rsi_wr:.1f}%, avg={rsi_avg:+.2f}%)")
+        print(
+            f"  [{label}] return={metrics.total_return_pct:+.2f}%, "
+            f"MDD={metrics.max_drawdown_pct:.2f}%, "
+            f"sharpe={metrics.sharpe_ratio:.2f}, "
+            f"RSI_REB={rsi_count}건 "
+            f"(WR={rsi_wr:.1f}%, avg={rsi_avg:+.2f}%)"
+        )
 
     return results
 
@@ -156,7 +158,7 @@ def main() -> None:
             "PROD (SW=40,B=30)",  # 현재 운영 설정 (BULL 비활성 = threshold 0으로 비활)
             {
                 MarketRegime.STRONG_BULL: 0.0,  # 사실상 비활성
-                MarketRegime.BULL: 0.0,          # 사실상 비활성
+                MarketRegime.BULL: 0.0,  # 사실상 비활성
                 MarketRegime.SIDEWAYS: 40.0,
                 MarketRegime.BEAR: 30.0,
                 MarketRegime.STRONG_BEAR: 25.0,
@@ -218,18 +220,14 @@ def main() -> None:
     print("=" * 70)
     print("  Period 1: 2025-01-01 ~ 2025-06-30")
     print("=" * 70)
-    results_h1 = run_sweep(
-        date(2025, 1, 1), date(2025, 6, 30), 50_000_000, scenarios
-    )
+    results_h1 = run_sweep(date(2025, 1, 1), date(2025, 6, 30), 50_000_000, scenarios)
 
     # --- Period 2: 2026 최신 (매크로 데이터 + 확장 워치리스트) ---
     print()
     print("=" * 70)
     print("  Period 2: 2026-01-01 ~ 2026-03-07")
     print("=" * 70)
-    results_26 = run_sweep(
-        date(2026, 1, 1), date(2026, 3, 7), 50_000_000, scenarios
-    )
+    results_26 = run_sweep(date(2026, 1, 1), date(2026, 3, 7), 50_000_000, scenarios)
 
     # --- 종합 비교 테이블 ---
     print()
