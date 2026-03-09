@@ -472,10 +472,10 @@ def detect_strategies(
     if dip.detected:
         return dip
 
-    # 4. Counter-trend (Bear/Sideways only)
-    rsi_reb = detect_rsi_rebound(bars, regime)
-    if rsi_reb.detected:
-        return rsi_reb
+    # 4. RSI_REBOUND — 비활성화 (실전 승률 30%, 평균 PnL -1.16%)
+    # rsi_reb = detect_rsi_rebound(bars, regime)
+    # if rsi_reb.detected:
+    #     return rsi_reb
 
     # 5. Volume breakout
     vb = detect_volume_breakout(bars, volume_ratio)

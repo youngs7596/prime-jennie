@@ -35,7 +35,6 @@ logger = logging.getLogger(__name__)
 # Valid strategies (Chief Judge output validation)
 VALID_STRATEGIES = {
     "GOLDEN_CROSS",
-    "RSI_REBOUND",
     "MOMENTUM",
     "MOMENTUM_CONTINUATION",
     "DIP_BUY",

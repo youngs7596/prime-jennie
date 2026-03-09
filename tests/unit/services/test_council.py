@@ -309,7 +309,6 @@ class TestValidStrategies:
     def test_contains_all_strategies(self):
         expected = {
             "GOLDEN_CROSS",
-            "RSI_REBOUND",
             "MOMENTUM",
             "MOMENTUM_CONTINUATION",
             "DIP_BUY",

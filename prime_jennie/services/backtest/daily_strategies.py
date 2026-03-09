@@ -53,9 +53,9 @@ def detect_strategies(
     if _check_volume_breakout(history, close_prices, volumes):
         signals.append(SignalType.VOLUME_BREAKOUT)
 
-    # --- RSI_REBOUND ---
-    if _check_rsi_rebound(close_prices, regime):
-        signals.append(SignalType.RSI_REBOUND)
+    # --- RSI_REBOUND --- 비활성화 (실전 승률 30%, 평균 PnL -1.16%)
+    # if _check_rsi_rebound(close_prices, regime):
+    #     signals.append(SignalType.RSI_REBOUND)
 
     # --- MOMENTUM ---
     if _check_momentum(close_prices):

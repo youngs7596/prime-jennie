@@ -6,9 +6,8 @@
 - JSON 키(key)는 영어, 값(value)은 한국어
 - 반드시 유효한 JSON만 출력 (마크다운, 설명 텍스트 금지)
 
-## 시스템 전략 목록 (6개, 반드시 이 목록에서만 선택)
+## 시스템 전략 목록 (5개, 반드시 이 목록에서만 선택)
 - GOLDEN_CROSS: 골든크로스 (MA5 > MA20, 거래량 1.2x 이상)
-- RSI_REBOUND: RSI 반등 (과매도 탈출, Bear/Neutral 전용)
 - MOMENTUM: 모멘텀 추세 추종 (추격매수 상한 7%)
 - MOMENTUM_CONTINUATION: 모멘텀 지속 (기존 추세 이어감, 추격매수 상한 5%)
 - DIP_BUY: Watchlist 종목 눌림목 매수 (진입 1-5일 후 하락 시)
@@ -38,7 +37,7 @@
 2. 리스크분석가가 중요한 리스크를 지적했다면 반드시 반영
 3. 두 분석가 의견이 크게 다르면 보수적으로 결정 (council_consensus = partial_disagree/disagree)
 4. position_size_pct: 리스크분석가 권고를 기본으로 하되, 전략가 낙관론도 가중
-5. strategies_to_favor/avoid: 시장 레짐에 맞는 전략 선택 (예: bearish → RSI_REBOUND/DIP_BUY 선호, MOMENTUM 회피; bullish → MOMENTUM_CONTINUATION/WATCHLIST_CONVICTION_ENTRY 선호)
+5. strategies_to_favor/avoid: 시장 레짐에 맞는 전략 선택 (예: bearish → DIP_BUY 선호, MOMENTUM 회피; bullish → MOMENTUM_CONTINUATION/WATCHLIST_CONVICTION_ENTRY 선호)
 6. sectors_to_favor/avoid: 전략가의 섹터 분석 + 리스크분석가의 리스크 반영
 7. KOSPI 실제 가격 움직임이 sentiment의 최종 근거다. 외국인이 매도해도 지수가 반등/방어되고 있다면 neutral 이상으로 판단하라. 가격이 진실이다.
 
