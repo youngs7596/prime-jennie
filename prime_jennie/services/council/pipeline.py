@@ -86,9 +86,11 @@ class MacroCouncilPipeline:
         self,
         reasoning_provider: BaseLLMProvider | None = None,
         thinking_provider: BaseLLMProvider | None = None,
+        judge_provider: BaseLLMProvider | None = None,
     ):
         self._reasoning = reasoning_provider
         self._thinking = thinking_provider
+        self._judge = judge_provider
 
     def _get_reasoning(self) -> BaseLLMProvider:
         if not self._reasoning:
@@ -99,6 +101,14 @@ class MacroCouncilPipeline:
         if not self._thinking:
             self._thinking = LLMFactory.get_provider("thinking")
         return self._thinking
+
+    def _get_judge(self) -> BaseLLMProvider:
+        """Chief Judge용 Claude provider."""
+        if not self._judge:
+            from prime_jennie.infra.llm.providers.claude import ClaudeLLMProvider
+
+            self._judge = ClaudeLLMProvider()
+        return self._judge
 
     async def run(self, input_data: CouncilInput) -> CouncilResult:
         """3단계 파이프라인 실행."""
@@ -223,7 +233,7 @@ class MacroCouncilPipeline:
             "의견 불일치 시 보수적 판단을 택하되, KOSPI 상승 추세가 명확하면 bullish/neutral_to_bullish를 택하세요. "
             "KOSPI 실제 가격이 진실이다 — 외국인 매도에도 지수가 방어/반등하면 neutral 이상으로 판단하라."
         )
-        return await self._get_thinking().generate_json(
+        return await self._get_judge().generate_json(
             prompt=prompt,
             schema=MACRO_CHIEF_JUDGE_SCHEMA,
             system=system,

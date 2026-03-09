@@ -129,7 +129,7 @@ class TestCouncilPipeline:
         mock_thinking = AsyncMock()
         mock_thinking.generate_json = AsyncMock(return_value=_mock_chief_judge_output())
 
-        pipeline = MacroCouncilPipeline(mock_reasoning, mock_thinking)
+        pipeline = MacroCouncilPipeline(mock_reasoning, mock_thinking, mock_thinking)
         input_data = CouncilInput(
             briefing_text="오늘 KOSPI는 2,650선에서 상승 출발...",
             target_date=date(2026, 2, 19),
@@ -153,7 +153,7 @@ class TestCouncilPipeline:
         mock_thinking = AsyncMock()
         mock_thinking.generate_json = AsyncMock(return_value=_mock_chief_judge_output())
 
-        pipeline = MacroCouncilPipeline(mock_reasoning, mock_thinking)
+        pipeline = MacroCouncilPipeline(mock_reasoning, mock_thinking, mock_thinking)
         input_data = CouncilInput(briefing_text="테스트 브리핑")
 
         result = await pipeline.run(input_data)
@@ -170,7 +170,7 @@ class TestCouncilPipeline:
         mock_thinking = AsyncMock()
         mock_thinking.generate_json = AsyncMock(side_effect=Exception("Opus down"))
 
-        pipeline = MacroCouncilPipeline(mock_reasoning, mock_thinking)
+        pipeline = MacroCouncilPipeline(mock_reasoning, mock_thinking, mock_thinking)
         input_data = CouncilInput(briefing_text="테스트 브리핑")
 
         result = await pipeline.run(input_data)
@@ -184,7 +184,7 @@ class TestCouncilPipeline:
         mock_reasoning = AsyncMock()
         mock_reasoning.generate_json = AsyncMock(side_effect=Exception("DeepSeek down"))
 
-        pipeline = MacroCouncilPipeline(mock_reasoning, AsyncMock())
+        pipeline = MacroCouncilPipeline(mock_reasoning, AsyncMock(), AsyncMock())
         input_data = CouncilInput(briefing_text="테스트")
 
         result = await pipeline.run(input_data)
@@ -195,7 +195,7 @@ class TestCouncilPipeline:
     @pytest.mark.asyncio
     async def test_empty_input_returns_error(self):
         """입력 데이터 없음 → 에러."""
-        pipeline = MacroCouncilPipeline(AsyncMock(), AsyncMock())
+        pipeline = MacroCouncilPipeline(AsyncMock(), AsyncMock(), AsyncMock())
         input_data = CouncilInput()
 
         result = await pipeline.run(input_data)
@@ -214,7 +214,7 @@ class TestInsightBuilding:
         mock_thinking = AsyncMock()
         mock_thinking.generate_json = AsyncMock(return_value=_mock_chief_judge_output())
 
-        pipeline = MacroCouncilPipeline(mock_reasoning, mock_thinking)
+        pipeline = MacroCouncilPipeline(mock_reasoning, mock_thinking, mock_thinking)
         result = await pipeline.run(CouncilInput(briefing_text="test"))
 
         insight = result.insight
@@ -232,7 +232,7 @@ class TestInsightBuilding:
         mock_thinking = AsyncMock()
         mock_thinking.generate_json = AsyncMock(return_value=judge)
 
-        pipeline = MacroCouncilPipeline(mock_reasoning, mock_thinking)
+        pipeline = MacroCouncilPipeline(mock_reasoning, mock_thinking, mock_thinking)
         result = await pipeline.run(CouncilInput(briefing_text="test"))
 
         assert result.insight.sentiment_score == 100
@@ -247,7 +247,7 @@ class TestInsightBuilding:
         mock_thinking = AsyncMock()
         mock_thinking.generate_json = AsyncMock(return_value=judge)
 
-        pipeline = MacroCouncilPipeline(mock_reasoning, mock_thinking)
+        pipeline = MacroCouncilPipeline(mock_reasoning, mock_thinking, mock_thinking)
         result = await pipeline.run(CouncilInput(briefing_text="test"))
 
         assert result.insight.position_size_pct == 130  # clamped to max
@@ -275,7 +275,7 @@ class TestInsightBuilding:
         mock_thinking = AsyncMock()
         mock_thinking.generate_json = AsyncMock(return_value=_mock_chief_judge_output())
 
-        pipeline = MacroCouncilPipeline(mock_reasoning, mock_thinking)
+        pipeline = MacroCouncilPipeline(mock_reasoning, mock_thinking, mock_thinking)
         result = await pipeline.run(CouncilInput(briefing_text="test", global_snapshot=snap))
 
         assert result.insight.vix_value == 18.5

@@ -378,11 +378,11 @@ class DailyReporter:
         return "\n".join(lines)
 
     async def _generate_llm_report(self, context: str) -> str | None:
-        """LLM으로 Jennie 페르소나 리포트 생성."""
+        """LLM으로 Jennie 페르소나 리포트 생성 (Claude Opus)."""
         try:
-            from prime_jennie.infra.llm.factory import LLMFactory
+            from prime_jennie.infra.llm.providers.claude import ClaudeLLMProvider
 
-            provider = LLMFactory.get_provider("fast")
+            provider = ClaudeLLMProvider()
             response = await provider.generate(
                 prompt=context,
                 system=JENNIE_SYSTEM_PROMPT,

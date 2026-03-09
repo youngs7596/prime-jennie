@@ -1490,9 +1490,9 @@ async def _summarize_and_send_wsj(newsletters: list, r: redis_lib.Redis) -> None
         return
 
     try:
-        from prime_jennie.infra.llm.factory import LLMFactory
+        from prime_jennie.infra.llm.providers.claude import ClaudeLLMProvider
 
-        provider = LLMFactory.get_provider("fast")
+        provider = ClaudeLLMProvider()
     except Exception:
         logger.warning("LLM provider init failed, skipping WSJ summary", exc_info=True)
         return
