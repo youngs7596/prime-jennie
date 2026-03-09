@@ -415,9 +415,10 @@ class TestLLMReport:
         mock_provider = AsyncMock()
         mock_provider.generate = AsyncMock(return_value=mock_response)
 
-        with patch("prime_jennie.infra.llm.factory.LLMFactory") as mock_factory:
-            mock_factory.get_provider.return_value = mock_provider
-
+        with patch(
+            "prime_jennie.infra.llm.providers.claude.ClaudeLLMProvider",
+            return_value=mock_provider,
+        ):
             result = await reporter._generate_llm_report("테스트 컨텍스트")
             assert result is not None
             assert "제니의 브리핑" in result
@@ -432,10 +433,9 @@ class TestLLMReport:
         reporter = _make_reporter()
 
         with patch(
-            "prime_jennie.infra.llm.factory.LLMFactory",
-        ) as mock_factory:
-            mock_factory.get_provider.side_effect = Exception("no provider")
-
+            "prime_jennie.infra.llm.providers.claude.ClaudeLLMProvider",
+            side_effect=Exception("no provider"),
+        ):
             result = await reporter._generate_llm_report("테스트 컨텍스트")
             assert result is None
 
@@ -449,9 +449,10 @@ class TestLLMReport:
         mock_provider = AsyncMock()
         mock_provider.generate = AsyncMock(return_value=mock_response)
 
-        with patch("prime_jennie.infra.llm.factory.LLMFactory") as mock_factory:
-            mock_factory.get_provider.return_value = mock_provider
-
+        with patch(
+            "prime_jennie.infra.llm.providers.claude.ClaudeLLMProvider",
+            return_value=mock_provider,
+        ):
             result = await reporter._generate_llm_report("테스트 컨텍스트")
             assert result is None
 
