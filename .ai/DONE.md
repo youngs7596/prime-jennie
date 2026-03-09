@@ -21,3 +21,13 @@
 ### (세션 발견) 강제 청산 기능 구현 — ✅ 2026-03-01
 ### (세션 발견) MarketCalendar 통합 체크 — ✅ 2026-03-07
 ### (세션 발견) WSJ 뉴스레터 파이프라인 구축 — ✅ 2026-03-07
+### #13 감성 분석 실제 동작 확인 — ✅ 2026-03-08
+- 95%+ score≠50, 평균 57.8 확인
+### RSI_REBOUND 전략 비활성화 — ✅ 2026-03-09
+- 실전 승률 30%, 평균 PnL -1.16%, 백테스트 스윕으로 확인
+- scanner, backtest, council prompt에서 비활성화
+### 데일리 브리핑 중복 발송 수정 — ✅ 2026-03-09
+- Redis 멱등성 체크 (`briefing:sent:{date}`)
+### LLM 프로바이더 정비 (EXAONE → 뉴스 전용) — ✅ 2026-03-09
+- 브리핑/WSJ 요약/Council Chief Judge → Claude Opus 4.6 전환
+- 주의: DONE.md 기존 "Council Claude Opus Chief Judge 전환 ✅ 2026-03-06"은 실제 미완성이었음, 이번에 실수정
