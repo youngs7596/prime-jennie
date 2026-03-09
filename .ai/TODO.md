@@ -79,9 +79,8 @@
 - `.env.dev`로 scanner 등 개별 서비스 기동 확인
 - _발견: 03-04_
 
-### 22. GHCR deploy CI 타이밍 레이스
-- development GHCR deploy가 CI 완료 전에 상태 체크 → failure
-- 폴링 간격/횟수 조정 또는 CI 의존성 변경 필요
+### ~~22. GHCR deploy CI 타이밍 레이스~~ → DONE
+- ✅ `branch=development` 필터 추가하여 해당 브랜치 CI만 확인 (03-09)
 - _발견: 03-09_
 
 ### 23. daily_briefing_report execution_timeout 조정
