@@ -10,6 +10,7 @@ import logging
 from datetime import date, timedelta
 
 import httpx
+import redis as redis_lib
 from sqlmodel import Session
 
 from prime_jennie.domain.config import get_config
@@ -76,13 +77,35 @@ def _parse_json_field(raw: str | None) -> list | dict | None:
 class DailyReporter:
     """일일 브리핑 생성기."""
 
-    def __init__(self):
+    _DEDUP_KEY_PREFIX = "briefing:sent"
+    _DEDUP_TTL = 86400 * 2  # 2일
+
+    def __init__(self, r: redis_lib.Redis | None = None):
         self._config = get_config()
         self._telegram_token = self._config.telegram.bot_token
         self._telegram_chat_id = self._config.telegram.chat_ids
+        self._redis = r
+
+    def _already_sent_today(self) -> bool:
+        """오늘 이미 발송했는지 Redis로 확인."""
+        if not self._redis:
+            return False
+        key = f"{self._DEDUP_KEY_PREFIX}:{date.today().isoformat()}"
+        return bool(self._redis.exists(key))
+
+    def _mark_sent_today(self) -> None:
+        """오늘 발송 완료 마킹."""
+        if not self._redis:
+            return
+        key = f"{self._DEDUP_KEY_PREFIX}:{date.today().isoformat()}"
+        self._redis.setex(key, self._DEDUP_TTL, "1")
 
     async def create_and_send_report(self, session: Session) -> dict:
         """리포트 생성 + 텔레그램 발송."""
+        if self._already_sent_today():
+            logger.info("Daily briefing already sent today, skipping")
+            return {"sent": False, "skipped": True, "reason": "already_sent"}
+
         data = self.collect_report_data(session)
         context = self._build_data_context(data)
 
@@ -92,6 +115,8 @@ class DailyReporter:
             report = self._format_fallback_html(data)
 
         sent = self._send_telegram(report)
+        if sent:
+            self._mark_sent_today()
         return {"sent": sent, "data_items": len(data)}
 
     def collect_report_data(self, session: Session) -> dict:

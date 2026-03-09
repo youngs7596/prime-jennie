@@ -822,7 +822,7 @@ _reporter: DailyReporter | None = None
 def _get_reporter() -> DailyReporter:
     global _reporter
     if _reporter is None:
-        _reporter = DailyReporter()
+        _reporter = DailyReporter(r=app.state.council_redis)
     return _reporter
 
 

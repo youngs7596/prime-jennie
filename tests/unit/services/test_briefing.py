@@ -15,6 +15,7 @@ def _make_reporter():
         reporter._config = MagicMock()
         reporter._telegram_token = None
         reporter._telegram_chat_id = None
+        reporter._redis = None
         return reporter
 
 
@@ -597,3 +598,81 @@ class TestUtilityFunctions:
         assert _parse_json_field(None) is None
         assert _parse_json_field("") is None
         assert _parse_json_field("not json") is None
+
+
+# ─── 멱등성 (중복 발송 방지) ─────────────────────────────────
+
+
+class TestBriefingIdempotency:
+    """Redis 기반 멱등성 체크 검증."""
+
+    def test_already_sent_returns_true_when_key_exists(self):
+        reporter = _make_reporter()
+        mock_redis = MagicMock()
+        mock_redis.exists.return_value = 1
+        reporter._redis = mock_redis
+
+        assert reporter._already_sent_today() is True
+
+    def test_already_sent_returns_false_when_no_key(self):
+        reporter = _make_reporter()
+        mock_redis = MagicMock()
+        mock_redis.exists.return_value = 0
+        reporter._redis = mock_redis
+
+        assert reporter._already_sent_today() is False
+
+    def test_already_sent_returns_false_when_no_redis(self):
+        reporter = _make_reporter()
+        reporter._redis = None
+
+        assert reporter._already_sent_today() is False
+
+    def test_mark_sent_sets_redis_key(self):
+        reporter = _make_reporter()
+        mock_redis = MagicMock()
+        reporter._redis = mock_redis
+
+        reporter._mark_sent_today()
+
+        mock_redis.setex.assert_called_once()
+        call_args = mock_redis.setex.call_args[0]
+        assert call_args[0].startswith("briefing:sent:")
+        assert call_args[1] == 86400 * 2
+
+    @pytest.mark.asyncio
+    async def test_skips_when_already_sent(self):
+        reporter = _make_reporter()
+        mock_redis = MagicMock()
+        mock_redis.exists.return_value = 1
+        reporter._redis = mock_redis
+
+        mock_session = MagicMock()
+        result = await reporter.create_and_send_report(mock_session)
+
+        assert result["sent"] is False
+        assert result["skipped"] is True
+
+    @pytest.mark.asyncio
+    async def test_marks_sent_after_success(self):
+        reporter = _make_reporter()
+        reporter._telegram_token = "test-token"
+        reporter._telegram_chat_id = "12345"
+
+        mock_redis = MagicMock()
+        mock_redis.exists.return_value = 0
+        reporter._redis = mock_redis
+
+        mock_session = MagicMock()
+        data = _empty_data()
+
+        with (
+            patch.object(reporter, "collect_report_data", return_value=data),
+            patch.object(reporter, "_build_data_context", return_value="ctx"),
+            patch.object(reporter, "_generate_llm_report", return_value="<b>OK</b>"),
+            patch.object(reporter, "_send_telegram", return_value=True),
+        ):
+            result = await reporter.create_and_send_report(mock_session)
+
+        assert result["sent"] is True
+        mock_redis.setex.assert_called_once()
