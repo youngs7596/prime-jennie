@@ -7,7 +7,6 @@
 from __future__ import annotations
 
 import logging
-import sys
 from dataclasses import dataclass
 from datetime import date
 from pathlib import Path
@@ -238,8 +237,11 @@ def main() -> None:
     print("  종합 비교")
     print("=" * 70)
 
-    header = f"{'시나리오':<22} {'수익률':>8} {'MDD':>8} {'Sharpe':>7} {'전체WR':>7} {'RSI건수':>7} {'RSI_WR':>7} {'RSI평균':>8}"
-    print(f"\n[2025 H1]")
+    header = (
+        f"{'시나리오':<22} {'수익률':>8} {'MDD':>8} {'Sharpe':>7}"
+        f" {'전체WR':>7} {'RSI건수':>7} {'RSI_WR':>7} {'RSI평균':>8}"
+    )
+    print("\n[2025 H1]")
     print(header)
     print("-" * 85)
     for r in results_h1:
@@ -250,7 +252,7 @@ def main() -> None:
             f"{r.rsi_rebound_win_rate:>6.1f}% {r.rsi_rebound_avg_pnl:>+7.2f}%"
         )
 
-    print(f"\n[2026 Jan-Mar]")
+    print("\n[2026 Jan-Mar]")
     print(header)
     print("-" * 85)
     for r in results_26:
