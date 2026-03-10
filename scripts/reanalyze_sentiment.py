@@ -148,10 +148,10 @@ async def run(targets: list[dict], engine, dry_run: bool = False):
     fail_total = 0
     t_start = time.monotonic()
 
-    print(f"\n{'='*60}")
+    print(f"\n{'=' * 60}")
     print(f"재분석 시작: {total:,}건 | 동시성: {CONCURRENCY} | dry-run: {dry_run}")
     print(f"시작 시간: {datetime.now().strftime('%H:%M:%S')}")
-    print(f"{'='*60}\n")
+    print(f"{'=' * 60}\n")
 
     async with httpx.AsyncClient() as client:
         for i in range(0, total, BATCH_SIZE):
@@ -160,7 +160,7 @@ async def run(targets: list[dict], engine, dry_run: bool = False):
 
             ok = sum(1 for r in results if r["ok"])
             fail = len(results) - ok
-            updated = update_db(engine, results, dry_run)
+            update_db(engine, results, dry_run)
 
             ok_total += ok
             fail_total += fail
@@ -183,12 +183,12 @@ async def run(targets: list[dict], engine, dry_run: bool = False):
             )
 
     elapsed_total = time.monotonic() - t_start
-    print(f"\n{'='*60}")
+    print(f"\n{'=' * 60}")
     print(f"완료: {ok_total:,}건 성공, {fail_total}건 실패")
-    print(f"소요: {elapsed_total/60:.1f}분 ({elapsed_total/3600:.1f}시간)")
+    print(f"소요: {elapsed_total / 60:.1f}분 ({elapsed_total / 3600:.1f}시간)")
     print(f"평균: {(ok_total + fail_total) / elapsed_total:.2f} req/s")
     print(f"종료 시간: {datetime.now().strftime('%H:%M:%S')}")
-    print(f"{'='*60}")
+    print(f"{'=' * 60}")
 
 
 def main():
