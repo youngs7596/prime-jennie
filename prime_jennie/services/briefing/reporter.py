@@ -117,6 +117,8 @@ class DailyReporter:
         sent = self._send_telegram(report)
         if sent:
             self._mark_sent_today()
+        else:
+            logger.error("Telegram send returned False, report not marked as sent")
         return {"sent": sent, "data_items": len(data)}
 
     def collect_report_data(self, session: Session) -> dict:
@@ -392,7 +394,7 @@ class DailyReporter:
             if response and response.content:
                 return response.content
         except Exception:
-            logger.debug("LLM report generation failed, using fallback")
+            logger.exception("LLM report generation failed, using fallback")
 
         return None
 

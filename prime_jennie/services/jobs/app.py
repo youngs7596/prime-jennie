@@ -829,13 +829,25 @@ def _get_reporter() -> DailyReporter:
 @app.post("/report")
 async def daily_report(session: Session = Depends(get_db_session)):
     """일일 리포트 생성 및 발송 (Airflow 트리거)."""
+    from fastapi.responses import JSONResponse
+
     reporter = _get_reporter()
     try:
         result = await reporter.create_and_send_report(session)
+        if not result.get("sent") and not result.get("skipped"):
+            # 발송 실패 → Airflow가 재시도하도록 500 반환
+            logger.error("Report send failed: %s", result)
+            return JSONResponse(
+                status_code=500,
+                content={"status": "error", "report_date": str(date.today()), **result},
+            )
         return {"status": "success", "report_date": str(date.today()), **result}
     except Exception as e:
         logger.exception("Report generation failed")
-        return {"status": "error", "message": str(e)}
+        return JSONResponse(
+            status_code=500,
+            content={"status": "error", "message": str(e)},
+        )
 
 
 @app.get("/report/preview")
