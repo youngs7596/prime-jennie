@@ -275,6 +275,76 @@ class TestNewsAnalyzerLLM:
 
         assert result["score"] == 50
 
+    def test_analyze_batch_concurrent(self):
+        """배치 LLM 호출 — 여러 건 동시 처리."""
+        from prime_jennie.services.news.analyzer import NewsAnalyzer
+
+        mock_redis = MagicMock()
+        mock_redis.xgroup_create.side_effect = redis.ResponseError("BUSYGROUP")
+
+        mock_llm = MagicMock()
+        mock_llm.generate_json = AsyncMock(
+            side_effect=[
+                {"score": 72, "reason": "호재"},
+                {"score": 35, "reason": "악재"},
+                {"score": 50, "reason": "중립"},
+            ]
+        )
+
+        analyzer = NewsAnalyzer(mock_redis, mock_llm)
+        items = [
+            {"stock_code": "005930", "headline": "삼성전자 호재"},
+            {"stock_code": "000660", "headline": "SK하이닉스 악재"},
+            {"stock_code": "035420", "headline": "NAVER 중립"},
+        ]
+        results = analyzer._analyze_batch(items)
+
+        assert len(results) == 3
+        assert results[0]["score"] == 72
+        assert results[1]["score"] == 35
+        assert results[2]["score"] == 50
+        assert mock_llm.generate_json.call_count == 3
+
+    def test_process_entries_batch(self):
+        """_process_entries가 배치로 LLM 호출 후 ACK."""
+        from prime_jennie.services.news.analyzer import NewsAnalyzer
+
+        mock_redis = MagicMock()
+        mock_redis.xgroup_create.side_effect = redis.ResponseError("BUSYGROUP")
+
+        mock_llm = MagicMock()
+        mock_llm.generate_json = AsyncMock(return_value={"score": 65, "reason": "긍정"})
+
+        analyzer = NewsAnalyzer(mock_redis, mock_llm, db_session_factory=None)
+
+        entries = [
+            (
+                b"1-0",
+                {
+                    "headline": "뉴스1",
+                    "stock_code": "005930",
+                    "article_url": "url1",
+                    "press": "한경",
+                    "published_at": "",
+                },
+            ),
+            (
+                b"2-0",
+                {
+                    "headline": "뉴스2",
+                    "stock_code": "000660",
+                    "article_url": "url2",
+                    "press": "매경",
+                    "published_at": "",
+                },
+            ),
+        ]
+        processed = analyzer._process_entries(entries)
+
+        assert processed == 2
+        assert mock_llm.generate_json.call_count == 2
+        assert mock_redis.xack.call_count == 2
+
 
 # ─── Pipeline status / threads ──────────────────────────────────
 
