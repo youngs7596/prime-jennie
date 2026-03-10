@@ -92,8 +92,8 @@ daily_briefing_report = _utility_dag(
     "0 17 * * 1-5",
     "일일 브리핑 발송",
     "/report",
-    timeout_min=5,
-    retries=2,
+    timeout_min=10,
+    retries=1,
     tags=["briefing", "daily"],
 )
 

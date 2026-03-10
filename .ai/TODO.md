@@ -11,7 +11,7 @@
 - [ ] **#11** WSJ 자동 파이프라인 동작 확인 — 07:50 DAG, What's News fallback, 텔레그램 요약
 - [ ] **#12** MarketCalendar gating 확인 — 09:00 scanner/monitor 자동 활성화
 - [ ] **#14** trading_flags:stop 해제 판단 — buy-signals 밀린 시그널 확인 후 사용자 결정
-- [ ] **#15** macro_quick 5분 Naver API rate limit — 장중 에러 로그 확인
+- [x] **#15** ~~macro_quick 5분 Naver API rate limit~~ — 5분당 4건(0.8 req/min), 안전 확인 → DONE
 
 ---
 
@@ -83,7 +83,6 @@
 - ✅ `branch=development` 필터 추가하여 해당 브랜치 CI만 확인 (03-09)
 - _발견: 03-09_
 
-### 23. daily_briefing_report execution_timeout 조정
-- 현재 5분 → LLM 응답(Claude Opus) 고려 10분으로 확대 검토
-- 멱등성 체크 들어갔으므로 재시도 시 중복은 없지만, 불필요한 재시도 줄이기
+### ~~23. daily_briefing_report execution_timeout 조정~~ → DONE
+- ✅ timeout 5분→10분, retries 2→1 (멱등성 보호 있어 재시도 축소) (03-10)
 - _발견: 03-09_

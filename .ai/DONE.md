@@ -31,3 +31,9 @@
 ### LLM 프로바이더 정비 (EXAONE → 뉴스 전용) — ✅ 2026-03-09
 - 브리핑/WSJ 요약/Council Chief Judge → Claude Opus 4.6 전환
 - 주의: DONE.md 기존 "Council Claude Opus Chief Judge 전환 ✅ 2026-03-06"은 실제 미완성이었음, 이번에 실수정
+### #22 GHCR deploy CI 타이밍 레이스 — ✅ 2026-03-09
+- `branch=development` 필터 추가하여 해당 브랜치 CI만 확인
+### #23 daily_briefing_report execution_timeout 조정 — ✅ 2026-03-10
+- timeout 5분→10분, retries 2→1 (멱등성 보호 있어 재시도 축소)
+### #15 macro_quick Naver API rate limit 확인 — ✅ 2026-03-10
+- 5분당 Naver 호출 4건 (0.8 req/min), max_active_runs=1 — 별도 throttle 불필요
