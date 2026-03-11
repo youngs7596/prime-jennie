@@ -31,7 +31,6 @@ from dotenv import load_dotenv
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.inspection import permutation_importance
 from sklearn.metrics import classification_report, confusion_matrix
-from sklearn.model_selection import TimeSeriesSplit
 from sqlmodel import Session, text
 
 from prime_jennie.infra.database.engine import get_engine
@@ -148,7 +147,7 @@ def compute_technical_features(df: pd.DataFrame) -> pd.DataFrame:
     """종목별 기술적 지표를 계산하여 컬럼 추가."""
     results = []
 
-    for stock_code, g in df.groupby("stock_code"):
+    for _stock_code, g in df.groupby("stock_code"):
         g = g.sort_values("price_date").copy()
         c = g["close_price"].astype(float)
         h = g["high_price"].astype(float)
@@ -348,7 +347,7 @@ def label_forward_returns(df: pd.DataFrame, forward_days: int, buy_thr: float, s
     (민지 리뷰: 당일 종가 매수는 실현 불가능하므로 익일 시가 기준으로 수정)
     """
     results = []
-    for stock_code, g in df.groupby("stock_code"):
+    for _stock_code, g in df.groupby("stock_code"):
         g = g.sort_values("price_date").copy()
         # 익일 시가 = 다음 행의 open_price
         next_open = g["open_price"].shift(-1)
@@ -447,16 +446,16 @@ def prepare_dataset(df: pd.DataFrame, start: date) -> tuple[pd.DataFrame, pd.Ser
     df = df.dropna(subset=["forward_return"]).reset_index(drop=True)
 
     # 피처 결측치 처리
-    X = df[FEATURE_COLS].copy()
-    X = X.fillna(X.median())
+    x_data = df[FEATURE_COLS].copy()
+    x_data = x_data.fillna(x_data.median())
 
     y = df["label"]
     dates = df["price_date"]
-    return X, y, dates
+    return x_data, y, dates
 
 
 def train_and_evaluate(
-    X: pd.DataFrame,
+    x_data: pd.DataFrame,
     y: pd.Series,
     dates: pd.Series,
     forced_split_date: str | None = None,
@@ -474,10 +473,10 @@ def train_and_evaluate(
     train_mask = dates < split_date
     test_mask = dates >= split_date
 
-    X_train, y_train = X[train_mask], y[train_mask]
-    X_test, y_test = X[test_mask], y[test_mask]
+    x_train, y_train = x_data[train_mask], y[train_mask]
+    x_test, y_test = x_data[test_mask], y[test_mask]
 
-    log.info("학습셋: %s건, 테스트셋: %s건 (분할: %s)", len(X_train), len(X_test), str(split_date)[:10])
+    log.info("학습셋: %s건, 테스트셋: %s건 (분할: %s)", len(x_train), len(x_test), str(split_date)[:10])
 
     # Random Forest
     model = RandomForestClassifier(
@@ -488,22 +487,22 @@ def train_and_evaluate(
         random_state=42,
         n_jobs=-1,
     )
-    model.fit(X_train, y_train)
+    model.fit(x_train, y_train)
 
     # 평가
-    y_pred = model.predict(X_test)
+    y_pred = model.predict(x_test)
     print("\n" + "=" * 70)
     print("  모델 평가 (테스트셋)")
     print("=" * 70)
     print(f"  학습 기간: ~ {str(split_date)[:10]}")
     print(f"  테스트 기간: {str(split_date)[:10]} ~")
-    print(f"  학습셋: {len(X_train):,}건 / 테스트셋: {len(X_test):,}건")
+    print(f"  학습셋: {len(x_train):,}건 / 테스트셋: {len(x_test):,}건")
     print()
     print(classification_report(y_test, y_pred, zero_division=0))
     print("혼동 행렬:")
     labels = sorted(y.unique())
     cm = confusion_matrix(y_test, y_pred, labels=labels)
-    cm_df = pd.DataFrame(cm, index=[f"실제_{l}" for l in labels], columns=[f"예측_{l}" for l in labels])
+    cm_df = pd.DataFrame(cm, index=[f"실제_{lb}" for lb in labels], columns=[f"예측_{lb}" for lb in labels])
     print(cm_df.to_string())
 
     # Feature Importance (Impurity-based)
@@ -519,7 +518,7 @@ def train_and_evaluate(
     log.info("Permutation Importance 계산 중 (테스트셋 기준)...")
     perm_result = permutation_importance(
         model,
-        X_test,
+        x_test,
         y_test,
         n_repeats=10,
         random_state=42,
@@ -622,10 +621,10 @@ def analyze_multi_window(df_base: pd.DataFrame, start: date, buy_thr: float, sel
 
     for fwd in [3, 5, 10, 20]:
         labeled = label_forward_returns(df_base.copy(), fwd, buy_thr, sell_thr)
-        X, y, _ = prepare_dataset(labeled, start)
+        x_fwd, y, _ = prepare_dataset(labeled, start)
 
         # 데이터 부족 시 스킵
-        if len(X) < 1000 or y.nunique() < 2:
+        if len(x_fwd) < 1000 or y.nunique() < 2:
             print(f"\n  [{fwd}일] 데이터 부족 — 스킵")
             continue
 
@@ -637,13 +636,13 @@ def analyze_multi_window(df_base: pd.DataFrame, start: date, buy_thr: float, sel
             random_state=42,
             n_jobs=-1,
         )
-        model.fit(X, y)
+        model.fit(x_fwd, y)
 
-        imp = sorted(zip(FEATURE_COLS, model.feature_importances_), key=lambda x: -x[1])
+        imp = sorted(zip(FEATURE_COLS, model.feature_importances_, strict=True), key=lambda x: -x[1])
         buy_ratio = (y == "BUY").mean() * 100
         avoid_ratio = (y == "AVOID").mean() * 100
 
-        print(f"\n  [{fwd}일 후] BUY={buy_ratio:.1f}% / AVOID={avoid_ratio:.1f}% (샘플: {len(X):,}건)")
+        print(f"\n  [{fwd}일 후] BUY={buy_ratio:.1f}% / AVOID={avoid_ratio:.1f}% (샘플: {len(x_fwd):,}건)")
         for feat, score in imp[:5]:
             kr_name = FEATURE_LABELS_KR.get(feat, feat)
             print(f"    {kr_name:>20s}: {score:.4f}")
@@ -708,19 +707,19 @@ def main():
     df = label_forward_returns(df, args.forward_days, buy_thr, sell_thr)
 
     # 데이터셋 준비
-    X, y, dates = prepare_dataset(df, start_date)
+    x_data, y, dates = prepare_dataset(df, start_date)
 
-    print(f"\n  분석 대상 데이터: {len(X):,}건")
-    print(f"  라벨 분포:")
+    print(f"\n  분석 대상 데이터: {len(x_data):,}건")
+    print("  라벨 분포:")
     for label, count in y.value_counts().items():
         print(f"    {label:>8s}: {count:>8,}건 ({count / len(y) * 100:.1f}%)")
 
-    if len(X) < 1000 or y.nunique() < 2:
+    if len(x_data) < 1000 or y.nunique() < 2:
         log.error("학습에 충분한 데이터가 없습니다.")
         return
 
     # 모델 학습 + 평가
-    model, importance = train_and_evaluate(X, y, dates, args.split_date)
+    model, importance = train_and_evaluate(x_data, y, dates, args.split_date)
 
     # 패턴 분석
     analysis_df = df[(df["price_date"] >= pd.Timestamp(start_date)) & df["forward_return"].notna()].copy()
