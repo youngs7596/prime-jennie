@@ -8,9 +8,9 @@
 
 ## 체크리스트 (확인 후 DONE 이동)
 
-- [ ] **#11** WSJ 자동 파이프라인 동작 확인 — 07:50 DAG, What's News fallback, 텔레그램 요약
-- [ ] **#12** MarketCalendar gating 확인 — 09:00 scanner/monitor 자동 활성화
-- [ ] **#14** trading_flags:stop 해제 판단 — buy-signals 밀린 시그널 확인 후 사용자 결정
+- [x] **#11** ~~WSJ 자동 파이프라인 동작 확인~~ — 코드 검증 완료 → DONE
+- [x] **#12** ~~MarketCalendar gating 확인~~ — 백그라운드 스레드 자동화, 코드 검증 완료 → DONE
+- [x] **#14** ~~trading_flags:stop 해제 판단~~ — stop 중 시그널 축적 없음, 해제 시 안전 확인 → DONE
 - [x] **#15** ~~macro_quick 5분 Naver API rate limit~~ — 5분당 4건(0.8 req/min), 안전 확인 → DONE
 
 ---
@@ -65,15 +65,15 @@
 ## 개선 (여유 시)
 
 ### 5. Quant Scorer Shadow Comparison 정리
-- v2.0 vs v2.1 비교 로깅 활성 중 — v2.2 반영 또는 제거
+- v2.0 vs v2.1 비교 로깅 활성 중 — 제거 예정 (15:30 이후 코드 삭제)
 - _발견: 02-25_
 
-### 19. 텔레그램 WSJ 요약 프롬프트 튜닝
-- 실제 요약 품질 피드백 반영
+### ~~19. 텔레그램 WSJ 요약 프롬프트 튜닝~~ → DONE
+- ✅ 현재 품질 충분, 추가 튜닝 불필요 (03-11)
 - _발견: 03-07_
 
-### 20. VKOSPI 데이터 소스 확보
-- 무료 API 없음, US VIX로 대체 중
+### ~~20. VKOSPI 데이터 소스 확보~~ → DONE
+- ✅ 무료 API 없음 확인, US VIX(Yahoo Finance) 유지 결정 (03-11)
 - _발견: 03-06_
 
 ### 21. dev 환경 서비스 로컬 실행 테스트

@@ -106,46 +106,44 @@ def detect_golden_cross(
     )
 
 
-def detect_rsi_rebound(
+def detect_gap_up_rebound(
     bars: list[Bar],
-    regime: MarketRegime,
-    rsi_threshold: float | None = None,
+    prev_close: float,
+    open_price: float,
+    volume_ratio: float,
+    min_gap_pct: float = 2.0,
+    min_volume_ratio: float = 1.5,
 ) -> StrategyResult:
-    """RSI_REBOUND: RSI가 과매도 구간에서 반등.
+    """GAP_UP_REBOUND: 폭락 후 갭업 반등.
 
-    Bull 국면에서는 비활성화 (역추세 전략).
+    전일 대비 갭업 + 거래량 수반 + 시가 이상 유지 시 트리거.
+    prev_close, open_price는 Scanner에서 주입.
     """
-    if regime in (MarketRegime.BULL, MarketRegime.STRONG_BULL):
+    if prev_close <= 0 or open_price <= 0:
         return StrategyResult(False)
 
-    if len(bars) < 16:  # RSI 계산에 최소 15개 필요
+    if len(bars) < 5:
         return StrategyResult(False)
 
-    closes = [b.close for b in bars]
-
-    # RSI threshold: 국면별 동적
-    if rsi_threshold is None:
-        rsi_threshold = {
-            MarketRegime.SIDEWAYS: 40.0,
-            MarketRegime.BEAR: 30.0,
-            MarketRegime.STRONG_BEAR: 25.0,
-        }.get(regime, 35.0)
-
-    curr_rsi = _compute_rsi(closes, 14)
-    prev_rsi = _compute_rsi(closes[:-1], 14)
-
-    if curr_rsi is None or prev_rsi is None:
+    # 갭업 확인: 시가가 전일 종가 대비 min_gap_pct% 이상
+    gap_pct = (open_price - prev_close) / prev_close * 100
+    if gap_pct < min_gap_pct:
         return StrategyResult(False)
 
-    # 이전에 과매도, 현재 반등
-    if prev_rsi < rsi_threshold <= curr_rsi:
-        return StrategyResult(
-            True,
-            SignalType.RSI_REBOUND,
-            f"RSI rebound: {prev_rsi:.1f} → {curr_rsi:.1f} (threshold={rsi_threshold})",
-        )
+    # 거래량 확인
+    if volume_ratio < min_volume_ratio:
+        return StrategyResult(False)
 
-    return StrategyResult(False)
+    # 가격 유지 확인: 현재가가 시가 이상 (갭 유지)
+    current_price = bars[-1].close
+    if current_price < open_price:
+        return StrategyResult(False)
+
+    return StrategyResult(
+        True,
+        SignalType.GAP_UP_REBOUND,
+        f"Gap-up rebound: gap={gap_pct:+.1f}%, vol={volume_ratio:.1f}x, holding above open",
+    )
 
 
 def detect_momentum(
@@ -472,12 +470,7 @@ def detect_strategies(
     if dip.detected:
         return dip
 
-    # 4. RSI_REBOUND — 비활성화 (실전 승률 30%, 평균 PnL -1.16%)
-    # rsi_reb = detect_rsi_rebound(bars, regime)
-    # if rsi_reb.detected:
-    #     return rsi_reb
-
-    # 5. Volume breakout
+    # 4. Volume breakout
     vb = detect_volume_breakout(bars, volume_ratio)
     if vb.detected:
         return vb

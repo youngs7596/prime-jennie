@@ -31,7 +31,12 @@ from prime_jennie.services.signal_logger import log_buy_signal
 
 from .bar_engine import Bar, BarEngine
 from .risk_gates import run_all_gates
-from .strategies import compute_rsi_from_bars, detect_orb_breakout, detect_strategies
+from .strategies import (
+    compute_rsi_from_bars,
+    detect_gap_up_rebound,
+    detect_orb_breakout,
+    detect_strategies,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -70,6 +75,8 @@ class BuyScanner:
         self._pending_momentum: dict[str, dict] = {}
         # ORB: 종목별 opening range {high, low, bar_count, date}
         self._opening_ranges: dict[str, dict] = {}
+        # GAP_UP_REBOUND: 종목별 일별 참조가격 {prev_close, open_price, date}
+        self._daily_ref: dict[str, dict] = {}
 
     def load_watchlist(self) -> bool:
         """Redis에서 watchlist 로드 + manual watchlist 병합."""
@@ -135,6 +142,51 @@ class BuyScanner:
             logger.info("Merged %d manual watchlist entries", added)
 
         return wl
+
+    def load_daily_refs(self) -> None:
+        """Gateway API에서 watchlist 종목의 전일 종가 / 시가 조회 (일 1회)."""
+        if self._watchlist is None:
+            return
+
+        from datetime import date as d
+
+        today = d.today().isoformat()
+        config = get_config()
+        gateway_url = config.kis.gateway_url
+        loaded = 0
+
+        for stock in self._watchlist.stocks:
+            code = stock.stock_code
+            ref = self._daily_ref.get(code)
+            if ref and ref.get("date") == today:
+                continue  # 이미 오늘 데이터 있음
+
+            try:
+                resp = httpx.post(
+                    f"{gateway_url}/api/market/snapshot",
+                    json={"stock_code": code},
+                    timeout=5.0,
+                )
+                resp.raise_for_status()
+                snap = resp.json()
+
+                price = int(snap.get("price", 0))
+                change_pct = float(snap.get("change_pct", 0))
+                open_price = int(snap.get("open_price", 0))
+
+                prev_close = round(price / (1 + change_pct / 100)) if price > 0 and abs(change_pct) < 50 else 0
+
+                self._daily_ref[code] = {
+                    "prev_close": prev_close,
+                    "open_price": open_price,
+                    "date": today,
+                }
+                loaded += 1
+            except Exception:
+                logger.debug("Failed to load daily ref for %s", code)
+
+        if loaded > 0:
+            logger.info("Loaded daily refs: %d stocks", loaded)
 
     def load_context(self) -> None:
         """Redis에서 TradingContext 로드."""
@@ -251,6 +303,49 @@ class BuyScanner:
                 if not check_trade_tier(entry.trade_tier):
                     return None
                 return self._publish_signal(stock_code, entry, orb.signal_type, price, rsi, vol_info["ratio"], vwap)
+
+        # GAP_UP_REBOUND: partial gate bypass (rsi_guard, micro_timing, market_regime 스킵)
+        ref = self._daily_ref.get(stock_code)
+        if ref and ref.get("prev_close", 0) > 0 and ref.get("open_price", 0) > 0:
+            gap_result = detect_gap_up_rebound(
+                bars,
+                prev_close=ref["prev_close"],
+                open_price=ref["open_price"],
+                volume_ratio=vol_info["ratio"],
+            )
+            if gap_result.detected:
+                from .risk_gates import (
+                    check_danger_zone,
+                    check_macro_risk,
+                    check_min_bars,
+                    check_no_trade_window,
+                    check_sell_cooldown,
+                    check_stoploss_cooldown,
+                    check_trade_tier,
+                )
+
+                gates_ok = (
+                    check_min_bars(bars, self._config.scanner.min_required_bars)
+                    and check_no_trade_window(self._config.scanner)
+                    and check_danger_zone(self._config.scanner)
+                    and check_macro_risk(self._context)
+                    and check_cooldown(
+                        stock_code, self._last_signal_times, self._config.scanner.signal_cooldown_seconds
+                    )
+                    and check_stoploss_cooldown(stock_code, self._redis)
+                    and check_sell_cooldown(stock_code, self._redis)
+                    and check_trade_tier(entry.trade_tier)
+                )
+                if gates_ok:
+                    return self._publish_signal(
+                        stock_code,
+                        entry,
+                        gap_result.signal_type,
+                        price,
+                        rsi,
+                        vol_info["ratio"],
+                        vwap,
+                    )
 
         # 나머지 전략은 risk gate 통과 필요
         gate_result = run_all_gates(
@@ -509,6 +604,7 @@ def _consume_ticks(r: redis.Redis, scanner: BuyScanner) -> None:
                 # 장 개시 시 watchlist 즉시 리로드
                 scanner.load_watchlist()
                 scanner.load_context()
+                scanner.load_daily_refs()
                 if scanner.watchlist:
                     codes = [s.stock_code for s in scanner.watchlist.stocks]
                     _subscribe_to_gateway(codes)
@@ -519,6 +615,7 @@ def _consume_ticks(r: redis.Redis, scanner: BuyScanner) -> None:
             if now - last_reload > WATCHLIST_RELOAD_INTERVAL:
                 scanner.load_watchlist()
                 scanner.load_context()
+                scanner.load_daily_refs()
                 if scanner.watchlist:
                     codes = [s.stock_code for s in scanner.watchlist.stocks]
                     _subscribe_to_gateway(codes)

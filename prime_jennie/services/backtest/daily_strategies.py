@@ -2,7 +2,7 @@
 
 7개 전략:
   1. GOLDEN_CROSS    — MA5/MA20 crossover + vol ratio >= 1.5x
-  2. RSI_REBOUND     — RSI threshold crossover (30/35/40 by regime)
+  2. GAP_UP_REBOUND  — 전일 -3%+ 후 갭업 +2%+, 거래량 수반
   3. MOMENTUM        — 5일 수익률 1.5~7%
   4. MOMENTUM_CONTINUATION — MA5>MA20 + 5일 2~5% + LLM>=65, Bull only
   5. DIP_BUY         — 5일 고점 대비 하락, 워치리스트 D+1~5
@@ -29,7 +29,7 @@ def detect_strategies(
 ) -> list[SignalType]:
     """워치리스트 항목에 대해 해당 날짜 기준 발동 가능한 전략 리스트 반환.
 
-    우선순위: CONVICTION > GOLDEN_CROSS > VOLUME_BREAKOUT > RSI_REBOUND
+    우선순위: CONVICTION > GOLDEN_CROSS > VOLUME_BREAKOUT > GAP_UP_REBOUND
               > MOMENTUM > MOMENTUM_CONTINUATION > DIP_BUY
     """
     history = price_cache.get_history_until(entry.stock_code, current_date, n=60)
@@ -53,9 +53,9 @@ def detect_strategies(
     if _check_volume_breakout(history, close_prices, volumes):
         signals.append(SignalType.VOLUME_BREAKOUT)
 
-    # --- RSI_REBOUND --- 비활성화 (실전 승률 30%, 평균 PnL -1.16%)
-    # if _check_rsi_rebound(close_prices, regime):
-    #     signals.append(SignalType.RSI_REBOUND)
+    # --- GAP_UP_REBOUND ---
+    if _check_gap_up_rebound(history):
+        signals.append(SignalType.GAP_UP_REBOUND)
 
     # --- MOMENTUM ---
     if _check_momentum(close_prices):
@@ -107,29 +107,47 @@ def _check_golden_cross(close_prices: list[float], volumes: list[int]) -> bool:
     return vol_ratio >= 1.5
 
 
-def _check_rsi_rebound(close_prices: list[float], regime: MarketRegime) -> bool:
-    """RSI threshold crossover (국면별 임계값)."""
-    if len(close_prices) < 16:
+def _check_gap_up_rebound(
+    history: list[DailyOHLCV],
+    min_gap_pct: float = 2.0,
+    min_crash_pct: float = -3.0,
+    min_volume_ratio: float = 1.5,
+) -> bool:
+    """전일 -3%+ 후 갭업 +2%+, 거래량 수반."""
+    if len(history) < 22:
         return False
 
-    rsi_now = calculate_rsi(close_prices, period=14)
-    # 하루 전까지의 RSI
-    rsi_prev = calculate_rsi(close_prices[:-1], period=14)
+    today = history[-1]
+    yesterday = history[-2]
 
-    if rsi_now is None or rsi_prev is None:
+    # 전일 등락률 확인 (폭락일이어야 함)
+    if yesterday == history[0]:
+        return False
+    day_before = history[-3]
+    if day_before.close_price <= 0:
+        return False
+    prev_return = (yesterday.close_price - day_before.close_price) / day_before.close_price * 100
+    if prev_return > min_crash_pct:
+        return False  # 전일이 폭락일이 아님
+
+    # 갭업 확인: 당일 시가 > 전일 종가 * (1 + gap%)
+    if yesterday.close_price <= 0:
+        return False
+    gap_pct = (today.open_price - yesterday.close_price) / yesterday.close_price * 100
+    if gap_pct < min_gap_pct:
         return False
 
-    # 국면별 RSI 반등 기준
-    threshold = {
-        MarketRegime.STRONG_BULL: 30.0,
-        MarketRegime.BULL: 35.0,
-        MarketRegime.SIDEWAYS: 35.0,
-        MarketRegime.BEAR: 40.0,
-        MarketRegime.STRONG_BEAR: 40.0,
-    }.get(regime, 35.0)
+    # 거래량 확인: 20일 평균 대비
+    volumes = [p.volume for p in history[-21:-1]]
+    avg_vol = sum(volumes) / len(volumes) if volumes else 0
+    if avg_vol <= 0:
+        return False
+    vol_ratio = today.volume / avg_vol
+    if vol_ratio < min_volume_ratio:
+        return False
 
-    # 이전 RSI가 threshold 이하 → 현재 RSI가 threshold 초과
-    return rsi_prev <= threshold and rsi_now > threshold
+    # 양봉 확인: 종가 >= 시가 (갭 유지)
+    return today.close_price >= today.open_price
 
 
 def _check_momentum(close_prices: list[float]) -> bool:

@@ -2,6 +2,7 @@
 """RSI_REBOUND threshold 파라미터 스윕.
 
 각 threshold 값에 대해 백테스트를 실행하고 결과를 비교.
+detect_strategies를 래핑하여 RSI_REBOUND를 동적으로 활성화.
 """
 
 from __future__ import annotations
@@ -15,7 +16,7 @@ from unittest.mock import patch
 from dotenv import load_dotenv
 from sqlmodel import Session
 
-from prime_jennie.domain.enums import MarketRegime
+from prime_jennie.domain.enums import MarketRegime, SignalType
 from prime_jennie.infra.database.engine import get_engine
 from prime_jennie.services.backtest.data_loader import (
     get_trading_dates,
@@ -26,6 +27,7 @@ from prime_jennie.services.backtest.data_loader import (
 from prime_jennie.services.backtest.engine import BacktestEngine
 from prime_jennie.services.backtest.metrics import calculate_metrics
 from prime_jennie.services.backtest.models import BacktestConfig
+from prime_jennie.services.buyer.position_sizing import calculate_rsi
 
 
 @dataclass
@@ -43,25 +45,62 @@ class SweepResult:
     avg_holding_days: float
 
 
-def make_rsi_checker(thresholds: dict[MarketRegime, float]):
-    """국면별 RSI threshold를 주입한 _check_rsi_rebound 생성."""
+def _make_detect_with_rsi(thresholds: dict[MarketRegime, float]):
+    """detect_strategies를 래핑하여 RSI_REBOUND를 동적으로 주입."""
+    from prime_jennie.services.backtest.daily_strategies import (
+        _check_conviction,
+        _check_dip_buy,
+        _check_golden_cross,
+        _check_momentum,
+        _check_momentum_continuation,
+        _check_volume_breakout,
+    )
+    from prime_jennie.services.backtest.models import PriceCache, WatchlistEntry
 
-    from prime_jennie.services.buyer.position_sizing import calculate_rsi
+    def detect_strategies(
+        entry: WatchlistEntry,
+        price_cache: PriceCache,
+        current_date: date,
+        regime: MarketRegime,
+    ) -> list[SignalType]:
+        history = price_cache.get_history_until(entry.stock_code, current_date, n=60)
+        if len(history) < 21:
+            return []
 
-    def _check_rsi_rebound(close_prices: list[float], regime: MarketRegime) -> bool:
-        if len(close_prices) < 16:
-            return False
+        close_prices = [p.close_price for p in history]
+        volumes = [p.volume for p in history]
+        signals: list[SignalType] = []
 
-        rsi_now = calculate_rsi(close_prices, period=14)
-        rsi_prev = calculate_rsi(close_prices[:-1], period=14)
+        if _check_conviction(entry, current_date, close_prices, regime):
+            signals.append(SignalType.WATCHLIST_CONVICTION)
 
-        if rsi_now is None or rsi_prev is None:
-            return False
+        if _check_golden_cross(close_prices, volumes):
+            signals.append(SignalType.GOLDEN_CROSS)
 
-        threshold = thresholds.get(regime, 35.0)
-        return rsi_prev <= threshold and rsi_now > threshold
+        if _check_volume_breakout(history, close_prices, volumes):
+            signals.append(SignalType.VOLUME_BREAKOUT)
 
-    return _check_rsi_rebound
+        # RSI_REBOUND — threshold 기반 동적 활성화
+        threshold = thresholds.get(regime, 0.0)
+        if threshold > 0 and len(close_prices) >= 16:
+            rsi_now = calculate_rsi(close_prices, period=14)
+            rsi_prev = calculate_rsi(close_prices[:-1], period=14)
+            if rsi_now is not None and rsi_prev is not None:
+                if rsi_prev <= threshold and rsi_now > threshold:
+                    signals.append(SignalType.RSI_REBOUND)
+
+        if _check_momentum(close_prices):
+            signals.append(SignalType.MOMENTUM)
+
+        if _check_momentum_continuation(close_prices, entry, regime):
+            signals.append(SignalType.MOMENTUM_CONTINUATION)
+
+        if _check_dip_buy(entry, current_date, close_prices):
+            signals.append(SignalType.DIP_BUY)
+
+        return signals
+
+    return detect_strategies
 
 
 def run_sweep(
@@ -92,12 +131,11 @@ def run_sweep(
             initial_capital=capital,
         )
 
-        custom_checker = make_rsi_checker(thresholds)
-
-        # daily_strategies 모듈의 _check_rsi_rebound를 교체
+        # detect_strategies 전체를 교체하여 RSI_REBOUND 동적 활성화
+        custom_detect = _make_detect_with_rsi(thresholds)
         with patch(
-            "prime_jennie.services.backtest.daily_strategies._check_rsi_rebound",
-            custom_checker,
+            "prime_jennie.services.backtest.engine.detect_strategies",
+            custom_detect,
         ):
             bt = BacktestEngine(
                 config=config,
@@ -151,29 +189,30 @@ def main() -> None:
     logging.basicConfig(level=logging.WARNING)
 
     # threshold 시나리오 정의
-    # 운영: BULL 비활성화, SIDEWAYS=40, BEAR=30, STRONG_BEAR=25
-    # 백테스트 기존: STRONG_BULL=30, BULL=35, SIDEWAYS=35, BEAR=40, STRONG_BEAR=40
     scenarios = [
+        # --- 베이스라인: 비활성 ---
         (
-            "PROD (SW=40,B=30)",  # 현재 운영 설정 (BULL 비활성 = threshold 0으로 비활)
+            "비활성 (전부OFF)",
             {
-                MarketRegime.STRONG_BULL: 0.0,  # 사실상 비활성
-                MarketRegime.BULL: 0.0,  # 사실상 비활성
+                MarketRegime.STRONG_BULL: 0.0,
+                MarketRegime.BULL: 0.0,
+                MarketRegime.SIDEWAYS: 0.0,
+                MarketRegime.BEAR: 0.0,
+                MarketRegime.STRONG_BEAR: 0.0,
+            },
+        ),
+        # --- 기존 운영 설정 ---
+        (
+            "PROD기존 (SW=40,B=30)",
+            {
+                MarketRegime.STRONG_BULL: 0.0,
+                MarketRegime.BULL: 0.0,
                 MarketRegime.SIDEWAYS: 40.0,
                 MarketRegime.BEAR: 30.0,
                 MarketRegime.STRONG_BEAR: 25.0,
             },
         ),
-        (
-            "BT기존 (SW=35,B=40)",  # 현재 백테스트 설정
-            {
-                MarketRegime.STRONG_BULL: 30.0,
-                MarketRegime.BULL: 35.0,
-                MarketRegime.SIDEWAYS: 35.0,
-                MarketRegime.BEAR: 40.0,
-                MarketRegime.STRONG_BEAR: 40.0,
-            },
-        ),
+        # --- 실증 기반 개선안 ---
         (
             "보수적 (SW=30,B=25)",
             {
@@ -195,6 +234,26 @@ def main() -> None:
             },
         ),
         (
+            "BEAR전용 (SW=0,B=30)",
+            {
+                MarketRegime.STRONG_BULL: 0.0,
+                MarketRegime.BULL: 0.0,
+                MarketRegime.SIDEWAYS: 0.0,
+                MarketRegime.BEAR: 30.0,
+                MarketRegime.STRONG_BEAR: 25.0,
+            },
+        ),
+        (
+            "BEAR전용보수 (SW=0,B=25)",
+            {
+                MarketRegime.STRONG_BULL: 0.0,
+                MarketRegime.BULL: 0.0,
+                MarketRegime.SIDEWAYS: 0.0,
+                MarketRegime.BEAR: 25.0,
+                MarketRegime.STRONG_BEAR: 20.0,
+            },
+        ),
+        (
             "공격적 (SW=45,B=35)",
             {
                 MarketRegime.STRONG_BULL: 0.0,
@@ -205,29 +264,31 @@ def main() -> None:
             },
         ),
         (
-            "비활성 (전부OFF)",
+            "BULL포함 (B=30,SW=35)",
             {
-                MarketRegime.STRONG_BULL: 0.0,
-                MarketRegime.BULL: 0.0,
-                MarketRegime.SIDEWAYS: 0.0,
-                MarketRegime.BEAR: 0.0,
-                MarketRegime.STRONG_BEAR: 0.0,
+                MarketRegime.STRONG_BULL: 25.0,
+                MarketRegime.BULL: 30.0,
+                MarketRegime.SIDEWAYS: 35.0,
+                MarketRegime.BEAR: 30.0,
+                MarketRegime.STRONG_BEAR: 25.0,
             },
         ),
     ]
 
-    # --- Period 1: 2025 H1 (워치리스트 있는 구간) ---
+    # --- Period 1: 2025 H1 ---
     print("=" * 70)
     print("  Period 1: 2025-01-01 ~ 2025-06-30")
     print("=" * 70)
     results_h1 = run_sweep(date(2025, 1, 1), date(2025, 6, 30), 50_000_000, scenarios)
 
-    # --- Period 2: 2026 최신 (매크로 데이터 + 확장 워치리스트) ---
+    # --- Period 2: 2026 최신 ---
     print()
     print("=" * 70)
-    print("  Period 2: 2026-01-01 ~ 2026-03-07")
+    print("  Period 2: 2026-01-01 ~ 2026-03-10")
     print("=" * 70)
-    results_26 = run_sweep(date(2026, 1, 1), date(2026, 3, 7), 50_000_000, scenarios)
+    results_26 = run_sweep(
+        date(2026, 1, 1), date(2026, 3, 10), 50_000_000, scenarios
+    )
 
     # --- 종합 비교 테이블 ---
     print()
@@ -236,15 +297,15 @@ def main() -> None:
     print("=" * 70)
 
     header = (
-        f"{'시나리오':<22} {'수익률':>8} {'MDD':>8} {'Sharpe':>7}"
+        f"{'시나리오':<25} {'수익률':>8} {'MDD':>8} {'Sharpe':>7}"
         f" {'전체WR':>7} {'RSI건수':>7} {'RSI_WR':>7} {'RSI평균':>8}"
     )
     print("\n[2025 H1]")
     print(header)
-    print("-" * 85)
+    print("-" * 90)
     for r in results_h1:
         print(
-            f"{r.threshold_label:<22} {r.total_return_pct:>+7.2f}% "
+            f"{r.threshold_label:<25} {r.total_return_pct:>+7.2f}% "
             f"{r.max_drawdown_pct:>7.2f}% {r.sharpe:>7.2f} "
             f"{r.win_rate:>6.1f}% {r.rsi_rebound_count:>6}건 "
             f"{r.rsi_rebound_win_rate:>6.1f}% {r.rsi_rebound_avg_pnl:>+7.2f}%"
@@ -252,10 +313,10 @@ def main() -> None:
 
     print("\n[2026 Jan-Mar]")
     print(header)
-    print("-" * 85)
+    print("-" * 90)
     for r in results_26:
         print(
-            f"{r.threshold_label:<22} {r.total_return_pct:>+7.2f}% "
+            f"{r.threshold_label:<25} {r.total_return_pct:>+7.2f}% "
             f"{r.max_drawdown_pct:>7.2f}% {r.sharpe:>7.2f} "
             f"{r.win_rate:>6.1f}% {r.rsi_rebound_count:>6}건 "
             f"{r.rsi_rebound_win_rate:>6.1f}% {r.rsi_rebound_avg_pnl:>+7.2f}%"

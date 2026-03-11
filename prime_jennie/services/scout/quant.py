@@ -93,9 +93,6 @@ def score_candidate(
         sector_momentum_score=round(sector_momentum, 1),
     )
 
-    # Shadow mode: 변경 전 기준 점수 비교 로깅
-    _log_shadow_comparison(candidate, result, prices, benchmark_prices)
-
     return result
 
 
@@ -432,109 +429,6 @@ def _linear_map(value: float, in_min: float, in_max: float, out_min: float, out_
         return (out_min + out_max) / 2
     ratio = (clamped - in_min) / (in_max - in_min)
     return out_min + ratio * (out_max - out_min)
-
-
-def _log_shadow_comparison(
-    candidate: EnrichedCandidate,
-    result: QuantScore,
-    prices: list[DailyPrice],
-    benchmark: list[DailyPrice] | None,
-) -> None:
-    """Shadow mode: 변경 전(v2.0) 기준으로 점수를 계산하고 차이를 로깅.
-
-    변경 전 기준:
-      - RSI 70-80 = 1pt (현재: 3pt 또는 5pt)
-      - PER ≥30 = 0.5pt (현재: 1.5~2.5pt)
-      - PBR ≥3 = 0pt (현재: 1.0pt)
-      - 52주 고점 근접 = 1.5pt (현재: 3.0pt)
-      - 섹터 모멘텀 없음 (현재: 0-10pt)
-    """
-    closes = [p.close_price for p in prices]
-    rsi = _compute_rsi(closes, period=14)
-    ft = candidate.financial_trend
-    snap = candidate.snapshot
-
-    # 변경 전 RSI 점수 계산
-    old_rsi_score = 0.0
-    if rsi is not None:
-        if 40 <= rsi <= 60:
-            old_rsi_score = 5.0
-        elif 30 <= rsi < 40 or 60 < rsi <= 70:
-            old_rsi_score = 3.5
-        elif rsi < 30:
-            old_rsi_score = 4.0
-        else:
-            old_rsi_score = 1.0
-
-    # 변경 전 Value 점수 계산 (v2.1 기준)
-    old_value = 0.0
-    if ft:
-        if ft.per is not None and ft.per > 0:
-            if ft.per < 8:
-                old_value += 10.0
-            elif ft.per < 12:
-                old_value += 7.0
-            elif ft.per < 18:
-                old_value += 4.0
-            elif ft.per < 30:
-                old_value += 2.5
-            else:
-                old_value += 1.5
-        if ft.pbr is not None and ft.pbr > 0:
-            if ft.pbr < 0.7:
-                old_value += 5.0
-            elif ft.pbr < 1.0:
-                old_value += 4.0
-            elif ft.pbr < 1.5:
-                old_value += 2.5
-            elif ft.pbr < 3.0:
-                old_value += 1.5
-            else:
-                old_value += 1.0
-        if snap and snap.high_52w and snap.price:
-            drawdown = (snap.price / snap.high_52w - 1) * 100
-            if drawdown < -30:
-                old_value += 2.0
-            elif drawdown < -15:
-                old_value += 5.0
-            elif drawdown < -5:
-                old_value += 3.5
-            else:
-                old_value += 3.0
-        old_value = min(20.0, old_value)
-
-    # 변경 전 총점 추정 (momentum RSI 차이 + value 차이 + 섹터 모멘텀 없음)
-    new_rsi_score = 0.0
-    if rsi is not None:
-        if 40 <= rsi <= 70:
-            new_rsi_score = 5.0
-        elif 70 < rsi <= 80:
-            new_rsi_score = 3.0  # is_bull은 여기서는 비교 안 함
-        elif 30 <= rsi < 40:
-            new_rsi_score = 3.5
-        elif rsi < 30:
-            new_rsi_score = 4.0
-        else:
-            new_rsi_score = 1.0
-
-    rsi_delta = new_rsi_score - old_rsi_score
-    value_delta = result.value_score - old_value
-    sector_delta = result.sector_momentum_score  # 변경 전에는 없었으므로 전부 delta
-    total_delta = rsi_delta + value_delta + sector_delta
-
-    if abs(total_delta) >= 3.0:
-        old_total = result.total_score - total_delta
-        logger.info(
-            "[SHADOW] %s(%s): v2.0=%.1f → v2.1=%.1f (Δ%+.1f) [RSI %+.1f, Value %+.1f, Sector %+.1f]",
-            result.stock_name,
-            result.stock_code,
-            max(0, old_total),
-            result.total_score,
-            total_delta,
-            rsi_delta,
-            value_delta,
-            sector_delta,
-        )
 
 
 def _neutral_score(candidate: EnrichedCandidate, reason: str = "") -> QuantScore:

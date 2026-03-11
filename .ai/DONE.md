@@ -37,3 +37,13 @@
 - timeout 5분→10분, retries 2→1 (멱등성 보호 있어 재시도 축소)
 ### #15 macro_quick Naver API rate limit 확인 — ✅ 2026-03-10
 - 5분당 Naver 호출 4건 (0.8 req/min), max_active_runs=1 — 별도 throttle 불필요
+### #11 WSJ 자동 파이프라인 동작 확인 — ✅ 2026-03-11
+- 07:50 DAG 정상, What's News body fallback 구현+테스트, 텔레그램 Claude 한글요약 fire-and-forget, 실패 시 Council graceful degradation
+### #12 MarketCalendar gating 확인 — ✅ 2026-03-11
+- Scanner/Monitor 백그라운드 스레드에서 is_market_open() 자동 gating (09:00 활성화, 15:30 중지), Gateway 거래일 API 연동, 162개 단위 테스트
+### #14 trading_flags:stop 해제 판단 — ✅ 2026-03-11
+- stop=1 중 Scanner가 Stream 발행 차단 (DB 로그만), 해제 시 새 시그널부터 처리, Executor에서 stop 이중 확인 — 기술적 안전 확인
+### #19 텔레그램 WSJ 요약 프롬프트 튜닝 — ✅ 2026-03-11
+- 현재 품질 충분, 추가 튜닝 불필요로 판단
+### #20 VKOSPI 데이터 소스 확보 — ✅ 2026-03-11
+- 무료 API로 VKOSPI 안정적 수집 불가 (KRX, Naver, Yahoo 모두 실패), US VIX(Yahoo Finance) 유지 결정

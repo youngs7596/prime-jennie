@@ -11,11 +11,11 @@ from prime_jennie.services.scanner.strategies import (
     _compute_sma,
     compute_rsi_from_bars,
     detect_dip_buy,
+    detect_gap_up_rebound,
     detect_golden_cross,
     detect_momentum,
     detect_momentum_continuation,
     detect_orb_breakout,
-    detect_rsi_rebound,
     detect_volume_breakout,
 )
 
@@ -239,26 +239,62 @@ class TestMomentumContinuation:
         assert not result.detected
 
 
-class TestRSIRebound:
-    def test_disabled_in_bull(self):
-        """Bull 국면에서 비활성."""
-        bars = _make_bars_trend(20, start=100, step=-1.0)
-        result = detect_rsi_rebound(bars, MarketRegime.BULL)
+class TestGapUpRebound:
+    def test_valid_gap_up(self):
+        """갭업 + 거래량 + 시가 이상 유지."""
+        bars = _make_bars_trend(10, start=105, step=0.5)
+        result = detect_gap_up_rebound(
+            bars,
+            prev_close=100,
+            open_price=103,
+            volume_ratio=2.0,
+        )
+        assert result.detected
+        assert result.signal_type == SignalType.GAP_UP_REBOUND
+
+    def test_no_gap(self):
+        """갭업 미달 (< 2%)."""
+        bars = _make_bars_trend(10, start=101, step=0.1)
+        result = detect_gap_up_rebound(
+            bars,
+            prev_close=100,
+            open_price=101,
+            volume_ratio=2.0,
+        )
         assert not result.detected
 
-    def test_rebound_in_bear(self):
-        """Bear 국면에서 과매도 반등."""
-        # 하락 후 반등
-        bars = _make_bars_trend(14, start=100, step=-2.0)
-        # 반등 바
-        bars.append(_make_bar(close=bars[-1].close + 3))
-        bars.append(_make_bar(close=bars[-1].close + 2))
+    def test_low_volume(self):
+        """거래량 부족."""
+        bars = _make_bars_trend(10, start=105, step=0.5)
+        result = detect_gap_up_rebound(
+            bars,
+            prev_close=100,
+            open_price=103,
+            volume_ratio=1.0,
+        )
+        assert not result.detected
 
-        result = detect_rsi_rebound(bars, MarketRegime.BEAR)
-        # RSI가 정확히 threshold를 교차하는지에 의존
-        # 여기서는 충분한 하락이 있으므로 가능
-        # 하지만 정확한 결과는 데이터에 의존하므로 에러 없이 실행되면 OK
-        assert isinstance(result.detected, bool)
+    def test_price_below_open(self):
+        """현재가가 시가 아래 (갭 채움)."""
+        bars = _make_bars_trend(10, start=105, step=-1.0)  # 하락
+        result = detect_gap_up_rebound(
+            bars,
+            prev_close=100,
+            open_price=105,
+            volume_ratio=2.0,
+        )
+        assert not result.detected
+
+    def test_insufficient_bars(self):
+        """바 부족."""
+        bars = _make_bars_trend(3, start=105, step=0.5)
+        result = detect_gap_up_rebound(
+            bars,
+            prev_close=100,
+            open_price=103,
+            volume_ratio=2.0,
+        )
+        assert not result.detected
 
 
 class TestDipBuy:
