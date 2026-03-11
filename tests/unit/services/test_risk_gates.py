@@ -19,6 +19,7 @@ from prime_jennie.services.scanner.risk_gates import (
     check_micro_timing,
     check_min_bars,
     check_no_trade_window,
+    check_overextension,
     check_rsi_guard,
     check_sell_cooldown,
     check_stoploss_cooldown,
@@ -269,6 +270,57 @@ class TestMicroTiming:
     def test_insufficient_bars_passes(self):
         result = check_micro_timing([_make_bar()])
         assert result.passed
+
+
+class TestOverextension:
+    """과열(Overextension) 필터 — 데이터마이닝 기반."""
+
+    def test_none_disparity_passes(self):
+        """이격률 데이터 없으면 통과."""
+        result = check_overextension(None, MarketRegime.BULL)
+        assert result.passed
+
+    def test_bull_below_threshold_passes(self):
+        """BULL 국면, 이격률 30% 미만 → 통과."""
+        result = check_overextension(28.0, MarketRegime.BULL)
+        assert result.passed
+
+    def test_bull_above_threshold_fails(self):
+        """BULL 국면, 이격률 30% 초과 → 차단."""
+        result = check_overextension(31.5, MarketRegime.BULL)
+        assert not result.passed
+        assert "31.5%" in result.reason
+        assert "30%" in result.reason
+
+    def test_strong_bull_high_tolerance(self):
+        """STRONG_BULL은 35%까지 허용."""
+        assert check_overextension(34.0, MarketRegime.STRONG_BULL).passed
+        assert not check_overextension(36.0, MarketRegime.STRONG_BULL).passed
+
+    def test_sideways_moderate_threshold(self):
+        """SIDEWAYS는 28% 기준 (Grid Search 최적화)."""
+        assert check_overextension(27.0, MarketRegime.SIDEWAYS).passed
+        assert not check_overextension(29.0, MarketRegime.SIDEWAYS).passed
+
+    def test_bear_strict_threshold(self):
+        """BEAR는 25% 기준."""
+        assert check_overextension(24.0, MarketRegime.BEAR).passed
+        assert not check_overextension(26.0, MarketRegime.BEAR).passed
+
+    def test_strong_bear_strictest(self):
+        """STRONG_BEAR는 20%로 가장 엄격."""
+        assert check_overextension(19.0, MarketRegime.STRONG_BEAR).passed
+        assert not check_overextension(21.0, MarketRegime.STRONG_BEAR).passed
+
+    def test_negative_disparity_passes(self):
+        """음수 이격률(하락 종목)은 항상 통과."""
+        result = check_overextension(-5.0, MarketRegime.STRONG_BEAR)
+        assert result.passed
+
+    def test_gate_name(self):
+        """게이트 이름 확인."""
+        result = check_overextension(20.0, MarketRegime.BULL)
+        assert result.gate_name == "overextension"
 
 
 class TestStrategyAlignment:

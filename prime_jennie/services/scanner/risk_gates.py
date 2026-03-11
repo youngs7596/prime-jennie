@@ -237,6 +237,42 @@ def check_micro_timing(bars: list[Bar]) -> GateResult:
     return GateResult(True, "micro_timing")
 
 
+def check_overextension(
+    disparity_60d: float | None,
+    regime: MarketRegime,
+) -> GateResult:
+    """Gate 11: 과열(Overextension) 필터 — 데이터마이닝 기반.
+
+    이격률(60일)이 국면별 임계값을 초과하면 매수 차단.
+    3개 기간(2025Q4, 2026Q1, Full) 교차 검증에서 AVOID 프로파일의
+    이격률(60일)이 +13~21%로 일관되게 높은 것을 확인.
+    """
+    if disparity_60d is None:
+        logger.debug("[SKIP-no-data] overextension gate skipped — no disparity_60d")
+        return GateResult(True, "overextension", "No disparity data")
+
+    # 국면별 임계값: 강세장은 관대, 약세장은 보수적
+    # 근거: 데이터마이닝 AVOID 이격률(60일) 평균 13~21%
+    # Grid Search 최적화 (2025-12~2026-03, 66일): SIDEWAYS 28% 최적
+    # 비SIDEWAYS 국면은 검증 데이터 부족 → 극단적 과열만 차단
+    thresholds = {
+        MarketRegime.STRONG_BULL: 35.0,  # 강세장 높은 이격 자연스러움
+        MarketRegime.BULL: 30.0,  # Phase1에서 <28 시 성과 악화
+        MarketRegime.SIDEWAYS: 28.0,  # Grid Search: Sharpe 0.736, 차단 하락률 64%
+        MarketRegime.BEAR: 25.0,  # 검증 데이터 부족 → 극단만 차단
+        MarketRegime.STRONG_BEAR: 20.0,  # 검증 데이터 부족 → 극단만 차단
+    }
+    threshold = thresholds.get(regime, 15.0)
+
+    if disparity_60d > threshold:
+        return GateResult(
+            False,
+            "overextension",
+            f"Disparity(60d) {disparity_60d:.1f}% > {threshold:.0f}% ({regime.value})",
+        )
+    return GateResult(True, "overextension")
+
+
 def check_strategy_alignment(signal_type: str, context: TradingContext) -> GateResult:
     """전략 정합성 체크 — Council이 회피 권고한 전략 차단."""
     if not context.strategies_to_avoid:
@@ -262,6 +298,7 @@ def run_all_gates(
     config: ScannerConfig,
     last_signal_times: dict[str, float],
     redis_client: redis.Redis | None = None,
+    disparity_60d: float | None = None,
 ) -> GateResult:
     """모든 게이트 순차 실행. 첫 번째 실패 시 즉시 반환."""
     gates = [
@@ -291,6 +328,7 @@ def run_all_gates(
         lambda: check_stoploss_cooldown(stock_code, redis_client),
         lambda: check_sell_cooldown(stock_code, redis_client),
         lambda: check_trade_tier(trade_tier),
+        lambda: check_overextension(disparity_60d, context.market_regime),
         lambda: check_micro_timing(bars),
     ]
 

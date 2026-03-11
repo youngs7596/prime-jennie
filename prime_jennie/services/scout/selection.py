@@ -131,6 +131,7 @@ def select_watchlist(
     for rank, score in enumerate(selected, start=1):
         sector = _get_sector(score.stock_code, candidates)
         candidate = candidates.get(score.stock_code)
+        overext = _compute_overextension(candidate)
 
         entries.append(
             WatchlistEntry(
@@ -147,6 +148,7 @@ def select_watchlist(
                 sector_group=sector,
                 market_flow=_build_market_flow(candidate),
                 scored_at=score.scored_at,
+                **overext,
             )
         )
 
@@ -165,6 +167,34 @@ def select_watchlist(
         context.market_regime,
     )
     return watchlist
+
+
+def _compute_overextension(candidate: EnrichedCandidate | None) -> dict:
+    """일봉 데이터로 과열(Overextension) 지표 계산.
+
+    데이터마이닝 검증 결과, 이격률(60일)·이격률(20일)·직전20일수익률이
+    과열 → 하락 위험 예측에 가장 안정적인 피처.
+    """
+    if not candidate or len(candidate.daily_prices) < 60:
+        return {}
+
+    closes = [p.close_price for p in candidate.daily_prices]
+    latest = closes[-1]
+    if latest <= 0:
+        return {}
+
+    ma20 = sum(closes[-20:]) / 20
+    ma60 = sum(closes[-60:]) / 60
+    price_20d_ago = closes[-20]
+
+    result: dict = {}
+    if ma20 > 0:
+        result["disparity_20d"] = round((latest / ma20 - 1) * 100, 2)
+    if ma60 > 0:
+        result["disparity_60d"] = round((latest / ma60 - 1) * 100, 2)
+    if price_20d_ago > 0:
+        result["return_20d"] = round((latest / price_20d_ago - 1) * 100, 2)
+    return result
 
 
 def _get_sector(stock_code: str, candidates: dict[str, EnrichedCandidate]) -> SectorGroup:

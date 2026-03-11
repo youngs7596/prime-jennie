@@ -15,7 +15,7 @@ import logging
 import math
 from datetime import date
 
-from prime_jennie.domain.enums import MarketRegime, SellReason
+from prime_jennie.domain.enums import MarketRegime, SellReason, SignalType
 from prime_jennie.domain.trading import PositionSizingRequest
 from prime_jennie.services.buyer.position_sizing import (
     calculate_atr,
@@ -58,6 +58,8 @@ class BacktestEngine:
         self.macro_days = macro_days
         self.trading_dates = trading_dates
         self.portfolio = SimulatedPortfolio(config)
+        # Overextension filter tracking
+        self.blocked_by_overextension: list[dict] = []
 
     def run(self) -> SimulatedPortfolio:
         """전체 시뮬레이션 실행."""
@@ -270,6 +272,14 @@ class BacktestEngine:
             # 첫 번째 시그널 사용 (우선순위순)
             signal_type = signals[0]
 
+            # Overextension Filter (옵션)
+            if self.config.overextension_filter:
+                disparity = self._calc_disparity_60d(code, day)
+                blocked, threshold = self._check_overextension(disparity, regime)
+                if blocked:
+                    self._record_blocked(code, entry.stock_name, day, signal_type, disparity, threshold, regime)
+                    continue
+
             # 가격 데이터
             ohlcv = self.prices.get(code, day)
             if not ohlcv or ohlcv.close_price <= 0:
@@ -385,3 +395,69 @@ class BacktestEngine:
             return total_qty
         qty = max(1, int(math.ceil(total_qty * sell_pct / 100)))
         return min(qty, total_qty)
+
+    def _calc_disparity_60d(self, stock_code: str, day: date) -> float | None:
+        """이격률(60일) 계산."""
+        closes = self.prices.get_close_prices_until(stock_code, day, n=60)
+        if len(closes) < 60:
+            return None
+        ma60 = sum(closes) / len(closes)
+        if ma60 <= 0:
+            return None
+        return (closes[-1] / ma60 - 1) * 100
+
+    def _check_overextension(self, disparity: float | None, regime: MarketRegime) -> tuple[bool, float]:
+        """과열 필터 체크. (blocked, threshold) 반환."""
+        if disparity is None:
+            return False, 0.0
+        default_thresholds = {
+            MarketRegime.STRONG_BULL: 35.0,
+            MarketRegime.BULL: 30.0,
+            MarketRegime.SIDEWAYS: 28.0,
+            MarketRegime.BEAR: 25.0,
+            MarketRegime.STRONG_BEAR: 20.0,
+        }
+        thresholds = self.config.overextension_thresholds or default_thresholds
+        threshold = thresholds.get(regime, 15.0)
+        return disparity > threshold, threshold
+
+    def _record_blocked(
+        self,
+        code: str,
+        name: str,
+        day: date,
+        signal_type: SignalType,
+        disparity: float | None,
+        threshold: float,
+        regime: MarketRegime,
+    ) -> None:
+        """차단된 매수의 사후 수익률 기록."""
+        ohlcv = self.prices.get(code, day)
+        if not ohlcv:
+            return
+        entry_price = ohlcv.close_price
+
+        # 5일 후 종가
+        history = self.prices.by_stock_sorted.get(code, [])
+        idx = None
+        for i, p in enumerate(history):
+            if p.price_date == day:
+                idx = i
+                break
+        fwd_5d = None
+        if idx is not None and idx + 5 < len(history):
+            fwd_5d = (history[idx + 5].close_price / entry_price - 1) * 100
+
+        self.blocked_by_overextension.append(
+            {
+                "date": day,
+                "stock_code": code,
+                "stock_name": name,
+                "signal_type": signal_type,
+                "disparity_60d": round(disparity, 1) if disparity else None,
+                "threshold": threshold,
+                "regime": regime,
+                "entry_price": entry_price,
+                "fwd_5d_pct": round(fwd_5d, 2) if fwd_5d is not None else None,
+            }
+        )

@@ -360,6 +360,7 @@ class BuyScanner:
             config=self._config.scanner,
             last_signal_times=self._last_signal_times,
             redis_client=self._redis,
+            disparity_60d=entry.disparity_60d,
         )
         if not gate_result:
             return None

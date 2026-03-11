@@ -25,6 +25,8 @@ class BacktestConfig:
     sell_fee_pct: float = 0.195  # 매도 수수료+세금 0.195%
     slippage_pct: float = 0.1  # 슬리피지 0.1%
     export_csv_dir: str | None = None
+    overextension_filter: bool = False  # 과열 필터 ON/OFF
+    overextension_thresholds: dict | None = None  # {MarketRegime: float} 커스텀 임계값
 
 
 @dataclass

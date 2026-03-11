@@ -24,6 +24,10 @@ class WatchlistEntry(BaseModel):
     sector_group: SectorGroup | None = None
     market_flow: dict | None = None  # 수급 요약
     scored_at: datetime | None = None
+    # Overextension 지표 (Scout 일봉 기반, 데이터마이닝 검증)
+    disparity_20d: float | None = None  # 이격률(20일) %
+    disparity_60d: float | None = None  # 이격률(60일) %
+    return_20d: float | None = None  # 직전 20일 수익률 %
 
 
 class HotWatchlist(BaseModel):
