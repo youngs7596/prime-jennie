@@ -5,17 +5,18 @@ Dashboard의 /api/llm/stats 에서 조회.
 
 Redis 키: llm:stats:{YYYY-MM-DD}:{service}
     Hash: {calls, tokens_in, tokens_out}
-    TTL: 7일
+    TTL: 35일 (월별 집계용)
 """
 
 import logging
+from calendar import monthrange
 from datetime import date
 
 import redis
 
 logger = logging.getLogger(__name__)
 
-_LLM_STATS_TTL = 86400 * 7  # 7일
+_LLM_STATS_TTL = 86400 * 35  # 35일 (월별 집계 보장)
 
 
 def record_llm_usage(
@@ -72,7 +73,7 @@ def get_llm_stats(
         }
 
     # 전체 서비스 조회
-    services = ["scout", "briefing", "macro_council", "news_analysis", "unknown"]
+    services = ["scout", "briefing", "macro_council", "news_analysis", "wsj_summary", "unknown"]
     result: dict[str, dict] = {}
     for svc in services:
         key = f"llm:stats:{d}:{svc}"
@@ -84,3 +85,52 @@ def get_llm_stats(
                 "tokens_out": int(data.get("tokens_out", 0)),
             }
     return result
+
+
+def get_llm_monthly_stats(
+    r: redis.Redis,
+    target_month: str | None = None,
+) -> dict:
+    """월별 LLM 사용량 집계.
+
+    Args:
+        target_month: 'YYYY-MM' 형식 (기본: 이번 달)
+
+    Returns:
+        서비스별 월간 합산 {service: {calls, tokens_in, tokens_out}}
+    """
+    today = date.today()
+    if target_month:
+        year, month = map(int, target_month.split("-"))
+    else:
+        year, month = today.year, today.month
+
+    days_in_month = monthrange(year, month)[1]
+    services = ["scout", "briefing", "macro_council", "news_analysis", "wsj_summary", "unknown"]
+
+    # Pipeline으로 한 번에 조회
+    pipe = r.pipeline()
+    keys = []
+    for day in range(1, days_in_month + 1):
+        d = date(year, month, day)
+        if d > today:
+            break
+        for svc in services:
+            key = f"llm:stats:{d.isoformat()}:{svc}"
+            pipe.hgetall(key)
+            keys.append(svc)
+
+    results = pipe.execute()
+
+    # 집계
+    agg: dict[str, dict] = {}
+    for svc, data in zip(keys, results, strict=True):
+        if not data:
+            continue
+        if svc not in agg:
+            agg[svc] = {"calls": 0, "tokens_in": 0, "tokens_out": 0}
+        agg[svc]["calls"] += int(data.get("calls", 0))
+        agg[svc]["tokens_in"] += int(data.get("tokens_in", 0))
+        agg[svc]["tokens_out"] += int(data.get("tokens_out", 0))
+
+    return agg

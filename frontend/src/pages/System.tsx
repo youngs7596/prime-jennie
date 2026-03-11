@@ -3,6 +3,8 @@ import { useQueryClient } from "@tanstack/react-query";
 import {
   useSystemHealth,
   useLLMStats,
+  useLLMMonthlyStats,
+  useLLMFeatures,
   useAirflowDags,
   triggerDag,
   useLogServices,
@@ -12,9 +14,9 @@ import type { AirflowDag, LogEntry } from "@/lib/api";
 import Card from "@/components/Card";
 import StatusBadge from "@/components/StatusBadge";
 import LoadingSpinner from "@/components/LoadingSpinner";
-import { Activity, Clock, Play, ScrollText, Workflow } from "lucide-react";
+import { Activity, Brain, Clock, Play, ScrollText, Workflow } from "lucide-react";
 
-type Tab = "services" | "workflows" | "logs";
+type Tab = "services" | "workflows" | "llm" | "logs";
 
 function formatUptime(seconds: number | null): string {
   if (seconds == null) return "-";
@@ -28,7 +30,6 @@ function formatUptime(seconds: number | null): string {
 
 function ServicesTab() {
   const health = useSystemHealth();
-  const llm = useLLMStats();
 
   const services = health.data ?? [];
   const healthyCount = services.filter((s) => s.status === "healthy").length;
@@ -93,62 +94,6 @@ function ServicesTab() {
           ))}
         </div>
       )}
-
-      {/* LLM Usage */}
-      <Card title="LLM Usage (Today)">
-        {llm.isLoading && <LoadingSpinner />}
-        {llm.data && (
-          <>
-            <div className="mb-4 grid grid-cols-3 gap-4">
-              <div className="rounded-md border border-border-primary bg-bg-primary p-3">
-                <p className="text-xs text-text-secondary">Total Calls</p>
-                <p className="text-2xl font-bold">{llm.data.total.calls}</p>
-              </div>
-              <div className="rounded-md border border-border-primary bg-bg-primary p-3">
-                <p className="text-xs text-text-secondary">Tokens In</p>
-                <p className="text-2xl font-bold">
-                  {llm.data.total.tokens_in.toLocaleString()}
-                </p>
-              </div>
-              <div className="rounded-md border border-border-primary bg-bg-primary p-3">
-                <p className="text-xs text-text-secondary">Tokens Out</p>
-                <p className="text-2xl font-bold">
-                  {llm.data.total.tokens_out.toLocaleString()}
-                </p>
-              </div>
-            </div>
-
-            {Object.keys(llm.data.services).length > 0 && (
-              <div className="overflow-x-auto">
-                <table className="w-full text-sm">
-                  <thead>
-                    <tr className="border-b border-border-primary text-left text-xs text-text-secondary">
-                      <th className="pb-2">Service</th>
-                      <th className="pb-2 text-right">Calls</th>
-                      <th className="pb-2 text-right">Tokens In</th>
-                      <th className="pb-2 text-right">Tokens Out</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {Object.entries(llm.data.services).map(([svc, stats]) => (
-                      <tr key={svc} className="border-b border-border-primary/50">
-                        <td className="py-2 capitalize">{svc.replace("_", " ")}</td>
-                        <td className="py-2 text-right font-mono">{stats.calls}</td>
-                        <td className="py-2 text-right font-mono">
-                          {stats.tokens_in.toLocaleString()}
-                        </td>
-                        <td className="py-2 text-right font-mono">
-                          {stats.tokens_out.toLocaleString()}
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            )}
-          </>
-        )}
-      </Card>
     </div>
   );
 }
@@ -263,6 +208,157 @@ function WorkflowsTab() {
   );
 }
 
+/* ── LLM Tab ──────────────────────────────────────────── */
+
+function formatTokens(n: number): string {
+  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
+  if (n >= 1_000) return `${(n / 1_000).toFixed(1)}K`;
+  return n.toString();
+}
+
+function LLMTab() {
+  const features = useLLMFeatures();
+  const daily = useLLMStats();
+  const monthly = useLLMMonthlyStats();
+
+  return (
+    <div className="space-y-6">
+      {/* 요약 카드 — 당일 / 월간 */}
+      <div className="grid grid-cols-2 gap-4">
+        <Card title={`당일 (${daily.data?.date ?? "-"})`}>
+          {daily.isLoading && <LoadingSpinner />}
+          {daily.data && (
+            <div className="grid grid-cols-3 gap-3">
+              <div>
+                <p className="text-xs text-text-secondary">호출</p>
+                <p className="text-2xl font-bold">{daily.data.total.calls}</p>
+              </div>
+              <div>
+                <p className="text-xs text-text-secondary">입력 토큰</p>
+                <p className="text-2xl font-bold">
+                  {formatTokens(daily.data.total.tokens_in)}
+                </p>
+              </div>
+              <div>
+                <p className="text-xs text-text-secondary">출력 토큰</p>
+                <p className="text-2xl font-bold">
+                  {formatTokens(daily.data.total.tokens_out)}
+                </p>
+              </div>
+            </div>
+          )}
+        </Card>
+        <Card title={`월간 (${monthly.data?.month ?? "-"})`}>
+          {monthly.isLoading && <LoadingSpinner />}
+          {monthly.data && (
+            <div className="grid grid-cols-3 gap-3">
+              <div>
+                <p className="text-xs text-text-secondary">호출</p>
+                <p className="text-2xl font-bold">{monthly.data.total.calls}</p>
+              </div>
+              <div>
+                <p className="text-xs text-text-secondary">입력 토큰</p>
+                <p className="text-2xl font-bold">
+                  {formatTokens(monthly.data.total.tokens_in)}
+                </p>
+              </div>
+              <div>
+                <p className="text-xs text-text-secondary">출력 토큰</p>
+                <p className="text-2xl font-bold">
+                  {formatTokens(monthly.data.total.tokens_out)}
+                </p>
+              </div>
+            </div>
+          )}
+        </Card>
+      </div>
+
+      {/* 기능별 LLM 매핑 + 사용량 통합 테이블 */}
+      <Card title="기능별 LLM 사용량">
+        {(features.isLoading || daily.isLoading || monthly.isLoading) && (
+          <LoadingSpinner />
+        )}
+        {features.data && (
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b border-border-primary text-left text-xs text-text-secondary">
+                  <th className="pb-2">기능</th>
+                  <th className="pb-2">Provider</th>
+                  <th className="pb-2">모델</th>
+                  <th className="pb-2">실행 주기</th>
+                  <th className="pb-2 text-right">당일 호출</th>
+                  <th className="pb-2 text-right">당일 토큰</th>
+                  <th className="pb-2 text-right">월간 호출</th>
+                  <th className="pb-2 text-right">월간 토큰</th>
+                </tr>
+              </thead>
+              <tbody>
+                {features.data.map((feat) => {
+                  const ds = daily.data?.services[feat.service];
+                  const ms = monthly.data?.services[feat.service];
+                  return (
+                    <tr
+                      key={feat.service}
+                      className="border-b border-border-primary/50"
+                    >
+                      <td className="py-2 font-medium">{feat.name}</td>
+                      <td className="py-2 text-text-secondary">{feat.provider}</td>
+                      <td className="py-2 font-mono text-xs text-text-muted">
+                        {feat.model}
+                      </td>
+                      <td className="py-2 text-xs text-text-muted">
+                        {feat.frequency}
+                      </td>
+                      <td className="py-2 text-right font-mono">
+                        {ds?.calls ?? 0}
+                      </td>
+                      <td className="py-2 text-right font-mono">
+                        {formatTokens((ds?.tokens_in ?? 0) + (ds?.tokens_out ?? 0))}
+                      </td>
+                      <td className="py-2 text-right font-mono">
+                        {ms?.calls ?? 0}
+                      </td>
+                      <td className="py-2 text-right font-mono">
+                        {formatTokens((ms?.tokens_in ?? 0) + (ms?.tokens_out ?? 0))}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+              <tfoot>
+                <tr className="border-t border-border-primary font-medium">
+                  <td className="pt-2" colSpan={4}>
+                    합계
+                  </td>
+                  <td className="pt-2 text-right font-mono">
+                    {daily.data?.total.calls ?? 0}
+                  </td>
+                  <td className="pt-2 text-right font-mono">
+                    {formatTokens(
+                      (daily.data?.total.tokens_in ?? 0) +
+                        (daily.data?.total.tokens_out ?? 0),
+                    )}
+                  </td>
+                  <td className="pt-2 text-right font-mono">
+                    {monthly.data?.total.calls ?? 0}
+                  </td>
+                  <td className="pt-2 text-right font-mono">
+                    {formatTokens(
+                      (monthly.data?.total.tokens_in ?? 0) +
+                        (monthly.data?.total.tokens_out ?? 0),
+                    )}
+                  </td>
+                </tr>
+              </tfoot>
+            </table>
+          </div>
+        )}
+      </Card>
+    </div>
+  );
+}
+
 /* ── Logs Tab ─────────────────────────────────────────── */
 
 const TIME_RANGES = [
@@ -356,6 +452,7 @@ function LogsTab() {
 const TABS: { key: Tab; label: string; icon: typeof Activity }[] = [
   { key: "services", label: "Services", icon: Activity },
   { key: "workflows", label: "Workflows", icon: Workflow },
+  { key: "llm", label: "LLM", icon: Brain },
   { key: "logs", label: "Logs", icon: ScrollText },
 ];
 
@@ -389,6 +486,7 @@ export default function System() {
 
       {tab === "services" && <ServicesTab />}
       {tab === "workflows" && <WorkflowsTab />}
+      {tab === "llm" && <LLMTab />}
       {tab === "logs" && <LogsTab />}
     </div>
   );

@@ -139,6 +139,21 @@ export interface LLMStats {
   total: { calls: number; tokens_in: number; tokens_out: number };
 }
 
+export interface LLMMonthlyStats {
+  month: string;
+  services: Record<string, { calls: number; tokens_in: number; tokens_out: number }>;
+  total: { calls: number; tokens_in: number; tokens_out: number };
+}
+
+export interface LLMFeature {
+  service: string;
+  name: string;
+  tier: string;
+  provider: string;
+  model: string;
+  frequency: string;
+}
+
 export interface AirflowDag {
   dag_id: string;
   description: string | null;
@@ -248,6 +263,26 @@ export function useLLMStats(targetDate?: string) {
       const url = targetDate ? `/llm/stats/${targetDate}` : "/llm/stats";
       return api.get(url).then((r) => r.data);
     },
+  });
+}
+
+export function useLLMMonthlyStats(targetMonth?: string) {
+  return useQuery<LLMMonthlyStats>({
+    queryKey: ["llm", "stats", "monthly", targetMonth],
+    queryFn: () => {
+      const url = targetMonth
+        ? `/llm/stats/monthly/${targetMonth}`
+        : "/llm/stats/monthly";
+      return api.get(url).then((r) => r.data);
+    },
+  });
+}
+
+export function useLLMFeatures() {
+  return useQuery<LLMFeature[]>({
+    queryKey: ["llm", "features"],
+    queryFn: () => api.get("/llm/features").then((r) => r.data),
+    staleTime: 300_000, // 5분 캐시 (거의 변경 없는 정적 데이터)
   });
 }
 

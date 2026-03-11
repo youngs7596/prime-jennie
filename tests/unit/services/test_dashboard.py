@@ -415,6 +415,54 @@ class TestLLMStatsAPI:
         data = resp.json()
         assert data["total"]["calls"] == 0
 
+    def test_get_features(self):
+        client, _, _ = _make_client()
+        resp = client.get("/api/llm/features")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert isinstance(data, list)
+        assert len(data) == 5
+        services = [f["service"] for f in data]
+        assert "news_analysis" in services
+        assert "scout" in services
+        assert "macro_council" in services
+        assert "briefing" in services
+        assert "wsj_summary" in services
+        # 모든 항목에 provider, model, frequency 존재
+        for feat in data:
+            assert "provider" in feat
+            assert "model" in feat
+            assert "frequency" in feat
+
+    def test_get_monthly_stats(self):
+        client, _, mock_redis = _make_client()
+        pipe_mock = MagicMock()
+        mock_redis.pipeline.return_value = pipe_mock
+        # 2026-01: 31일 × 6서비스 = 186개 결과 필요
+        results = [{}] * (31 * 6)
+        # 1일 scout에 데이터 설정 (index=0)
+        results[0] = {"calls": "10", "tokens_in": "5000", "tokens_out": "2000"}
+        pipe_mock.execute.return_value = results
+
+        resp = client.get("/api/llm/stats/monthly/2026-01")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["month"] == "2026-01"
+        assert data["total"]["calls"] == 10
+        assert data["total"]["tokens_in"] == 5000
+
+    def test_get_monthly_stats_no_data(self):
+        client, _, mock_redis = _make_client()
+        pipe_mock = MagicMock()
+        mock_redis.pipeline.return_value = pipe_mock
+        # 2026-01: 31일 × 6서비스 = 186개 빈 결과
+        pipe_mock.execute.return_value = [{}] * (31 * 6)
+
+        resp = client.get("/api/llm/stats/monthly/2026-01")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["total"]["calls"] == 0
+
 
 # ─── System Tests ──────────────────────────────────────────────
 
