@@ -9,8 +9,6 @@ from __future__ import annotations
 
 import logging
 import statistics
-import sys
-import time
 from datetime import date
 from pathlib import Path
 
@@ -190,20 +188,19 @@ def main():
     with_blocks = [r for r in results if r["blocked_fwd"] >= 5]
     best_decline = max(with_blocks, key=lambda x: x["decline_rate"]) if with_blocks else None
 
-    print(f"\n  요약:")
+    print("\n  요약:")
+    br = best_ret
     print(
-        f"    최고 수익률:   SW={best_ret['sw']:.0f}% → {best_ret['total_return']:+.2f}% (Δ{best_ret['total_return'] - base_ret:+.2f}%)"
+        f"    최고 수익률:   SW={br['sw']:.0f}% → {br['total_return']:+.2f}% (Δ{br['total_return'] - base_ret:+.2f}%)"
     )
-    print(
-        f"    최고 Sharpe:   SW={best_sharpe['sw']:.0f}% → Sharpe {best_sharpe['sharpe']:.3f} (수익률 {best_sharpe['total_return']:+.2f}%)"
-    )
+    bs = best_sharpe
+    print(f"    최고 Sharpe:   SW={bs['sw']:.0f}% → Sharpe {bs['sharpe']:.3f} (수익률 {bs['total_return']:+.2f}%)")
     if best_decline:
-        print(
-            f"    최고 하락률:   SW={best_decline['sw']:.0f}% → 하락률 {best_decline['decline_rate']:.0f}% ({best_decline['blocked_fwd']}건)"
-        )
+        bd = best_decline
+        print(f"    최고 하락률:   SW={bd['sw']:.0f}% → 하락률 {bd['decline_rate']:.0f}% ({bd['blocked_fwd']}건)")
 
     # "Sweet Spot" 분석: 수익률 > baseline AND 차단 하락률 >= 55%
-    print(f"\n  Sweet Spot (수익률 > baseline AND 차단 하락률 >= 55%):")
+    print("\n  Sweet Spot (수익률 > baseline AND 차단 하락률 >= 55%):")
     for r in results:
         if r["total_return"] > base_ret and r["blocked_fwd"] >= 3 and r["decline_rate"] >= 55:
             print(

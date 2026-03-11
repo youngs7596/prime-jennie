@@ -297,10 +297,10 @@ def phase2_combined_grid(
 
     results: list[dict] = []
     t0 = time.time()
-    done = 0
 
-    for sb, bu, sw, be, sbe in itertools.product(
-        sb_candidates, bu_candidates, sw_candidates, be_candidates, sbe_candidates
+    for done, (sb, bu, sw, be, sbe) in enumerate(
+        itertools.product(sb_candidates, bu_candidates, sw_candidates, be_candidates, sbe_candidates),
+        start=1,
     ):
         thresholds = make_thresholds(sb=sb, bu=bu, sw=sw, be=be, sbe=sbe)
         r = run_backtest(
@@ -314,7 +314,6 @@ def phase2_combined_grid(
             thresholds,
         )
         results.append(r)
-        done += 1
 
         if done % 100 == 0:
             elapsed = time.time() - t0
