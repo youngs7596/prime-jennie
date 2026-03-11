@@ -52,7 +52,7 @@
 | **MarketCalendar** | 거래일+장시간 통합 체크 (공휴일 KIS API 연동), scanner/monitor 자동 활성화 |
 | **텔레그램 알림** | 매수/매도 체결 + WSJ 한글 요약 + 일일 브리핑 (Redis Stream 비동기 발송) |
 | **Portfolio Guard** | 동적 섹터 cap(30%) + 종목 cap(15%) + 국면별 현금 하한선 (BULL 10%, BEAR 25%) |
-| **리스크 관리** | Correlation check(0.85) + Cooldown(손절 3일/매도 24h) + 전략 정합성 게이트 |
+| **리스크 관리** | Correlation check(0.85) + Cooldown(손절 3일/매도 24h) + 전략 정합성 게이트 + Overextension Filter |
 | **강제 청산** | 2단계 안전장치 (Add → Arm) 텔레그램 `/liquidate` 명령, emergency stop 우회 |
 | **국면 연동** | BULL/SIDEWAYS/BEAR 국면별 차등 전략 (스톱, 익절, 타임아웃, 매수 제한) |
 | **GPU-Free 지원** | GPU 없이도 Cloud LLM(DeepSeek)으로 전체 시스템 구동 가능 |
@@ -507,6 +507,7 @@ prime-jennie/
 | **Cooldown** | 손절/데드크로스/브레이크이븐 후 3일 + 모든 매도 후 24h 재매수 방지 (Redis 기반) |
 | **Portfolio Guard** | 섹터 금액 비중 30% (STRONG_BULL 50%) + 종목 금액 비중 15% (STRONG_BULL 25%) |
 | **전략 정합성** | Council strategies_to_avoid → Scanner 시그널 발행 전 전략 유형 체크 |
+| **Overextension Filter** | 60일 이격률이 국면별 임계값 초과 시 매수 차단 (SIDEWAYS 28%, BULL 30%, BEAR 25%) |
 | **현금 하한선** | BULL 10%, SIDEWAYS 15%, BEAR 25% |
 | **일일 매수 제한** | 국면별 최대 매수 건수 제한 |
 | **강제 청산** | 텔레그램 `/liquidate` 2단계 안전장치 (Add → Arm), emergency stop 우회 |

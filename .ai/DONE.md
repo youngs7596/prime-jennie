@@ -57,3 +57,10 @@
 - Scanner: Gateway API에서 전일종가/시가 캐시, partial gate bypass (rsi_guard, micro_timing, market_regime 스킵)
 - Backtest: 전일 -3%+ 후 갭업 +2%+, 거래량 수반, 양봉 확인
 - 테스트 5건 추가 (전체 877 passed)
+### Overextension Filter (Gate 11) 구현 + Grid Search 최적화 — ✅ 2026-03-11
+- 60일 이격률 기반 과열 매수 차단, 국면별 임계값: STRONG_BULL 35%, BULL 30%, SIDEWAYS 28%, BEAR 25%, STRONG_BEAR 20%
+- 3-Phase Grid Search (독립 스윕 → 2,800 조합 → 미세 조정), 차단 하락률 64%
+- 핵심 교훈: "AVOID 평균 ≠ 임계값 경계" — 데이터마이닝 평균(13-21%)을 직접 쓰면 과차단
+- BacktestConfig에 overextension_thresholds 파라미터 추가
+- risk_gates.py 테스트 9건 업데이트 (전체 877 passed)
+- 보고서: `.ai/reports/overextension-grid-search-2026-03-11.md`
