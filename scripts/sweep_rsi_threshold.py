@@ -85,9 +85,8 @@ def _make_detect_with_rsi(thresholds: dict[MarketRegime, float]):
         if threshold > 0 and len(close_prices) >= 16:
             rsi_now = calculate_rsi(close_prices, period=14)
             rsi_prev = calculate_rsi(close_prices[:-1], period=14)
-            if rsi_now is not None and rsi_prev is not None:
-                if rsi_prev <= threshold and rsi_now > threshold:
-                    signals.append(SignalType.RSI_REBOUND)
+            if rsi_now is not None and rsi_prev is not None and rsi_prev <= threshold and rsi_now > threshold:
+                signals.append(SignalType.RSI_REBOUND)
 
         if _check_momentum(close_prices):
             signals.append(SignalType.MOMENTUM)
@@ -286,9 +285,7 @@ def main() -> None:
     print("=" * 70)
     print("  Period 2: 2026-01-01 ~ 2026-03-10")
     print("=" * 70)
-    results_26 = run_sweep(
-        date(2026, 1, 1), date(2026, 3, 10), 50_000_000, scenarios
-    )
+    results_26 = run_sweep(date(2026, 1, 1), date(2026, 3, 10), 50_000_000, scenarios)
 
     # --- 종합 비교 테이블 ---
     print()
