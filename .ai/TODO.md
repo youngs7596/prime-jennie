@@ -64,9 +64,17 @@
 
 ## 개선 (여유 시)
 
-### 5. Quant Scorer Shadow Comparison 정리
-- v2.0 vs v2.1 비교 로깅 활성 중 — 제거 예정 (15:30 이후 코드 삭제)
+### ~~5. Quant Scorer Shadow Comparison 정리~~ → DONE
+- ✅ _log_shadow_comparison 100줄 삭제 (03-11)
 - _발견: 02-25_
+
+### 24. GAP_UP_REBOUND 전략 검증
+- ✅ v1 구현 완료 (03-11): 전일대비 +2% 갭업 + 거래량 1.5x + 시가 유지
+- 데이터 수집 중 (stop=1 상태에서 signal_logs 축적)
+- [ ] 30~45 거래일 실전 시그널 데이터 확인 후 성과 평가
+- [ ] 성과 양호 시 stop 해제 후 실거래 적용
+- [ ] 이후 MEAN_REVERSION 전략 개발 착수
+- _발견: 03-11_
 
 ### ~~19. 텔레그램 WSJ 요약 프롬프트 튜닝~~ → DONE
 - ✅ 현재 품질 충분, 추가 튜닝 불필요 (03-11)

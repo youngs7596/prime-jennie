@@ -47,3 +47,13 @@
 - 현재 품질 충분, 추가 튜닝 불필요로 판단
 ### #20 VKOSPI 데이터 소스 확보 — ✅ 2026-03-11
 - 무료 API로 VKOSPI 안정적 수집 불가 (KRX, Naver, Yahoo 모두 실패), US VIX(Yahoo Finance) 유지 결정
+### RSI_REBOUND 전략 코드 완전 삭제 — ✅ 2026-03-11
+- detect_rsi_rebound() 함수 삭제, _check_rsi_rebound() 삭제
+- GAP_UP_REBOUND 전략으로 대체 (역추세 반등 포착)
+### #5 Shadow Comparison 삭제 — ✅ 2026-03-11
+- scout/quant.py _log_shadow_comparison() 100줄 삭제
+### GAP_UP_REBOUND 전략 v1 구현 — ✅ 2026-03-11
+- 조건: 전일대비 +2% 갭업 + 거래량 1.5x + 시가 유지
+- Scanner: Gateway API에서 전일종가/시가 캐시, partial gate bypass (rsi_guard, micro_timing, market_regime 스킵)
+- Backtest: 전일 -3%+ 후 갭업 +2%+, 거래량 수반, 양봉 확인
+- 테스트 5건 추가 (전체 877 passed)
