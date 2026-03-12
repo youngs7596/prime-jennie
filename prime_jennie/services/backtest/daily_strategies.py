@@ -110,10 +110,11 @@ def _check_golden_cross(close_prices: list[float], volumes: list[int]) -> bool:
 def _check_gap_up_rebound(
     history: list[DailyOHLCV],
     min_gap_pct: float = 2.0,
+    max_gap_pct: float = 15.0,
     min_crash_pct: float = -3.0,
     min_volume_ratio: float = 1.5,
 ) -> bool:
-    """전일 -3%+ 후 갭업 +2%+, 거래량 수반."""
+    """전일 -3%+ 후 갭업 +2~15%+, 거래량 수반."""
     if len(history) < 22:
         return False
 
@@ -136,6 +137,8 @@ def _check_gap_up_rebound(
     gap_pct = (today.open_price - yesterday.close_price) / yesterday.close_price * 100
     if gap_pct < min_gap_pct:
         return False
+    if max_gap_pct > 0 and gap_pct > max_gap_pct:
+        return False  # 권리락/상한가 등 비정상 이벤트 제외
 
     # 거래량 확인: 20일 평균 대비
     volumes = [p.volume for p in history[-21:-1]]

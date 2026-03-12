@@ -111,13 +111,21 @@ def detect_gap_up_rebound(
     prev_close: float,
     open_price: float,
     volume_ratio: float,
+    prev_day_return: float | None = None,
     min_gap_pct: float = 2.0,
+    max_gap_pct: float = 15.0,
+    min_prev_decline_pct: float = -3.0,
     min_volume_ratio: float = 1.5,
 ) -> StrategyResult:
     """GAP_UP_REBOUND: 폭락 후 갭업 반등.
 
-    전일 대비 갭업 + 거래량 수반 + 시가 이상 유지 시 트리거.
-    prev_close, open_price는 Scanner에서 주입.
+    조건:
+      1. 전일 하락률 <= min_prev_decline_pct (폭락일 필수)
+      2. 갭업 min_gap_pct% ~ max_gap_pct% (권리락/상한가 제외)
+      3. 거래량 >= min_volume_ratio (20일 평균 대비)
+      4. 현재가 >= 시가 (갭 유지)
+
+    prev_close, open_price, prev_day_return은 Scanner에서 주입.
     """
     if prev_close <= 0 or open_price <= 0:
         return StrategyResult(False)
@@ -125,9 +133,15 @@ def detect_gap_up_rebound(
     if len(bars) < 5:
         return StrategyResult(False)
 
-    # 갭업 확인: 시가가 전일 종가 대비 min_gap_pct% 이상
+    # 전일 하락 확인
+    if prev_day_return is None or prev_day_return > min_prev_decline_pct:
+        return StrategyResult(False)
+
+    # 갭업 확인: 시가가 전일 종가 대비 min_gap_pct% ~ max_gap_pct%
     gap_pct = (open_price - prev_close) / prev_close * 100
     if gap_pct < min_gap_pct:
+        return StrategyResult(False)
+    if max_gap_pct > 0 and gap_pct > max_gap_pct:
         return StrategyResult(False)
 
     # 거래량 확인
@@ -142,7 +156,7 @@ def detect_gap_up_rebound(
     return StrategyResult(
         True,
         SignalType.GAP_UP_REBOUND,
-        f"Gap-up rebound: gap={gap_pct:+.1f}%, vol={volume_ratio:.1f}x, holding above open",
+        f"Gap-up rebound: prev={prev_day_return:+.1f}%, gap={gap_pct:+.1f}%, vol={volume_ratio:.1f}x",
     )
 
 

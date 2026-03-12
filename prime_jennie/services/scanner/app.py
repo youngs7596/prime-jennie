@@ -144,7 +144,7 @@ class BuyScanner:
         return wl
 
     def load_daily_refs(self) -> None:
-        """Gateway API에서 watchlist 종목의 전일 종가 / 시가 조회 (일 1회)."""
+        """Gateway API에서 watchlist 종목의 전일 종가 / 시가 / 전일 등락률 조회 (일 1회)."""
         if self._watchlist is None:
             return
 
@@ -176,9 +176,13 @@ class BuyScanner:
 
                 prev_close = round(price / (1 + change_pct / 100)) if price > 0 and abs(change_pct) < 50 else 0
 
+                # 전일 등락률 조회 (GAP_UP_REBOUND 전일 하락 조건용)
+                prev_day_return = self._fetch_prev_day_return(gateway_url, code)
+
                 self._daily_ref[code] = {
                     "prev_close": prev_close,
                     "open_price": open_price,
+                    "prev_day_return": prev_day_return,
                     "date": today,
                 }
                 loaded += 1
@@ -187,6 +191,31 @@ class BuyScanner:
 
         if loaded > 0:
             logger.info("Loaded daily refs: %d stocks", loaded)
+
+    def _fetch_prev_day_return(self, gateway_url: str, stock_code: str) -> float | None:
+        """Gateway daily-prices API로 전일 등락률 계산."""
+        try:
+            resp = httpx.post(
+                f"{gateway_url}/api/market/daily-prices",
+                json={"stock_code": stock_code, "days": 3},
+                timeout=5.0,
+            )
+            resp.raise_for_status()
+            prices = resp.json()
+            # 최신순 → [T-0, T-1, T-2] 또는 오래된 순 → [T-2, T-1, T-0]
+            if len(prices) < 2:
+                return None
+            # 날짜 기준 정렬 (오래된 순)
+            prices.sort(key=lambda p: p["price_date"])
+            # T-1(전일) 과 T-2(전전일) 종가로 전일 등락률 계산
+            t2_close = prices[-2]["close_price"]
+            t1_close = prices[-1]["close_price"]
+            if t2_close <= 0:
+                return None
+            return (t1_close - t2_close) / t2_close * 100
+        except Exception:
+            logger.debug("Failed to fetch prev day return for %s", stock_code)
+            return None
 
     def load_context(self) -> None:
         """Redis에서 TradingContext 로드."""
@@ -307,11 +336,17 @@ class BuyScanner:
         # GAP_UP_REBOUND: partial gate bypass (rsi_guard, micro_timing, market_regime 스킵)
         ref = self._daily_ref.get(stock_code)
         if ref and ref.get("prev_close", 0) > 0 and ref.get("open_price", 0) > 0:
+            scanner_cfg = self._config.scanner
             gap_result = detect_gap_up_rebound(
                 bars,
                 prev_close=ref["prev_close"],
                 open_price=ref["open_price"],
                 volume_ratio=vol_info["ratio"],
+                prev_day_return=ref.get("prev_day_return"),
+                min_gap_pct=scanner_cfg.gap_up_min_gap_pct,
+                max_gap_pct=scanner_cfg.gap_up_max_gap_pct,
+                min_prev_decline_pct=scanner_cfg.gap_up_min_prev_decline_pct,
+                min_volume_ratio=scanner_cfg.gap_up_min_volume_ratio,
             )
             if gap_result.detected:
                 from .risk_gates import (

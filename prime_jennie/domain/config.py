@@ -159,6 +159,11 @@ class ScannerConfig(BaseSettings):
     momentum_limit_timeout_sec: int = 10
     momentum_confirmation_bars: int = 1
     momentum_max_gain_pct: float = 7.0
+    # GAP_UP_REBOUND
+    gap_up_min_gap_pct: float = 2.0
+    gap_up_max_gap_pct: float = 15.0
+    gap_up_min_prev_decline_pct: float = -3.0  # 전일 하락 하한 (음수)
+    gap_up_min_volume_ratio: float = 1.5
     # ORB (Opening Range Breakout)
     orb_enabled: bool = False
     orb_range_minutes: int = 15

@@ -241,16 +241,41 @@ class TestMomentumContinuation:
 
 class TestGapUpRebound:
     def test_valid_gap_up(self):
-        """갭업 + 거래량 + 시가 이상 유지."""
+        """전일 -4% 하락 + 갭업 +3% + 거래량 + 시가 이상 유지."""
         bars = _make_bars_trend(10, start=105, step=0.5)
         result = detect_gap_up_rebound(
             bars,
             prev_close=100,
             open_price=103,
             volume_ratio=2.0,
+            prev_day_return=-4.0,
         )
         assert result.detected
         assert result.signal_type == SignalType.GAP_UP_REBOUND
+
+    def test_no_prev_decline(self):
+        """전일 하락 조건 미충족 (전일 상승)."""
+        bars = _make_bars_trend(10, start=105, step=0.5)
+        result = detect_gap_up_rebound(
+            bars,
+            prev_close=100,
+            open_price=103,
+            volume_ratio=2.0,
+            prev_day_return=1.0,
+        )
+        assert not result.detected
+
+    def test_no_prev_day_return(self):
+        """전일 등락률 데이터 없음."""
+        bars = _make_bars_trend(10, start=105, step=0.5)
+        result = detect_gap_up_rebound(
+            bars,
+            prev_close=100,
+            open_price=103,
+            volume_ratio=2.0,
+            prev_day_return=None,
+        )
+        assert not result.detected
 
     def test_no_gap(self):
         """갭업 미달 (< 2%)."""
@@ -260,6 +285,19 @@ class TestGapUpRebound:
             prev_close=100,
             open_price=101,
             volume_ratio=2.0,
+            prev_day_return=-5.0,
+        )
+        assert not result.detected
+
+    def test_gap_exceeds_max(self):
+        """갭업 상한 초과 (> 15%, 권리락/상한가 제외)."""
+        bars = _make_bars_trend(10, start=120, step=0.5)
+        result = detect_gap_up_rebound(
+            bars,
+            prev_close=100,
+            open_price=118,
+            volume_ratio=2.0,
+            prev_day_return=-5.0,
         )
         assert not result.detected
 
@@ -271,6 +309,7 @@ class TestGapUpRebound:
             prev_close=100,
             open_price=103,
             volume_ratio=1.0,
+            prev_day_return=-4.0,
         )
         assert not result.detected
 
@@ -282,6 +321,7 @@ class TestGapUpRebound:
             prev_close=100,
             open_price=105,
             volume_ratio=2.0,
+            prev_day_return=-4.0,
         )
         assert not result.detected
 
@@ -293,6 +333,7 @@ class TestGapUpRebound:
             prev_close=100,
             open_price=103,
             volume_ratio=2.0,
+            prev_day_return=-4.0,
         )
         assert not result.detected
 
