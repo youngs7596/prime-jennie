@@ -19,7 +19,6 @@ Usage:
 from __future__ import annotations
 
 import argparse
-import sys
 from collections import defaultdict
 from dataclasses import dataclass
 from datetime import date, timedelta
@@ -327,7 +326,7 @@ def main() -> None:
     start_date = date.fromisoformat(args.start)
     end_date = date.fromisoformat(args.end)
 
-    print(f"\nGAP_UP_REBOUND 전략 분석")
+    print("\nGAP_UP_REBOUND 전략 분석")
     print(f"기간: {start_date} ~ {end_date}")
     max_gap_str = f", 갭업 <= {args.max_gap}%" if args.max_gap > 0 else ""
     print(f"조건: 갭업 >= {args.gap}%{max_gap_str}, 거래량 >= {args.vol}x, 전일하락 <= {args.crash}% (backtest)")
