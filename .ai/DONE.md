@@ -64,3 +64,8 @@
 - BacktestConfig에 overextension_thresholds 파라미터 추가
 - risk_gates.py 테스트 9건 업데이트 (전체 877 passed)
 - 보고서: `.ai/reports/overextension-grid-search-2026-03-11.md`
+### #3 방산 대형주 스코어링 개선 — ✅ 2026-03-13
+- PBR/PER 절대 임계값 → 섹터 내 백분위 기반 상대평가로 전환
+- Quality PBR/PER (0-5), Value PER (0-10), Value PBR (0-5) 4곳 적용
+- 섹터 5종목 미만 시 기존 절대평가 폴백 유지
+- 방산주 시나리오 Quality+Value 합산 +12.5pt 개선
