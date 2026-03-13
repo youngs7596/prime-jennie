@@ -196,33 +196,38 @@ def _quality_score(candidate: EnrichedCandidate) -> float:
     else:
         score += 5.0  # 데이터 없음 → 중립 (성장주 ROE 미제공 보정)
 
-    # PBR 기반 자산 품질 (0-5)
-    if ft.pbr is not None and ft.pbr > 0:
+    # PBR 기반 자산 품질 (0-5): 섹터 상대평가 우선, 폴백 절대평가
+    if candidate.sector_pbr_pctile is not None:
+        score += _pctile_to_score_5(candidate.sector_pbr_pctile, floor=1.0)
+    elif ft.pbr is not None and ft.pbr > 0:
         if ft.pbr < 1.0:
-            score += 5.0  # 자산가치 대비 저평가
+            score += 5.0
         elif ft.pbr < 2.0:
             score += 3.0
         elif ft.pbr < 4.0:
             score += 1.5
         else:
-            score += 1.0  # 고PBR 성장주 하한선 (반도체/조선 등)
-
-    # PER 안정성 (0-5): forward PER 우선
-    effective_per = None
-    if cons and cons.forward_per is not None and cons.forward_per > 0:
-        effective_per = cons.forward_per
-    elif ft.per is not None and ft.per > 0:
-        effective_per = ft.per
-
-    if effective_per is not None:
-        if 5 <= effective_per <= 15:
-            score += 5.0
-        elif 3 <= effective_per <= 25:
-            score += 3.0
-        elif effective_per <= 50:
             score += 1.0
-        else:
-            score += 0.5  # 고PER 성장주 하한선
+
+    # PER 안정성 (0-5): 섹터 상대평가 우선, 폴백 절대평가
+    if candidate.sector_per_pctile is not None:
+        score += _pctile_to_score_5(candidate.sector_per_pctile, floor=0.5)
+    else:
+        effective_per = None
+        if cons and cons.forward_per is not None and cons.forward_per > 0:
+            effective_per = cons.forward_per
+        elif ft.per is not None and ft.per > 0:
+            effective_per = ft.per
+
+        if effective_per is not None:
+            if 5 <= effective_per <= 15:
+                score += 5.0
+            elif 3 <= effective_per <= 25:
+                score += 3.0
+            elif effective_per <= 50:
+                score += 1.0
+            else:
+                score += 0.5
 
     return min(20.0, score)
 
@@ -240,31 +245,36 @@ def _value_score(candidate: EnrichedCandidate) -> float:
 
     score = 0.0
 
-    # PER 할인 (0-10): forward PER 우선, 없으면 trailing PER
-    effective_per = None
-    if cons and cons.forward_per is not None and cons.forward_per > 0:
-        effective_per = cons.forward_per
-    elif ft.per is not None and ft.per > 0:
-        effective_per = ft.per
+    # PER 할인 (0-10): 섹터 상대평가 우선, 폴백 절대평가
+    if candidate.sector_per_pctile is not None:
+        score += _pctile_to_score_10(candidate.sector_per_pctile)
+    else:
+        effective_per = None
+        if cons and cons.forward_per is not None and cons.forward_per > 0:
+            effective_per = cons.forward_per
+        elif ft.per is not None and ft.per > 0:
+            effective_per = ft.per
 
-    if effective_per is not None:
-        if effective_per < 8:
-            score += 10.0
-        elif effective_per < 12:
-            score += 7.0
-        elif effective_per < 15:
-            score += 5.5  # 대형주 적정 PER (삼성 15 등)
-        elif effective_per < 20:
-            score += 4.0
-        elif effective_per < 30:
-            score += 2.5
-        elif effective_per < 50:
-            score += 2.0
-        else:
-            score += 1.5
+        if effective_per is not None:
+            if effective_per < 8:
+                score += 10.0
+            elif effective_per < 12:
+                score += 7.0
+            elif effective_per < 15:
+                score += 5.5
+            elif effective_per < 20:
+                score += 4.0
+            elif effective_per < 30:
+                score += 2.5
+            elif effective_per < 50:
+                score += 2.0
+            else:
+                score += 1.5
 
-    # PBR 평가 (0-5): 고PBR 하한선 추가
-    if ft.pbr is not None and ft.pbr > 0:
+    # PBR 평가 (0-5): 섹터 상대평가 우선, 폴백 절대평가
+    if candidate.sector_pbr_pctile is not None:
+        score += _pctile_to_score_5(candidate.sector_pbr_pctile, floor=1.0)
+    elif ft.pbr is not None and ft.pbr > 0:
         if ft.pbr < 0.7:
             score += 5.0
         elif ft.pbr < 1.0:
@@ -429,6 +439,36 @@ def _linear_map(value: float, in_min: float, in_max: float, out_min: float, out_
         return (out_min + out_max) / 2
     ratio = (clamped - in_min) / (in_max - in_min)
     return out_min + ratio * (out_max - out_min)
+
+
+def _pctile_to_score_5(pctile: float, floor: float = 1.0) -> float:
+    """섹터 백분위(0=최저) → 0~5점. 낮은 PBR/PER일수록 높은 점수."""
+    if pctile <= 20:
+        return 5.0
+    if pctile <= 40:
+        return 3.5
+    if pctile <= 60:
+        return 2.5
+    if pctile <= 80:
+        return 1.5
+    return floor
+
+
+def _pctile_to_score_10(pctile: float) -> float:
+    """섹터 백분위(0=최저) → 0~10점. PER 할인 평가용."""
+    if pctile <= 10:
+        return 10.0
+    if pctile <= 25:
+        return 7.0
+    if pctile <= 40:
+        return 5.5
+    if pctile <= 55:
+        return 4.0
+    if pctile <= 70:
+        return 2.5
+    if pctile <= 85:
+        return 2.0
+    return 1.5
 
 
 def _neutral_score(candidate: EnrichedCandidate, reason: str = "") -> QuantScore:

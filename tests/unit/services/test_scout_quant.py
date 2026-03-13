@@ -16,6 +16,8 @@ from prime_jennie.services.scout.quant import (
     _linear_map,
     _momentum_score,
     _news_score,
+    _pctile_to_score_5,
+    _pctile_to_score_10,
     _quality_score,
     _sector_momentum_score,
     _supply_demand_score,
@@ -193,6 +195,46 @@ class TestQualityScore:
         assert result == V2_NEUTRAL["quality"]
 
 
+class TestQualitySectorRelative:
+    """섹터 상대평가 Quality 테스트."""
+
+    def test_low_pctile_gets_high_pbr_score(self):
+        """섹터 내 PBR 하위 20% → 5.0점."""
+        candidate = _make_candidate(ft=FinancialTrend(roe=10.0, pbr=8.0, per=40.0))
+        candidate.sector_pbr_pctile = 15.0  # 섹터 내 하위 15%
+        candidate.sector_per_pctile = 30.0  # 섹터 내 하위 30%
+        result = _quality_score(candidate)
+        # ROE 10% → 8pt + PBR pctile 15% → 5pt + PER pctile 30% → 3.5pt = 16.5
+        assert result >= 16.0
+
+    def test_high_pbr_absolute_fallback(self):
+        """섹터 백분위 없으면 절대평가 폴백 — 고PBR은 낮은 점수."""
+        candidate = _make_candidate(ft=FinancialTrend(roe=10.0, pbr=8.0, per=40.0))
+        # sector_pbr_pctile = None (기본값)
+        result = _quality_score(candidate)
+        # ROE 10% → 8pt + PBR ≥4.0 → 1pt + PER ≤50 → 1pt = 10pt
+        assert result <= 11.0
+
+    def test_defense_stock_improvement(self):
+        """방산주 시나리오: 섹터 상대평가 시 Quality 점수 대폭 개선."""
+        # 한화에어로 유사: PBR=10, PER=30, ROE=15
+        candidate_abs = _make_candidate(ft=FinancialTrend(roe=15.0, pbr=10.0, per=30.0))
+        score_abs = _quality_score(candidate_abs)
+
+        candidate_rel = _make_candidate(ft=FinancialTrend(roe=15.0, pbr=10.0, per=30.0))
+        candidate_rel.sector_pbr_pctile = 25.0  # 방산 섹터 내 하위 25%
+        candidate_rel.sector_per_pctile = 20.0  # 방산 섹터 내 하위 20%
+        score_rel = _quality_score(candidate_rel)
+
+        assert score_rel > score_abs  # 상대평가가 더 유리
+
+    def test_no_pctile_uses_absolute(self):
+        """백분위 없으면 기존 절대평가 결과와 동일."""
+        candidate = _make_candidate(ft=FinancialTrend(roe=20.0, pbr=1.0, per=10.0))
+        result = _quality_score(candidate)
+        assert result >= 15.0  # 기존 테스트와 동일
+
+
 class TestValueScore:
     def test_low_per_high_score(self):
         candidate = _make_candidate(ft=FinancialTrend(per=6.0, pbr=0.5))
@@ -203,6 +245,39 @@ class TestValueScore:
         candidate = _make_candidate(ft=FinancialTrend(per=100.0, pbr=5.0))
         result = _value_score(candidate)
         assert result < 6.0  # 고PER 하한 완화 후 (1.5 + 1.0 = 2.5 without snapshot)
+
+
+class TestValueSectorRelative:
+    """섹터 상대평가 Value 테스트."""
+
+    def test_low_per_pctile_gets_high_discount(self):
+        """섹터 내 PER 하위 10% → 10.0점 (최대 할인)."""
+        candidate = _make_candidate(ft=FinancialTrend(per=50.0, pbr=8.0))
+        candidate.sector_per_pctile = 8.0  # 섹터 내 하위 8%
+        candidate.sector_pbr_pctile = 15.0  # 섹터 내 하위 15%
+        result = _value_score(candidate)
+        # PER pctile 8% → 10pt + PBR pctile 15% → 5pt = 15pt (52W 제외)
+        assert result >= 14.0
+
+    def test_defense_value_improvement(self):
+        """방산주 Value: 절대평가 vs 상대평가 점수 차이."""
+        # 절대평가: PER=50 → 2pt, PBR=8 → 1pt = 3pt
+        candidate_abs = _make_candidate(ft=FinancialTrend(per=50.0, pbr=8.0))
+        score_abs = _value_score(candidate_abs)
+
+        # 상대평가: 섹터 내 하위 30% → 훨씬 유리
+        candidate_rel = _make_candidate(ft=FinancialTrend(per=50.0, pbr=8.0))
+        candidate_rel.sector_per_pctile = 30.0
+        candidate_rel.sector_pbr_pctile = 25.0
+        score_rel = _value_score(candidate_rel)
+
+        assert score_rel > score_abs
+
+    def test_no_pctile_uses_absolute(self):
+        """백분위 없으면 기존 절대평가 폴백."""
+        candidate = _make_candidate(ft=FinancialTrend(per=6.0, pbr=0.5))
+        result = _value_score(candidate)
+        assert result >= 15.0
 
 
 class TestTechnicalScore:
@@ -303,6 +378,27 @@ class TestComputeRSI:
 
     def test_insufficient_data_returns_none(self):
         assert _compute_rsi([100, 101, 102]) is None
+
+
+class TestPctileToScore:
+    def test_lowest_pctile_max_score_5(self):
+        assert _pctile_to_score_5(10.0) == 5.0
+
+    def test_highest_pctile_floor_score_5(self):
+        assert _pctile_to_score_5(90.0) == 1.0
+        assert _pctile_to_score_5(90.0, floor=0.5) == 0.5
+
+    def test_mid_pctile_score_5(self):
+        assert _pctile_to_score_5(50.0) == 2.5
+
+    def test_lowest_pctile_max_score_10(self):
+        assert _pctile_to_score_10(5.0) == 10.0
+
+    def test_highest_pctile_floor_score_10(self):
+        assert _pctile_to_score_10(90.0) == 1.5
+
+    def test_mid_pctile_score_10(self):
+        assert _pctile_to_score_10(50.0) == 4.0
 
 
 class TestLinearMap:

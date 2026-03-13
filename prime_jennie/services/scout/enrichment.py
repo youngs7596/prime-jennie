@@ -59,6 +59,8 @@ class EnrichedCandidate(BaseModel):
     financial_trend: FinancialTrend | None = None
     consensus: ConsensusInfo | None = None  # Forward 컨센서스
     sector_avg_return_20d: float | None = None  # 섹터 20일 평균 수익률 (%)
+    sector_pbr_pctile: float | None = None  # 섹터 내 PBR 백분위 (0=최저, 100=최고)
+    sector_per_pctile: float | None = None  # 섹터 내 PER 백분위 (0=최저, 100=최고)
     rag_news_context: str | None = None  # Qdrant RAG 뉴스 컨텍스트
 
 

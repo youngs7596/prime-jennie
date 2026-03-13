@@ -185,6 +185,9 @@ async def run_pipeline(
 
     logger.info("Sector 20d returns: %s", {str(g): f"{v:.1f}%" for g, v in sector_avg.items()})
 
+    # --- Phase 2.5b: 섹터별 PBR/PER 백분위 계산 ---
+    _compute_sector_valuation_pctiles(enriched)
+
     # --- Phase 2.5: RAG 뉴스 프리페치 ---
     news_cache = rag_retriever.fetch_news_for_stocks(vectorstore, enriched)
     for code, news_text in news_cache.items():
@@ -427,6 +430,76 @@ def _compute_ma_scores(
                 window,
             )
     return ma_map
+
+
+def _compute_sector_valuation_pctiles(enriched: dict[str, enrichment.EnrichedCandidate]) -> None:
+    """Phase 2.5b: 섹터별 PBR/PER 분포 → 종목별 백분위 계산.
+
+    섹터 내 5종목 이상 유효 데이터가 있는 경우에만 백분위 계산.
+    PER은 forward 컨센서스 우선, 없으면 trailing 사용.
+    """
+    sector_pbr: dict[str, list[float]] = {}
+    sector_per: dict[str, list[float]] = {}
+
+    for candidate in enriched.values():
+        group = candidate.master.sector_group
+        if not group:
+            continue
+        ft = candidate.financial_trend
+        if not ft:
+            continue
+        if ft.pbr is not None and ft.pbr > 0:
+            sector_pbr.setdefault(group, []).append(ft.pbr)
+        eper = _effective_per(candidate)
+        if eper is not None:
+            sector_per.setdefault(group, []).append(eper)
+
+    # 5종목 미만 섹터 제외, 정렬
+    sorted_pbr = {g: sorted(v) for g, v in sector_pbr.items() if len(v) >= 5}
+    sorted_per = {g: sorted(v) for g, v in sector_per.items() if len(v) >= 5}
+
+    for candidate in enriched.values():
+        group = candidate.master.sector_group
+        if not group:
+            continue
+        ft = candidate.financial_trend
+        if not ft:
+            continue
+        if group in sorted_pbr and ft.pbr is not None and ft.pbr > 0:
+            candidate.sector_pbr_pctile = _percentile_rank(ft.pbr, sorted_pbr[group])
+        if group in sorted_per:
+            eper = _effective_per(candidate)
+            if eper is not None:
+                candidate.sector_per_pctile = _percentile_rank(eper, sorted_per[group])
+
+    logger.info(
+        "Sector valuation pctiles: PBR %d sectors (%d stocks), PER %d sectors (%d stocks)",
+        len(sorted_pbr),
+        sum(len(v) for v in sorted_pbr.values()),
+        len(sorted_per),
+        sum(len(v) for v in sorted_per.values()),
+    )
+
+
+def _effective_per(candidate: enrichment.EnrichedCandidate) -> float | None:
+    """Forward PER 우선, 없으면 trailing PER."""
+    cons = candidate.consensus
+    ft = candidate.financial_trend
+    if cons and cons.forward_per is not None and cons.forward_per > 0:
+        return cons.forward_per
+    if ft and ft.per is not None and ft.per > 0:
+        return ft.per
+    return None
+
+
+def _percentile_rank(value: float, sorted_values: list[float]) -> float:
+    """값의 백분위 순위 (0=최저, 100=최고). 동점은 평균 순위."""
+    n = len(sorted_values)
+    if n == 0:
+        return 50.0
+    count_less = sum(1 for v in sorted_values if v < value)
+    count_equal = sum(1 for v in sorted_values if v == value)
+    return (count_less + count_equal / 2) / n * 100
 
 
 def _save_all_scores_to_db(
