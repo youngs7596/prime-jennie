@@ -1,6 +1,6 @@
 """Price Monitor (Redis Stream tick consumer) 단위 테스트."""
 
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -27,7 +27,7 @@ def _make_position(**overrides) -> Position:
         "average_buy_price": 70000,
         "total_buy_amount": 7_000_000,
         "current_price": 72000,
-        "bought_at": datetime(2026, 2, 15, tzinfo=UTC),
+        "bought_at": datetime.now(UTC) - timedelta(days=3),
     }
     defaults.update(overrides)
     return Position(**defaults)
