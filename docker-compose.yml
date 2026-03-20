@@ -9,6 +9,7 @@ x-service-defaults: &service-defaults
     context: .
     dockerfile: Dockerfile
   env_file: .env
+  init: true
   restart: unless-stopped
   network_mode: host
   labels:
