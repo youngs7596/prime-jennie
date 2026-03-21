@@ -1055,11 +1055,11 @@ def macro_validate_store() -> JobResult:
         # 값 범위 검증
         warnings = []
         kospi = snapshot_data.get("kospi_index", 0)
-        if kospi < 1000 or kospi > 5000:
+        if kospi < 1000 or kospi > 10000:
             warnings.append(f"KOSPI index unusual: {kospi}")
 
         kosdaq = snapshot_data.get("kosdaq_index", 0)
-        if kosdaq < 300 or kosdaq > 2000:
+        if kosdaq < 300 or kosdaq > 3000:
             warnings.append(f"KOSDAQ index unusual: {kosdaq}")
 
         snapshot_date = snapshot_data.get("snapshot_date", "?")

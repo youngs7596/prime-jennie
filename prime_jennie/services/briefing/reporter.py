@@ -181,6 +181,10 @@ class DailyReporter:
                 "sectors_to_avoid": insight.sectors_to_avoid,
             }
 
+            # KOSPI/KOSDAQ 종가 갱신: Council 장중 실행 시 장중 값이 DB에 저장되므로
+            # 브리핑 시점(17:00)에 네이버 API에서 최신 종가를 직접 가져와 오버라이드
+            self._refresh_closing_prices(macro_data)
+
         # 워치리스트 Top 10
         watchlist = WatchlistRepository.get_latest(session)[:10]
         watchlist_data = [
@@ -202,7 +206,8 @@ class DailyReporter:
                 "total_asset": latest_snapshot.total_asset,
                 "cash_balance": latest_snapshot.cash_balance,
                 "stock_eval": latest_snapshot.stock_eval_amount,
-                "position_count": latest_snapshot.position_count,
+                # positions 테이블 기준 (KIS API snapshot과 불일치 방지)
+                "position_count": len(position_data),
             }
 
         # 최근 뉴스 감성 Top 5
@@ -235,6 +240,31 @@ class DailyReporter:
             "assets": asset_data,
             "news": news_data,
         }
+
+    @staticmethod
+    def _refresh_closing_prices(macro_data: dict) -> None:
+        """네이버 API에서 KOSPI/KOSDAQ 최신 종가를 가져와 macro_data를 갱신.
+
+        Council이 장중(11:50)에 실행되어 장중 값이 DB에 저장되는 문제를 보정.
+        브리핑은 17:00(장 마감 후) 실행되므로 종가가 정확히 반영됨.
+        """
+        try:
+            from prime_jennie.infra.crawlers.naver_market import fetch_index_data
+
+            for code, prefix in [("KOSPI", "kospi"), ("KOSDAQ", "kosdaq")]:
+                idx = fetch_index_data(code)
+                if idx is None:
+                    continue
+                macro_data[f"{prefix}_index"] = idx.close
+                macro_data[f"{prefix}_change_pct"] = idx.change_pct
+
+            logger.info(
+                "Closing prices refreshed: KOSPI=%.2f, KOSDAQ=%.2f",
+                macro_data.get("kospi_index", 0),
+                macro_data.get("kosdaq_index", 0),
+            )
+        except Exception:
+            logger.warning("Failed to refresh closing prices, using DB values", exc_info=True)
 
     @staticmethod
     def _compute_trade_summary(trade_data: list[dict]) -> dict:
