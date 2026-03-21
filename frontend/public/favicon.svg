@@ -1,0 +1,27 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" width="32" height="32">
+  <defs>
+    <radialGradient id="g" cx="50%" cy="50%" r="50%">
+      <stop offset="0%" stop-color="#3a8fff" stop-opacity="0.3"/>
+      <stop offset="100%" stop-color="#0a0a12" stop-opacity="0"/>
+    </radialGradient>
+  </defs>
+  <rect width="32" height="32" rx="6" fill="#0a0e18"/>
+  <rect width="32" height="32" rx="6" fill="url(#g)"/>
+  <!-- circuit traces -->
+  <line x1="4" y1="8" x2="10" y2="8" stroke="#1e4a7a" stroke-width="0.5" opacity="0.4"/>
+  <line x1="10" y1="8" x2="10" y2="14" stroke="#1e4a7a" stroke-width="0.5" opacity="0.4"/>
+  <line x1="22" y1="24" x2="28" y2="24" stroke="#1e4a7a" stroke-width="0.5" opacity="0.4"/>
+  <line x1="22" y1="18" x2="22" y2="24" stroke="#1e4a7a" stroke-width="0.5" opacity="0.4"/>
+  <line x1="4" y1="22" x2="8" y2="22" stroke="#1e4a7a" stroke-width="0.5" opacity="0.3"/>
+  <line x1="24" y1="10" x2="28" y2="10" stroke="#1e4a7a" stroke-width="0.5" opacity="0.3"/>
+  <!-- center node glow -->
+  <circle cx="16" cy="16" r="8" fill="#1e508c" opacity="0.15"/>
+  <circle cx="16" cy="16" r="5" fill="#3a8fff" opacity="0.08"/>
+  <!-- PJ text -->
+  <text x="16" y="20" text-anchor="middle" font-family="system-ui, sans-serif" font-size="11" font-weight="700" fill="#e0e8f0">PJ</text>
+  <!-- small corner nodes -->
+  <circle cx="6" cy="6" r="1" fill="#00c8ff" opacity="0.5"/>
+  <circle cx="26" cy="26" r="1" fill="#00c8ff" opacity="0.5"/>
+  <circle cx="26" cy="6" r="0.8" fill="#2a6aaa" opacity="0.4"/>
+  <circle cx="6" cy="26" r="0.8" fill="#2a6aaa" opacity="0.4"/>
+</svg>

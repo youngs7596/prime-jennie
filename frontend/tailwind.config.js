@@ -5,20 +5,21 @@ export default {
     extend: {
       colors: {
         bg: {
-          primary: "#0D1117",
-          secondary: "#161B22",
-          tertiary: "#21262D",
+          primary: "#0a0e18",
+          secondary: "#0f1724",
+          tertiary: "#162032",
         },
         border: {
-          primary: "#30363D",
+          primary: "#1e3050",
         },
         text: {
-          primary: "#E6EDF3",
-          secondary: "#8B949E",
-          muted: "#484F58",
+          primary: "#e0e8f0",
+          secondary: "#7a8ea0",
+          muted: "#3a5070",
         },
         accent: {
-          blue: "#58A6FF",
+          blue: "#3a8fff",
+          cyan: "#00c8ff",
           green: "#3FB950",
           red: "#F85149",
           yellow: "#D29922",

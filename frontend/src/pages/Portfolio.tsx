@@ -192,27 +192,27 @@ export default function Portfolio() {
                   <AreaChart data={history.data}>
                     <defs>
                       <linearGradient id="assetGrad" x1="0" y1="0" x2="0" y2="1">
-                        <stop offset="5%" stopColor="#58A6FF" stopOpacity={0.3} />
-                        <stop offset="95%" stopColor="#58A6FF" stopOpacity={0} />
+                        <stop offset="5%" stopColor="#3a8fff" stopOpacity={0.3} />
+                        <stop offset="95%" stopColor="#3a8fff" stopOpacity={0} />
                       </linearGradient>
                     </defs>
-                    <CartesianGrid strokeDasharray="3 3" stroke="#30363D" />
+                    <CartesianGrid strokeDasharray="3 3" stroke="#1e3050" />
                     <XAxis
                       dataKey="snapshot_date"
                       tickFormatter={(d: string) => d.slice(5)}
-                      stroke="#484F58"
+                      stroke="#3a5070"
                       fontSize={11}
                     />
                     <YAxis
                       tickFormatter={(v: number) => formatKRW(v)}
-                      stroke="#484F58"
+                      stroke="#3a5070"
                       fontSize={11}
                       width={60}
                     />
                     <Tooltip
                       contentStyle={{
-                        backgroundColor: "#161B22",
-                        border: "1px solid #30363D",
+                        backgroundColor: "#0f1724",
+                        border: "1px solid #1e3050",
                         borderRadius: 8,
                         fontSize: 12,
                       }}
@@ -222,7 +222,7 @@ export default function Portfolio() {
                     <Area
                       type="monotone"
                       dataKey="total_asset"
-                      stroke="#58A6FF"
+                      stroke="#3a8fff"
                       fill="url(#assetGrad)"
                       strokeWidth={2}
                     />
@@ -238,23 +238,23 @@ export default function Portfolio() {
               <div className="h-48">
                 <ResponsiveContainer width="100%" height="100%">
                   <LineChart data={history.data}>
-                    <CartesianGrid strokeDasharray="3 3" stroke="#30363D" />
+                    <CartesianGrid strokeDasharray="3 3" stroke="#1e3050" />
                     <XAxis
                       dataKey="snapshot_date"
                       tickFormatter={(d: string) => d.slice(5)}
-                      stroke="#484F58"
+                      stroke="#3a5070"
                       fontSize={11}
                     />
                     <YAxis
                       tickFormatter={(v: number) => formatKRW(v)}
-                      stroke="#484F58"
+                      stroke="#3a5070"
                       fontSize={11}
                       width={60}
                     />
                     <Tooltip
                       contentStyle={{
-                        backgroundColor: "#161B22",
-                        border: "1px solid #30363D",
+                        backgroundColor: "#0f1724",
+                        border: "1px solid #1e3050",
                         borderRadius: 8,
                         fontSize: 12,
                       }}
