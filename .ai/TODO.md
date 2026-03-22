@@ -23,9 +23,11 @@
 - 재분석 후 평균 63.0점, 정상 분포 복원
 - _발견: 03-05_
 
-### 17. 폭락장(03-03) 사후분석
-- trade_log + positions DB로 실제 피해 규모 확인
-- 체결 확인 강화(Fix 1) 이전 매도 건 중 실체결 확인, 수동 보정 필요 여부
+### ~~17. 폭락장(03-03) 사후분석~~ → DONE
+- ✅ DB 실증 분석 완료 (03-22)
+- 당일 실현손실 -2,067,164원, 최대 낙폭 -32.0M(-15.3%)
+- Fix 1 false negative 2건(대한항공/한국전력) MANUAL_SYNC로 해소 확인
+- 4건 버그 모두 03-03 당일 수정 배포, 재발 방지 완료
 - _발견: 03-03_
 
 ---
@@ -36,22 +38,24 @@
 - ✅ 섹터별 PBR/PER 백분위 상대평가 구현 (03-13)
 - _발견: 02-25_
 
-### 4. E2E Mock KIS Gateway 테스트 구축
-- 계획: `.claude/plans/memoized-splashing-toucan.md`
-- Mock Gateway + BuyExecutor/SellExecutor E2E
-- fakeredis + SQLite in-memory, 총 19개 테스트
+### ~~4. E2E Mock KIS Gateway 테스트 구축~~ → DONE
+- ✅ 이미 구현 완료 확인 (03-22): MockTransport 12 endpoints, 47 테스트 전체 통과
+- mock_gateway (httpx.MockTransport) + fakeredis + SQLite in-memory
+- buy_flow 8건, sell_flow 8건, order_confirmation 7건, full_cycle 3건, pipeline_flow 21건
 - _발견: 02-25_
 
-### 9. 전략 파라미터 퀀트 적합성 튜닝
+### 9. 전략 파라미터 퀀트 적합성 튜닝 ⏸️ 보류
 - DIP_BUY: 범위 타이트 → 확장 검토
 - MOMENTUM: 7% cap 과적합 → 국면별 차등
 - GOLDEN_CROSS / MOMENTUM_CONT: 중간 우선순위
 - **방법**: signal_logs 기반 한 항목씩. 동시 변경 금지
+- **보류 사유 (03-22)**: stop=1 상태에서 실거래 P&L 데이터 없음. signal_logs 10거래일분이나 BEAR/SIDEWAYS 국면이라 DIP_BUY 0건, GOLDEN_CROSS 0건, MOMENTUM_CONT 0건 — 통계 분석 불가. stop 해제 후 최소 30거래일 실전 데이터 축적 필요.
 - _발견: 02-25_
 
-### 18. WebSocket ↔ Polling 자동 전환
-- 현재: `KIS_STREAMER_MODE` env var 수동 토글
+### 18. WebSocket ↔ Polling 자동 전환 ⏸️ 보류
+- 현재: `KIS_STREAMER_MODE` env var 수동 토글, Polling 모드 운영 중
 - 개선: 연결 실패 시 자동 fallback, 또는 WebSocket 안정성 재테스트 후 고정
+- **보류 사유 (03-22)**: Polling 3초 간격이 4종목+안정적 운영. stop=1 상태에서 실시간 틱 지연 무영향. stop 해제 시점에 WebSocket 재테스트 후 결정.
 - _발견: 03-06_
 
 ---
@@ -67,6 +71,7 @@
 - ✅ 역사적 백테스트 분석 + 제니/민지 리뷰 완료 (03-12)
 - ✅ 조건 강화 배포 (03-12): 전일 -3% 필수 + 갭업 15% 상한 + prev_day_return API
 - 데이터 수집 중 (stop=1 상태에서 signal_logs 축적)
+- **경과 (03-22)**: signal_logs 0건. 03-09 KOSPI -5.96%→03-10 +5.35% 반등에도 개별 종목 레벨에서 4조건 동시 충족 사례 없음. 조건이 매우 엄격하여 발화 빈도 극저 — 조건 완화 검토 필요할 수 있음
 - [ ] 30~45 거래일 실전 시그널 데이터 확인 후 성과 평가
 - [ ] 성과 양호 시 stop 해제 후 실거래 적용
 - [ ] 이후 MEAN_REVERSION 전략 개발 착수
@@ -80,8 +85,10 @@
 - ✅ 무료 API 없음 확인, US VIX(Yahoo Finance) 유지 결정 (03-11)
 - _발견: 03-06_
 
-### 21. dev 환경 서비스 로컬 실행 테스트
-- `.env.dev`로 scanner 등 개별 서비스 기동 확인
+### ~~21. dev 환경 서비스 로컬 실행 테스트~~ → DONE
+- ✅ WSL2에서 .env.dev로 전체 서비스 로컬 기동 확인 (03-22)
+- DB(jennie_db_dev)/Redis(DB 1) 원격 연결 OK, Scanner uvicorn 기동 OK
+- Buyer/Seller/Monitor/Jobs 임포트 전부 성공
 - _발견: 03-04_
 
 ### ~~22. GHCR deploy CI 타이밍 레이스~~ → DONE

@@ -11,6 +11,8 @@ echo "[systemd-autostart] Checking for NVIDIA GPU readiness..."
 for ((i=1; i<=60; i++)); do
     if nvidia-smi > /dev/null 2>&1; then
         echo "[systemd-autostart] GPU detected successfully."
+        echo "[systemd-autostart] Setting GPU power limit to 278W (75%)..."
+        nvidia-smi -pl 278 || echo "[systemd-autostart] WARNING: Failed to set power limit"
         break
     fi
     echo "[systemd-autostart] GPU not ready yet (attempt $i/60). Waiting 1s..."

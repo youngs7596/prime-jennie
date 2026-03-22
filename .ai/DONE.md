@@ -64,6 +64,19 @@
 - BacktestConfig에 overextension_thresholds 파라미터 추가
 - risk_gates.py 테스트 9건 업데이트 (전체 877 passed)
 - 보고서: `.ai/reports/overextension-grid-search-2026-03-11.md`
+### #21 dev 환경 서비스 로컬 실행 테스트 — ✅ 2026-03-22
+- WSL2에서 .env.dev로 MS-01 인프라 원격 연결 + 서비스 로컬 기동 검증
+- DB(jennie_db_dev 2317종목)/Redis(DB 1, stop=1,dryrun=1) 연결 OK
+- Scanner uvicorn 기동→graceful shutdown 정상, Buyer/Seller/Monitor/Jobs 임포트 OK
+### #4 E2E Mock KIS Gateway 테스트 구축 — ✅ 2026-03-22
+- MockTransport 기반 12 endpoints, GatewayState로 시나리오 제어
+- 47 테스트: buy_flow 8, sell_flow 8, order_confirmation 7, full_cycle 3, pipeline_flow 21
+- fakeredis + SQLite in-memory, 부분 체결/슬리피지/쿨다운 등 풀 커버
+### #17 폭락장(03-03) 사후분석 — ✅ 2026-03-22
+- 당일 실현손실 -2,067,164원 (매도 6건), 최대 낙폭 208.7M→176.7M (-15.3%, 03-04)
+- 핵심 원인: MOMENTUM 신규매수 6건(59M) → 현금 소진 → 추가 하락 전량 노출
+- Fix 1 false negative: 대한항공/한국전력 2건 체결 미기록 → MANUAL_SYNC 해소, P&L 복원 불가
+- 4건 버그(체결확인/전략회피/regime기준/stop키) 모두 03-03 당일 수정 배포 완료
 ### #3 방산 대형주 스코어링 개선 — ✅ 2026-03-13
 - PBR/PER 절대 임계값 → 섹터 내 백분위 기반 상대평가로 전환
 - Quality PBR/PER (0-5), Value PER (0-10), Value PBR (0-5) 4곳 적용
