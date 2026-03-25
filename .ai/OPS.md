@@ -178,10 +178,10 @@ ssh prime-jennie "docker exec prime-jennie-redis-1 redis-cli -a '21JPENkajUCjPr7
 ssh prime-jennie "docker exec prime-jennie-redis-1 redis-cli -a '21JPENkajUCjPr7kMkg-vJ4705iXtAGJ' --no-auth-warning MGET trading_flags:stop trading_flags:pause trading_flags:dryrun"
 
 # TradingContext (현재 국면)
-ssh prime-jennie "docker exec prime-jennie-redis-1 redis-cli -a '21JPENkajUCjPr7kMkg-vJ4705iXtAGJ' --no-auth-warning GET cache:trading_context"
+ssh prime-jennie "docker exec prime-jennie-redis-1 redis-cli -a '21JPENkajUCjPr7kMkg-vJ4705iXtAGJ' --no-auth-warning GET macro:trading_context"
 
-# Watchlist (현재 감시 종목)
-ssh prime-jennie "docker exec prime-jennie-redis-1 redis-cli -a '21JPENkajUCjPr7kMkg-vJ4705iXtAGJ' --no-auth-warning GET cache:hot_watchlist"
+# Watchlist (현재 감시 종목, 24h TTL)
+ssh prime-jennie "docker exec prime-jennie-redis-1 redis-cli -a '21JPENkajUCjPr7kMkg-vJ4705iXtAGJ' --no-auth-warning GET watchlist:active"
 
 # Stream 길이 + Consumer Group lag
 ssh prime-jennie "docker exec prime-jennie-redis-1 redis-cli -a '21JPENkajUCjPr7kMkg-vJ4705iXtAGJ' --no-auth-warning XLEN stream:news:raw"
@@ -200,7 +200,8 @@ ssh prime-jennie "docker exec prime-jennie-redis-1 redis-cli -a '21JPENkajUCjPr7
 
 # 키 검색 (패턴)
 ssh prime-jennie "docker exec prime-jennie-redis-1 redis-cli -a '21JPENkajUCjPr7kMkg-vJ4705iXtAGJ' --no-auth-warning KEYS 'trading_flags:*'"
-ssh prime-jennie "docker exec prime-jennie-redis-1 redis-cli -a '21JPENkajUCjPr7kMkg-vJ4705iXtAGJ' --no-auth-warning KEYS 'cache:*'"
+ssh prime-jennie "docker exec prime-jennie-redis-1 redis-cli -a '21JPENkajUCjPr7kMkg-vJ4705iXtAGJ' --no-auth-warning KEYS 'macro:*'"
+ssh prime-jennie "docker exec prime-jennie-redis-1 redis-cli -a '21JPENkajUCjPr7kMkg-vJ4705iXtAGJ' --no-auth-warning KEYS 'watchlist:*'"
 
 # 모든 stream 목록 + 길이
 ssh prime-jennie "docker exec prime-jennie-redis-1 redis-cli -a '21JPENkajUCjPr7kMkg-vJ4705iXtAGJ' --no-auth-warning KEYS 'stream:*'"
@@ -232,16 +233,16 @@ ssh prime-jennie "docker exec prime-jennie-airflow-webserver-1 airflow dags trig
 ssh prime-jennie "docker exec prime-jennie-airflow-webserver-1 airflow dags trigger macro_council"
 
 # 예시: Scout 수동 실행
-ssh prime-jennie "docker exec prime-jennie-airflow-webserver-1 airflow dags trigger scout_pipeline"
+ssh prime-jennie "docker exec prime-jennie-airflow-webserver-1 airflow dags trigger scout_job_v1"
 ```
 
 ### DAG 최근 실행 상태 확인
 ```bash
-# 특정 DAG의 최근 실행 이력
-ssh prime-jennie "docker exec prime-jennie-airflow-webserver-1 airflow dags list-runs -d {dag_id} -o table --limit 5 2>/dev/null"
+# 특정 DAG의 최근 실행 이력 (Airflow 3: dag_id는 위치 인수)
+ssh prime-jennie "docker exec prime-jennie-airflow-webserver-1 airflow dags list-runs {dag_id} -o table 2>/dev/null"
 
 # 예시: macro_council 최근 실행
-ssh prime-jennie "docker exec prime-jennie-airflow-webserver-1 airflow dags list-runs -d macro_council -o table --limit 5 2>/dev/null"
+ssh prime-jennie "docker exec prime-jennie-airflow-webserver-1 airflow dags list-runs macro_council -o table 2>/dev/null"
 ```
 
 ### DAG pause / unpause
@@ -275,7 +276,7 @@ ssh prime-jennie "docker logs prime-jennie-job-worker-1 --since 24h 2>&1 | grep 
 | `enhanced_macro_collection` | 07:40,11:40 KST | job-worker `/jobs/macro-collect` | 매크로 데이터 수집 |
 | `macro_council` | 07:50,11:50 KST | job-worker `/jobs/council-trigger` | 3인 전문가 분석 |
 | `enhanced_macro_quick` | */5 9-15 KST | job-worker `/jobs/macro-quick` | 장중 Intraday Risk |
-| `scout_pipeline` | 08:30-14:30, 1h | scout-job `/scout/run` | AI 종목 발굴 |
+| `scout_job_v1` | 08:30-14:30, 1h | scout-job `/scout/run` | AI 종목 발굴 |
 | `daily_briefing_report` | 17:00 KST | job-worker `/report` | 일일 브리핑 |
 | `daily_asset_snapshot` | 15:45 KST | job-worker `/jobs/asset-snapshot` | 자산 스냅샷 |
 | `contract_smoke_test` | 21:00 KST | job-worker `/jobs/smoke-test` | 크롤러 검증 |
