@@ -275,19 +275,25 @@ def _extract_gmail_body(payload: dict) -> str:
 # ─── Shared helpers ────────────────────────────────────────────
 
 
+def _normalize_quotes(text: str) -> str:
+    """Curly/smart quotes → ASCII straight quotes."""
+    return text.replace("\u2018", "'").replace("\u2019", "'").replace("\u201c", '"').replace("\u201d", '"')
+
+
 def _classify_newsletter(subject: str, body: str = "") -> str | None:
     """Subject 또는 본문에서 뉴스레터 타입 식별.
 
     Markets P.M.과 What's News는 subject에 prefix 없이 발송되므로
     본문의 URL/텍스트 패턴으로 fallback 분류한다.
     """
+    subject_norm = _normalize_quotes(subject)
     for prefix, nl_type in _NEWSLETTER_TYPES:
-        if prefix in subject:
+        if prefix in subject_norm:
             return nl_type
 
     # Subject에 prefix 없는 경우 — 본문 기반 fallback
     if body:
-        body_lower = body[:1000].lower()
+        body_lower = _normalize_quotes(body[:1000]).lower()
         if "marketspm" in body_lower or "what happened in markets tod" in body_lower:
             return "markets-pm"
         if "this is an edition of the what's n" in body_lower or "what's news" in body_lower:

@@ -43,6 +43,15 @@ class TestClassifyNewsletter:
             == "whats-news"
         )
 
+    def test_whats_news_curly_quote_subject(self):
+        """What\u2019s News subject에 curly apostrophe (U+2019) 사용 시에도 매칭."""
+        assert _classify_newsletter("What\u2019s News: Top Stories") == "whats-news"
+
+    def test_whats_news_curly_quote_body_fallback(self):
+        """What\u2019s News body fallback에서 curly apostrophe (U+2019) 처리."""
+        body = "This is an edition of the What\u2019s News newsletter"
+        assert _classify_newsletter("Dow Lands in Correction Territory", body=body) == "whats-news"
+
     def test_body_fallback_ignored_when_subject_matches(self):
         """Subject prefix가 있으면 본문 확인 불필요."""
         assert (
