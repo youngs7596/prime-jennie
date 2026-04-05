@@ -373,6 +373,27 @@ class WatchlistHistoryDB(SQLModel, table=True):
     __table_args__ = (Index("ix_watchlist_active", "snapshot_date", "is_active"),)
 
 
+# ─── US Market Data ─────────────────────────────────────────────
+
+
+class USMarketDailyDB(SQLModel, table=True):
+    """미국 시장 일봉 — SOX, NVDA, S&P 500, 나스닥 선물 등."""
+
+    __tablename__ = "us_market_daily"
+
+    ticker: str = Field(primary_key=True, max_length=10)  # SOX, NVDA, SP500, ...
+    price_date: date = Field(primary_key=True)
+    open_price: float
+    high_price: float
+    low_price: float
+    close_price: float
+    volume: int = 0
+    change_pct: float | None = None
+    updated_at: datetime = Field(default_factory=datetime.utcnow)
+
+    __table_args__ = (Index("ix_us_market_daily_date", "price_date"),)
+
+
 # ─── Signal Logs ─────────────────────────────────────────────────
 
 

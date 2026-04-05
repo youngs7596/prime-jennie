@@ -181,7 +181,10 @@ class MacroCouncilPipeline:
             "외국인이 매도해도 지수가 방어/반등하면 시장 복원력의 증거이지 약세가 아니다. "
             "지수 기술적 분석이 제공된 경우: MA 배열, RSI, BB %B, MACD 히스토그램을 "
             "sentiment_score 산출의 정량 근거로 활용하세요. "
-            "뉴스 센티먼트와 기술 지표가 상충할 경우, 정량 지표에 더 높은 가중치를 두세요."
+            "뉴스 센티먼트와 기술 지표가 상충할 경우, 정량 지표에 더 높은 가중치를 두세요. "
+            "미국 반도체 지표(SOX/NVDA)가 제공된 경우: KOSPI 시총 25%+가 반도체(삼성전자/SK하이닉스)이므로 "
+            "SOX 전일 변동률은 KOSPI 시초가 방향성의 핵심 선행 지표입니다. "
+            "SOX -2% 이상 하락 시 반도체 섹터와 KOSPI 전반에 부정적 영향을 반영하세요."
         )
         return await self._get_reasoning().generate_json(
             prompt=context,
@@ -274,6 +277,19 @@ class MacroCouncilPipeline:
                 f"KOSDAQ 지수: {snap.kosdaq_index} ({snap.kosdaq_change_pct:+.02f}%)"
             )
             parts.append(snap_text)
+
+            # 미국 반도체 오버나이트 시그널 (정량 데이터)
+            if snap.sox_change_pct is not None or snap.nvda_change_pct is not None:
+                us_lines = ["=== 전일 미국 반도체 시장 (Overnight Signal) ==="]
+                if snap.sox_change_pct is not None:
+                    us_lines.append(f"SOX (필라델피아 반도체): {snap.sox_close} ({snap.sox_change_pct:+.2f}%)")
+                if snap.nvda_change_pct is not None:
+                    us_lines.append(f"NVDA (엔비디아): {snap.nvda_close} ({snap.nvda_change_pct:+.2f}%)")
+                us_lines.append(
+                    "참고: SOX-KOSPI 상관계수 r=0.44, SOX-하이닉스 r=0.68 (1일 시차). "
+                    "SOX 1% 하락 시 하이닉스 시초가 약 0.21% 갭다운 경향."
+                )
+                parts.append("\n".join(us_lines))
 
         if input_data.political_news:
             news = "\n".join(f"- {n}" for n in input_data.political_news[:15])

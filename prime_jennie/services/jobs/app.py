@@ -307,6 +307,60 @@ def collect_index_daily_prices(
         return JobResult(success=False, message=str(e))
 
 
+@app.post("/jobs/collect-us-market")
+def collect_us_market(
+    days: int = 500,
+    session: Session = Depends(get_db_session),
+) -> JobResult:
+    """미국 시장 일봉 수집 — SOX, NVDA, S&P 500, 나스닥 선물.
+
+    Yahoo Finance API로 수집하여 us_market_daily 테이블에 upsert.
+
+    Args:
+        days: 조회 기간 (기본 500 ≈ 2년)
+    """
+    from prime_jennie.infra.crawlers.us_market import fetch_us_market_batch
+    from prime_jennie.infra.database.models import USMarketDailyDB
+
+    try:
+        batch = fetch_us_market_batch(days=days)
+        total_upserted = 0
+
+        for ticker_name, rows in batch.items():
+            for row in rows:
+                existing = session.get(USMarketDailyDB, (row.ticker, row.price_date))
+                if existing:
+                    existing.open_price = row.open_price
+                    existing.high_price = row.high_price
+                    existing.low_price = row.low_price
+                    existing.close_price = row.close_price
+                    existing.volume = row.volume
+                    existing.change_pct = row.change_pct
+                else:
+                    session.add(
+                        USMarketDailyDB(
+                            ticker=row.ticker,
+                            price_date=row.price_date,
+                            open_price=row.open_price,
+                            high_price=row.high_price,
+                            low_price=row.low_price,
+                            close_price=row.close_price,
+                            volume=row.volume,
+                            change_pct=row.change_pct,
+                        )
+                    )
+                total_upserted += 1
+            session.commit()
+            logger.info("US market %s: %d rows upserted", ticker_name, len(rows))
+
+        msg = f"US market daily: {total_upserted} rows upserted for {list(batch.keys())}"
+        logger.info(msg)
+        return JobResult(count=total_upserted, message=msg)
+    except Exception as e:
+        logger.exception("US market collection failed")
+        return JobResult(success=False, message=str(e))
+
+
 @app.post("/jobs/refresh-market-caps")
 def refresh_market_caps(session: Session = Depends(get_db_session)) -> JobResult:
     """시가총액 갱신 — KIS snapshot에서 market_cap 업데이트.
@@ -903,6 +957,36 @@ def _fetch_vix() -> tuple[float | None, str]:
         return None, "unknown"
 
 
+def _fetch_us_latest(yahoo_ticker: str, label: str) -> dict | None:
+    """Yahoo Finance에서 미국 지표 최신 종가 + 전일비 조회."""
+    import httpx
+
+    try:
+        resp = httpx.get(
+            f"https://query1.finance.yahoo.com/v8/finance/chart/{yahoo_ticker}",
+            params={"range": "5d", "interval": "1d"},
+            headers={"User-Agent": "Mozilla/5.0"},
+            timeout=10.0,
+        )
+        resp.raise_for_status()
+        data = resp.json()
+        closes = data["chart"]["result"][0]["indicators"]["quote"][0]["close"]
+
+        # 마지막 2개 유효 종가 → 변동률 계산
+        valid = [(i, c) for i, c in enumerate(closes) if c is not None]
+        if len(valid) < 2:
+            return None
+
+        prev_close = valid[-2][1]
+        latest_close = valid[-1][1]
+        change_pct = round((latest_close - prev_close) / prev_close * 100, 2)
+
+        return {"close": round(latest_close, 2), "change_pct": change_pct}
+    except Exception as e:
+        logger.warning("%s fetch failed: %s", label, e)
+        return None
+
+
 def _fetch_usd_krw(api_key: str) -> float | None:
     """BOK ECOS API에서 원/달러 환율 조회."""
     import httpx
@@ -973,6 +1057,17 @@ def macro_collect_global() -> JobResult:
             snapshot["vix"] = vix
             snapshot["vix_regime"] = vix_regime
 
+        # SOX / NVDA (overnight signal)
+        sox_data = _fetch_us_latest("^SOX", "SOX")
+        if sox_data:
+            snapshot["sox_close"] = sox_data["close"]
+            snapshot["sox_change_pct"] = sox_data["change_pct"]
+
+        nvda_data = _fetch_us_latest("NVDA", "NVDA")
+        if nvda_data:
+            snapshot["nvda_close"] = nvda_data["close"]
+            snapshot["nvda_change_pct"] = nvda_data["change_pct"]
+
         # USD/KRW
         usd_krw = None
         config = get_config()
@@ -1000,11 +1095,13 @@ def macro_collect_global() -> JobResult:
 
         kospi = snapshot.get("kospi_index", "?")
         kosdaq = snapshot.get("kosdaq_index", "?")
+        sox_chg = snapshot.get("sox_change_pct", "?")
         return JobResult(
             message=(
                 f"Global macro collected: trading_date={td_iso},"
                 f" KOSPI={kospi}, KOSDAQ={kosdaq},"
-                f" VIX={vix}, USD/KRW={usd_krw}"
+                f" VIX={vix}, USD/KRW={usd_krw},"
+                f" SOX={sox_chg}%"
             ),
         )
     except Exception as e:
@@ -1272,6 +1369,19 @@ def _check_intraday_risk() -> None:
         # Raw intraday level 계산
         raw_level, raw_multiplier = _calc_intraday_multiplier(kospi_chg, vix if vix is not None else 0.0)
 
+        # SOX 오버나이트 시그널: SOX -2% 이상 하락 시 CAUTION 하한선
+        sox_chg = snap.get("sox_change_pct")
+        sox_floor_level = "NORMAL"
+        if sox_chg is not None and sox_chg <= -3.0:
+            sox_floor_level = "WARNING"
+        elif sox_chg is not None and sox_chg <= -2.0:
+            sox_floor_level = "CAUTION"
+
+        # SOX floor이 raw_level보다 높으면 상향 (하한선 적용)
+        if _RISK_LEVEL_SEVERITY.get(sox_floor_level, 0) > _RISK_LEVEL_SEVERITY.get(raw_level, 0):
+            raw_level = sox_floor_level
+            raw_multiplier = _LEVEL_MULTIPLIER[sox_floor_level]
+
         prev_level = ctx.intraday_risk_level
 
         # 회복 지연 적용
@@ -1317,16 +1427,22 @@ def _check_intraday_risk() -> None:
         # 구조화 로깅
         binding = "intraday" if intraday_mult <= council_mult else "council"
         logger.info(
-            "INTRADAY_RISK: level=%s, KOSPI=%.2f%%, VIX=%.1f, "
+            "INTRADAY_RISK: level=%s, KOSPI=%.2f%%, VIX=%.1f, SOX=%s%%, "
             "council_mult=%.2f, intraday_mult=%.2f, final=%.2f, binding=%s",
             new_level,
             kospi_chg,
             vix or 0,
+            f"{sox_chg:+.1f}" if sox_chg is not None else "N/A",
             council_mult,
             intraday_mult,
             final_mult,
             binding,
         )
+
+        # TradingContext에 overnight SOX 변동률 반영
+        if sox_chg is not None:
+            updated = updated.model_copy(update={"overnight_sox_change": sox_chg})
+            context_cache.set(updated)
 
         # 텔레그램 알림 (레벨 변경 시에만)
         if level_changed:
@@ -1654,7 +1770,7 @@ async def council_trigger(
         )
 
         # TradingContext 업데이트
-        _update_trading_context(result.insight, result)
+        _update_trading_context(result.insight, result, global_snapshot)
 
         # DB 영구 저장 (Dashboard 표시용)
         _persist_insight_to_db(result.insight, result, global_snapshot)
@@ -1716,14 +1832,19 @@ def _load_global_snapshot(r: redis_lib.Redis, target_date: date) -> GlobalSnapsh
             kosdaq_foreign_net=data.get("kosdaq_foreign_net"),
             kospi_institutional_net=data.get("kospi_institutional_net"),
             kospi_retail_net=data.get("kospi_retail_net"),
+            sox_close=data.get("sox_close"),
+            sox_change_pct=data.get("sox_change_pct"),
+            nvda_close=data.get("nvda_close"),
+            nvda_change_pct=data.get("nvda_change_pct"),
             completeness_pct=data.get("completeness_score", 0) * 100,
             data_sources=data.get("data_sources", []),
         )
         logger.info(
-            "Loaded macro snapshot: date=%s, VIX=%.1f, KOSPI=%.0f",
+            "Loaded macro snapshot: date=%s, VIX=%.1f, KOSPI=%.0f, SOX=%.1f%%",
             target_date,
             snapshot.vix or 0,
             snapshot.kospi_index or 0,
+            snapshot.sox_change_pct or 0,
         )
         return snapshot
     except Exception:
@@ -1765,6 +1886,7 @@ def _load_legacy_insight_as_briefing(r: redis_lib.Redis, target_date: date) -> s
 def _update_trading_context(
     insight: MacroInsight,
     result: CouncilResult | None = None,
+    global_snapshot: GlobalSnapshot | None = None,
 ) -> None:
     """MacroInsight → TradingContext 변환 및 저장."""
     try:
@@ -1806,6 +1928,7 @@ def _update_trading_context(
             council_multiplier_raw=council_mult,
             intraday_risk_level="NORMAL",
             intraday_multiplier_raw=1.0,
+            overnight_sox_change=(global_snapshot.sox_change_pct if global_snapshot else None),
         )
 
         context_cache: TypedCache = app.state.context_cache

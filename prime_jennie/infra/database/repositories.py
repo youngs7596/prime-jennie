@@ -22,6 +22,7 @@ from .models import (
     StockMasterDB,
     StockNewsSentimentDB,
     TradeLogDB,
+    USMarketDailyDB,
     WatchlistHistoryDB,
 )
 
@@ -366,6 +367,38 @@ class WatchlistRepository:
             .order_by(WatchlistHistoryDB.rank)
         )
         return list(session.exec(stmt).all())
+
+
+# ─── US Market ──────────────────────────────────────────────────
+
+
+class USMarketRepository:
+    """미국 시장 일봉 데이터."""
+
+    @staticmethod
+    def get_daily(
+        session: Session,
+        ticker: str,
+        days: int = 365,
+    ) -> list[USMarketDailyDB]:
+        cutoff = date.today() - timedelta(days=days)
+        stmt = (
+            select(USMarketDailyDB)
+            .where(USMarketDailyDB.ticker == ticker)
+            .where(USMarketDailyDB.price_date >= cutoff)
+            .order_by(USMarketDailyDB.price_date)
+        )
+        return list(session.exec(stmt).all())
+
+    @staticmethod
+    def get_latest(session: Session, ticker: str) -> USMarketDailyDB | None:
+        stmt = (
+            select(USMarketDailyDB)
+            .where(USMarketDailyDB.ticker == ticker)
+            .order_by(desc(USMarketDailyDB.price_date))
+            .limit(1)
+        )
+        return session.exec(stmt).first()
 
 
 # ─── Asset Snapshots ────────────────────────────────────────────

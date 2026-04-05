@@ -76,6 +76,8 @@ class TradingContext(BaseModel):
     intraday_risk_level: str = "NORMAL"  # NORMAL/CAUTION/WARNING/DANGER/CRITICAL
     intraday_multiplier_raw: float = 1.0  # intraday 단독 multiplier (로깅용)
     council_multiplier_raw: float = 1.0  # council 단독 multiplier (로깅용)
+    # Overnight Signal (전일 미국 반도체)
+    overnight_sox_change: float | None = None  # SOX 전일비 % (경보 판단용)
 
     @classmethod
     def default(cls) -> "TradingContext":
@@ -102,6 +104,11 @@ class GlobalSnapshot(BaseModel):
     us_cpi_yoy: float | None = None
     vix: float | None = None
     vix_regime: VixRegime = VixRegime.NORMAL
+    # US Semiconductor (overnight signal)
+    sox_close: float | None = None  # 필라델피아 반도체 지수 종가
+    sox_change_pct: float | None = None  # SOX 전일비 %
+    nvda_close: float | None = None  # NVDA 종가
+    nvda_change_pct: float | None = None  # NVDA 전일비 %
     # FX
     dxy_index: float | None = None
     usd_krw: float | None = None

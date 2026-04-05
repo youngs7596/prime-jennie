@@ -143,6 +143,16 @@ analyst_feedback = _utility_dag(
     tags=["analytics", "daily"],
 )
 
+collect_us_market = _utility_dag(
+    "collect_us_market",
+    "0 7 * * 2-6",
+    "미국 시장 일봉 수집 (SOX/NVDA/S&P500/나스닥 선물)",
+    "/jobs/collect-us-market",
+    timeout_min=3,
+    retries=2,
+    tags=["data", "daily"],
+)
+
 # ─── Intraday Jobs ──────────────────────────────────────────
 
 collect_minute_chart = _utility_dag(
