@@ -60,6 +60,22 @@
 
 ---
 
+### 27. Prime Jennie v3 Phase 1 착수
+- **설계 문서 (4개, `/home/youngs75/projects/` 에 저장됨)**:
+  - `prime_jennie_v3_phase0_design.md` — 전체 아키텍처, 3 repo 분리, Stage 0~3 권한 체계
+  - `POSITION_SHEET_SPEC.md` — 포지션 시트 JSON 전수 명세 (exit rule 7종, edge case 8건)
+  - `SCOUT_CODE_GENERATION.md` — Scout 코드 생성 + 샌드박스 격리 명세
+  - `MACRO_GATE_SPEC.md` — 바이너리 게이트 + size_multiplier 명세
+- **리뷰 피드백 (반영 필요)**:
+  - POSITION_SHEET exit rule에 `profit_floor`, `death_cross` 2종 추가 필요
+  - SCOUT consensus 데이터 접근 경로 명확화
+  - MACRO_GATE 이산화 테이블 경계값(half-open interval) 명시
+- **Phase 1 착수 시**: 4 Track 병렬 (A: 인프라, B: 느린 루프, C: 빠른 루프, D: Screening Executor)
+- **선행 조건**: v2 재가동 검토 (Track A와 병행 가능)
+- _발견: 04-16_
+
+---
+
 ## 개선 (여유 시)
 
 ### ~~5. Quant Scorer Shadow Comparison 정리~~ → DONE
