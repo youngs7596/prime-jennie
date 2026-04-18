@@ -78,8 +78,8 @@ services:
     image: qdrant/qdrant:latest
     profiles: ["infra"]
     ports:
-      - "6333:6333"
-      - "6334:6334"
+      - "127.0.0.1:6333:6333"
+      - "127.0.0.1:6334:6334"
     volumes:
       - ${DOCKER_DATA_DIR:-/docker_data}/qdrant_data:/qdrant/storage
     restart: always
@@ -91,7 +91,9 @@ services:
       timeout: 5s
       retries: 5
       start_period: 30s
-    network_mode: host
+    networks:
+      - default
+      - runtime_shared
     labels:
       - app=qdrant
       - stack=prime-jennie
@@ -178,7 +180,11 @@ services:
       timeout: 10s
       retries: 10
       start_period: 120s
-    network_mode: host
+    ports:
+      - "127.0.0.1:8001:8001"
+    networks:
+      - default
+      - runtime_shared
     labels:
       - app=vllm-llm
       - stack=prime-jennie
@@ -214,7 +220,11 @@ services:
       timeout: 10s
       retries: 5
       start_period: 120s
-    network_mode: host
+    ports:
+      - "127.0.0.1:8002:8002"
+    networks:
+      - default
+      - runtime_shared
     labels:
       - app=vllm-embed
       - stack=prime-jennie
@@ -480,3 +490,12 @@ services:
     labels:
       - app=cloudflared
       - stack=prime-jennie
+
+# v3 (prime-jennie-runtime) 와 qdrant/vllm 을 공유하기 위한 external network.
+# runtime compose 가 먼저 기동되어 있어야 한다.
+networks:
+  default:
+    name: prime-jennie_default
+  runtime_shared:
+    external: true
+    name: prime-jennie-runtime_default
