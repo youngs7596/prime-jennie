@@ -162,6 +162,7 @@ services:
       --max-model-len 4096
       --quantization awq_marlin
       --dtype half
+      --kv-cache-dtype fp8_e4m3
       --trust-remote-code
       --enforce-eager
     volumes:
