@@ -146,94 +146,10 @@ services:
       - stack=prime-jennie
 
   # ============================================================================
-  # vLLM (profile: infra)
+  # vLLM 서비스는 2026-04-21 v3 repo (prime-jennie-runtime/docker-compose.yml) 로
+  # 이관. v2 는 전면 퇴역 상태라 인프라 소유권 v3 로 일원화. 이 파일은 과거 운영
+  # 기록/Qdrant 등 남은 리소스만 유지.
   # ============================================================================
-  vllm-llm:
-    # v0.19.1-cu130 빌드가 sm_86 (Ampere/3090) 일부 커널 이미지 누락 (fill_/attention
-    # 등 기본 연산에서 `no kernel image` 에러). EXAONE 시절 잘 돌았던 0.16.0 복귀.
-    # Qwen3-30B-A3B-Instruct-2507 (2025-07 릴리즈) 는 0.16 에서 네이티브 지원.
-    image: vllm/vllm-openai:v0.16.0-cu130
-    profiles: ["gpu"]
-    ipc: host
-    environment:
-      HF_HUB_OFFLINE: "0"
-      LD_LIBRARY_PATH: "/usr/lib/x86_64-linux-gnu:/lib/x86_64-linux-gnu:/usr/local/nvidia/lib64:/usr/local/cuda/lib64:/usr/local/nvidia/lib"
-    command: >
-      jart25/Qwen3-30B-A3B-Instruct-2507-Autoround-Int-4bit-gptq
-      --port 8001
-      --gpu-memory-utilization 0.88
-      --max-model-len 8192
-      --quantization gptq_marlin
-      --dtype half
-      --kv-cache-dtype fp8_e4m3
-      --max-num-seqs 64
-      --enable-prefix-caching
-      --trust-remote-code
-      --enforce-eager
-    volumes:
-      - ${DOCKER_DATA_DIR:-/docker_data}/huggingface_cache:/root/.cache/huggingface
-    restart: unless-stopped
-    deploy:
-      resources:
-        reservations:
-          devices:
-            - driver: nvidia
-              count: all
-              capabilities: [gpu]
-    healthcheck:
-      test: ["CMD-SHELL", "python3 -c \"import urllib.request; urllib.request.urlopen('http://localhost:8001/v1/models')\""]
-      interval: 30s
-      timeout: 10s
-      retries: 10
-      start_period: 120s
-    ports:
-      - "127.0.0.1:8001:8001"
-    networks:
-      - default
-      - runtime_shared
-    labels:
-      - app=vllm-llm
-      - stack=prime-jennie
-
-  vllm-embed:
-    image: vllm/vllm-openai:v0.16.0-cu130
-    profiles: ["gpu"]
-    ipc: host
-    environment:
-      HF_HUB_OFFLINE: "1"
-      LD_LIBRARY_PATH: "/usr/lib/x86_64-linux-gnu:/lib/x86_64-linux-gnu:/usr/local/nvidia/lib64:/usr/local/cuda/lib64:/usr/local/nvidia/lib"
-    command: >
-      nlpai-lab/KURE-v1
-      --port 8002
-      --gpu-memory-utilization 0.05
-      --max-model-len 256
-      --dtype half
-      --trust-remote-code
-      --enforce-eager
-    volumes:
-      - ${DOCKER_DATA_DIR:-/docker_data}/huggingface_cache:/root/.cache/huggingface
-    restart: unless-stopped
-    deploy:
-      resources:
-        reservations:
-          devices:
-            - driver: nvidia
-              count: all
-              capabilities: [gpu]
-    healthcheck:
-      test: ["CMD-SHELL", "python3 -c \"import urllib.request; urllib.request.urlopen('http://localhost:8002/v1/models')\""]
-      interval: 30s
-      timeout: 10s
-      retries: 5
-      start_period: 120s
-    ports:
-      - "127.0.0.1:8002:8002"
-    networks:
-      - default
-      - runtime_shared
-    labels:
-      - app=vllm-embed
-      - stack=prime-jennie
 
   # ============================================================================
   # Application Services (profile: real)
