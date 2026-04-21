@@ -149,21 +149,25 @@ services:
   # vLLM (profile: infra)
   # ============================================================================
   vllm-llm:
+    # v0.19.1-cu130 빌드가 sm_86 (Ampere/3090) 일부 커널 이미지 누락 (fill_/attention
+    # 등 기본 연산에서 `no kernel image` 에러). EXAONE 시절 잘 돌았던 0.16.0 복귀.
+    # Qwen3-30B-A3B-Instruct-2507 (2025-07 릴리즈) 는 0.16 에서 네이티브 지원.
     image: vllm/vllm-openai:v0.16.0-cu130
     profiles: ["gpu"]
     ipc: host
     environment:
-      HF_HUB_OFFLINE: "1"
+      HF_HUB_OFFLINE: "0"
       LD_LIBRARY_PATH: "/usr/lib/x86_64-linux-gnu:/lib/x86_64-linux-gnu:/usr/local/nvidia/lib64:/usr/local/cuda/lib64:/usr/local/nvidia/lib"
     command: >
-      LGAI-EXAONE/EXAONE-4.0-32B-AWQ
+      jart25/Qwen3-30B-A3B-Instruct-2507-Autoround-Int-4bit-gptq
       --port 8001
-      --gpu-memory-utilization 0.85
-      --max-model-len 4096
-      --quantization awq_marlin
+      --gpu-memory-utilization 0.88
+      --max-model-len 8192
+      --quantization gptq_marlin
       --dtype half
       --kv-cache-dtype fp8_e4m3
-      --max-num-seqs 128
+      --max-num-seqs 64
+      --enable-prefix-caching
       --trust-remote-code
       --enforce-eager
     volumes:
