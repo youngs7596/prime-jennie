@@ -1,6 +1,11 @@
 name: prime-jennie
 
 # ============================================================================
+# v2 는 2026-04-18 부로 전면 퇴역. 본 compose 는 이력 보존 + qdrant 등 잔존
+# 인프라 복구용. 실수로 `docker compose up -d` 로 v2 가 재기동되는 것을
+# 막기 위해 모든 서비스 profile 을 `legacy` 로 강제. 의도적으로 올리려면
+# `docker compose --profile legacy up -d` 명시 필요.
+# ============================================================================
 # 공통 앵커
 # ============================================================================
 x-service-defaults: &service-defaults
@@ -29,12 +34,12 @@ x-env-common: &env-common
   APP_TIMEZONE: Asia/Seoul
 
 # ============================================================================
-# Infrastructure Services (profile: infra)
+# Infrastructure Services (profile: legacy)
 # ============================================================================
 services:
   mariadb:
     image: mariadb:10.11
-    profiles: ["infra"]
+    profiles: ["legacy"]
     environment:
       MARIADB_ROOT_PASSWORD: "${DB_PASSWORD:-q1w2e3R$}"
       MARIADB_USER: "${DB_USER:-jennie}"
@@ -56,7 +61,7 @@ services:
 
   redis:
     image: redis:alpine
-    profiles: ["infra"]
+    profiles: ["legacy"]
     command: redis-server --requirepass ${REDIS_PASSWORD}
     ports:
       - "6379:6379"
@@ -76,7 +81,7 @@ services:
 
   qdrant:
     image: qdrant/qdrant:latest
-    profiles: ["infra"]
+    profiles: ["legacy"]
     ports:
       - "127.0.0.1:6333:6333"
       - "127.0.0.1:6334:6334"
@@ -99,11 +104,11 @@ services:
       - stack=prime-jennie
 
   # ============================================================================
-  # Observability (profile: infra)
+  # Observability (profile: legacy)
   # ============================================================================
   loki:
     image: grafana/loki:2.9.0
-    profiles: ["infra"]
+    profiles: ["legacy"]
     user: "1000"
     command: -config.file=/etc/loki/loki-config.yaml
     volumes:
@@ -117,7 +122,7 @@ services:
 
   promtail:
     image: grafana/promtail:3.3.2
-    profiles: ["infra"]
+    profiles: ["legacy"]
     command: -config.file=/etc/promtail/promtail-config.yaml
     volumes:
       - ./infra/promtail/promtail-config.yaml:/etc/promtail/promtail-config.yaml:ro
@@ -131,7 +136,7 @@ services:
 
   grafana:
     image: grafana/grafana:10.4.0
-    profiles: ["infra"]
+    profiles: ["legacy"]
     environment:
       GF_SECURITY_ADMIN_USER: admin
       GF_SECURITY_ADMIN_PASSWORD: "${GRAFANA_PASSWORD:-admin}"
@@ -152,11 +157,11 @@ services:
   # ============================================================================
 
   # ============================================================================
-  # Application Services (profile: real)
+  # Application Services (profile: legacy)
   # ============================================================================
   kis-gateway:
     <<: *service-defaults
-    profiles: ["real"]
+    profiles: ["legacy"]
     environment:
       <<: *env-common
       PORT: "8080"
@@ -181,7 +186,7 @@ services:
 
   scout-job:
     <<: *service-defaults
-    profiles: ["real"]
+    profiles: ["legacy"]
     depends_on:
       kis-gateway:
         condition: service_healthy
@@ -202,7 +207,7 @@ services:
 
   buy-scanner:
     <<: *service-defaults
-    profiles: ["real"]
+    profiles: ["legacy"]
     depends_on:
       kis-gateway:
         condition: service_healthy
@@ -220,7 +225,7 @@ services:
 
   buy-executor:
     <<: *service-defaults
-    profiles: ["real"]
+    profiles: ["legacy"]
     depends_on:
       kis-gateway:
         condition: service_healthy
@@ -238,7 +243,7 @@ services:
 
   sell-executor:
     <<: *service-defaults
-    profiles: ["real"]
+    profiles: ["legacy"]
     depends_on:
       kis-gateway:
         condition: service_healthy
@@ -252,7 +257,7 @@ services:
 
   price-monitor:
     <<: *service-defaults
-    profiles: ["real"]
+    profiles: ["legacy"]
     depends_on:
       kis-gateway:
         condition: service_healthy
@@ -269,7 +274,7 @@ services:
 
   news-pipeline:
     <<: *service-defaults
-    profiles: ["real"]
+    profiles: ["legacy"]
     environment:
       <<: *env-common
       PORT: "8092"
@@ -284,7 +289,7 @@ services:
 
   dashboard:
     <<: *service-defaults
-    profiles: ["real"]
+    profiles: ["legacy"]
     environment:
       <<: *env-common
       PORT: "8090"
@@ -298,7 +303,7 @@ services:
     build:
       context: ./frontend
       dockerfile: Dockerfile
-    profiles: ["real"]
+    profiles: ["legacy"]
     restart: unless-stopped
     network_mode: host
     depends_on:
@@ -309,7 +314,7 @@ services:
 
   telegram:
     <<: *service-defaults
-    profiles: ["real"]
+    profiles: ["legacy"]
     environment:
       <<: *env-common
       PORT: "8091"
@@ -322,7 +327,7 @@ services:
 
   job-worker:
     <<: *service-defaults
-    profiles: ["real"]
+    profiles: ["legacy"]
     environment:
       <<: *env-common
       PORT: "8095"
@@ -345,11 +350,11 @@ services:
       - stack=prime-jennie
 
   # ============================================================================
-  # Airflow (profile: real)
+  # Airflow (profile: legacy)
   # ============================================================================
   airflow-webserver:
     <<: *service-defaults
-    profiles: ["real"]
+    profiles: ["legacy"]
     entrypoint: ["bash", "/app/scripts/airflow-entrypoint.sh"]
     environment:
       <<: *env-common
@@ -378,7 +383,7 @@ services:
 
   airflow-scheduler:
     <<: *service-defaults
-    profiles: ["real"]
+    profiles: ["legacy"]
     depends_on:
       airflow-webserver:
         condition: service_healthy
@@ -401,11 +406,11 @@ services:
       - stack=prime-jennie
 
   # ============================================================================
-  # Cloudflare Tunnel (profile: infra)
+  # Cloudflare Tunnel (profile: legacy)
   # ============================================================================
   cloudflared:
     image: cloudflare/cloudflared:latest
-    profiles: ["infra"]
+    profiles: ["legacy"]
     command: tunnel --no-autoupdate run --token ${CLOUDFLARE_TUNNEL_TOKEN}
     network_mode: host
     restart: unless-stopped
